@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.tsx";
 import { buttonGhost } from "../ui.ts";
+import { BrandLockup } from "./Brand.tsx";
 import { NavIcon, type NavIconName } from "./NavIcon.tsx";
 
 const NAV_ITEMS: Array<{ to: string; label: string; icon: NavIconName }> = [
@@ -68,8 +69,7 @@ export function Layout() {
         >
           <NavIcon name="menu" />
         </button>
-        <span className="text-2xl text-accent">◆</span>
-        <strong className="text-sm text-slate-100">Agentic Platform</strong>
+        <BrandLockup size={24} subtitle={false} to="/projects" />
       </header>
 
       {mobileOpen && (
@@ -87,15 +87,13 @@ export function Layout() {
         aria-label="Navegación lateral"
       >
         <div className={`flex items-center gap-3 ${collapsed ? "lg:flex-col lg:gap-2" : ""}`}>
-          <span className="text-3xl text-accent" aria-hidden>
-            ◆
-          </span>
-          {!collapsed && (
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <strong className="block whitespace-nowrap text-[13px] text-slate-100">Agentic Platform</strong>
-              <small className="block whitespace-nowrap text-[10px] text-muted">OpenCode V2 · Hexagonal</small>
-            </div>
-          )}
+          <BrandLockup
+            size={32}
+            compact={collapsed}
+            subtitle={collapsed ? false : "Agentes sobre OpenCode"}
+            to="/projects"
+            className={collapsed ? "lg:justify-center" : "flex-1"}
+          />
           <button
             type="button"
             className={`ml-auto hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-transparent text-slate-300 transition hover:border-line hover:bg-panel-2 lg:grid ${

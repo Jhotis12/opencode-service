@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatProgressEvent } from "@platform/shared";
 import type { ChatHistoryMessage } from "../api.ts";
+import { BrandMark } from "./Brand.tsx";
 import { buttonGhost, buttonPrimary } from "../ui.ts";
 
 type ChatActivity = {
@@ -235,7 +236,7 @@ export function ChatPanel({
         onClick={() => setSurface("docked")}
         aria-label="Restaurar chat del agente"
       >
-        <span className="text-accent">◆</span>
+        <BrandMark size={16} />
         {title}
         {messages.length > 1 && <span className="rounded-full bg-accent px-1.5 text-[10px] text-ink">{messages.length}</span>}
       </button>

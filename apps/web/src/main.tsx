@@ -7,6 +7,7 @@ import { App } from "./App.tsx";
 import { AuthProvider } from "./auth.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.tsx";
 import { queryClient } from "./query.ts";
+import "@fontsource-variable/inter/index.css";
 import "./index.css";
 
 if (import.meta.env.VITE_SENTRY_DSN) {

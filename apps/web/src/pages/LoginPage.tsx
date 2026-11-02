@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { api } from "../api.ts";
 import { useAuth } from "../auth.tsx";
+import { BrandLockup } from "../components/Brand.tsx";
 import { buttonPrimary, card } from "../ui.ts";
 
 export function LoginPage({ login = api.login }: { login?: typeof api.login } = {}) {
@@ -27,13 +28,11 @@ export function LoginPage({ login = api.login }: { login?: typeof api.login } = 
   return (
     <main className="grid min-h-screen place-items-center p-6">
       <form className={`${card} w-full max-w-[420px] gap-4`} onSubmit={submit} aria-label="Iniciar sesión">
-        <div className="flex items-center gap-3">
-          <span className="text-4xl text-accent">◆</span>
-          <div>
-            <h1 className="text-xl font-semibold text-slate-100">Agentic Platform</h1>
-            <small className="text-xs text-muted">Orquestación de flujos agénticos</small>
-          </div>
-        </div>
+        <BrandLockup
+          size={40}
+          asHeading
+          subtitle="Automatizaciones agénticas sobre OpenCode"
+        />
         <label>
           Usuario
           <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />

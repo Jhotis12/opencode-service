@@ -11,7 +11,30 @@
   --color-ok: #22c55e;
   --color-warn: #f59e0b;
   --color-danger: #fb7185;
-  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --color-well: #0a1120;
+  --color-code: #050a13;
+  --color-line-strong: #334155;
+  --color-faint: #64748b;
+  --color-accent-strong: #0ea5e9;
+  --color-node-input: #fbbf24;
+  --color-node-action: #22d3ee;
+  --color-node-logic: #2dd4bf;
+  --color-node-ai: #a78bfa;
+  --color-node-human: #f472b6;
+  --font-sans: "Inter Variable", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 0.875rem;
+  --text-label: 0.75rem;
+  --text-label--line-height: 1rem;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.25rem;
+  --text-section: 1rem;
+  --text-section--line-height: 1.5rem;
+  --text-page: 1.5rem;
+  --text-page--line-height: 2rem;
+  --text-display: 1.875rem;
+  --text-display--line-height: 2.25rem;
 }
 
 :root {

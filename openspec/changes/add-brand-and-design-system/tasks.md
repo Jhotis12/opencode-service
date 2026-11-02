@@ -4,13 +4,13 @@ Desktop-only frontend change. Do not edit `apps/server`, `packages/shared`, data
 
 ## 1. Brand foundation
 
-- [ ] 1.1 Create `apps/web/public/brand/agentic-mark.svg`, `agentic-mark-mono.svg` and `apps/web/public/favicon.svg` from the "Nodo abierto" geometry; verify each renders at 16, 24 and 40 px and that the SVG files are valid XML.
-- [ ] 1.2 Add `apps/web/src/components/Brand.tsx` with a decorative mark, standalone mark with accessible title, wordmark lockup and optional project link; verify a new `brand.test.tsx` covers the accessible name, link target and mark-only variant.
-- [ ] 1.3 Replace the `◆` placeholder in `Layout.tsx`, `LoginPage.tsx` and `ChatPanel.tsx` with the shared brand component; verify `grep -R "◆" apps/web/src` returns no user-facing placeholder.
-- [ ] 1.4 Update `apps/web/index.html` with the favicon, product title, description and theme color; verify `bun run build` emits an HTML file that no longer contains `href="data:,"`.
-- [ ] 1.5 Add the bundled Inter Variable dependency and import the Latin subset, then define the type scale in `index.css`; verify the built app loads the font and `bun run typecheck` passes.
-- [ ] 1.6 Add `docs/design-standard.md` covering logo variants and clear space, token roles, type scale, spacing/radius, component states, accessibility, motion link and copy/status glossary; verify every rule used by tasks 2–8 is documented.
-- [ ] 1.7 Add `docs/brand/` usage notes only if the SVG assets need a separate distribution note; verify the design standard links to them. Skip if the standard section is sufficient.
+- [x] 1.1 Create `apps/web/public/brand/agentic-mark.svg`, `agentic-mark-mono.svg` and `apps/web/public/favicon.svg` from the "Nodo abierto" geometry; verify each renders at 16, 24 and 40 px and that the SVG files are valid XML.
+- [x] 1.2 Add `apps/web/src/components/Brand.tsx` with a decorative mark, standalone mark with accessible title, wordmark lockup and optional project link; verify a new `brand.test.tsx` covers the accessible name, link target and mark-only variant.
+- [x] 1.3 Replace the `◆` placeholder in `Layout.tsx`, `LoginPage.tsx` and `ChatPanel.tsx` with the shared brand component; verify `grep -R "◆" apps/web/src` returns no user-facing placeholder.
+- [x] 1.4 Update `apps/web/index.html` with the favicon, product title, description and theme color; verify `bun run build` emits an HTML file that no longer contains `href="data:,"`.
+- [x] 1.5 Add the bundled Inter Variable dependency and import the Latin subset, then define the type scale in `index.css`; verify the built app loads the font and `bun run typecheck` passes.
+- [x] 1.6 Add `docs/design-standard.md` covering logo variants and clear space, token roles, type scale, spacing/radius, component states, accessibility, motion link and copy/status glossary; verify every rule used by tasks 2–8 is documented.
+- [x] 1.7 Skipped: the design standard brand section is sufficient; no separate docs/brand directory. Add `docs/brand/` usage notes only if the SVG assets need a separate distribution note; verify the design standard links to them. Skip if the standard section is sufficient.
 
 ## 2. Tokens and semantic color system
 

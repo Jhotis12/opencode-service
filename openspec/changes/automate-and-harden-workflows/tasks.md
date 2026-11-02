@@ -12,7 +12,7 @@
 
 ## 3. Structured Agent Node Output (`outputSchema`)
 
-- [ ] 3.1 Implement structured JSON prompt instructions, Markdown fence stripping, schema validation (`validateInputPayload`), and single-turn auto-repair retry for `agent` nodes with `config.outputSchema` in `apps/server/src/application/use-cases/execute-workflow.ts` (and support deterministic structured responses in `fake-runtime.ts`); verify valid JSON pass-through, 1-retry repair success, and schema failure halting in `apps/server/test/execute-workflow.test.ts`.
+- [x] 3.1 Implement structured JSON prompt instructions, Markdown fence stripping, schema validation (`validateInputPayload`), and single-turn auto-repair retry for `agent` nodes with `config.outputSchema` in `apps/server/src/application/use-cases/execute-workflow.ts` (and support deterministic structured responses in `fake-runtime.ts`); verify valid JSON pass-through, 1-retry repair success, and schema failure halting in `apps/server/test/execute-workflow.test.ts`.
 
 ## 4. Cron (`schedule`) & Webhook Triggers
 

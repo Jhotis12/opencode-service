@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   InputSchemaSchema,
   ValidateConfigSchema,
+  type InputSchema,
   type NodeSpec,
   type SseEvent,
   type WorkflowGraph,
@@ -344,9 +345,20 @@ export class ExecuteWorkflowRunUseCase {
           if (current.id === state.resumeNodeId) {
             resumed = true;
           } else {
-            if (state.priorOutputs?.has(current.id)) currentInput = state.priorOutputs.get(current.id);
-            lastOutput = currentInput;
-            const edge = nextEdge(graph, current.id);
+            const priorOut = state.priorOutputs?.get(current.id);
+            if (current.type !== "decision" && state.priorOutputs?.has(current.id)) {
+              currentInput = priorOut;
+            }
+            lastOutput = priorOut ?? currentInput;
+            const priorDecision =
+              current.type === "decision"
+                ? typeof priorOut === "boolean"
+                  ? priorOut
+                  : typeof (priorOut as { result?: unknown })?.result === "boolean"
+                    ? (priorOut as { result: boolean }).result
+                    : Boolean(priorOut)
+                : undefined;
+            const edge = nextEdge(graph, current.id, priorDecision);
             if (!edge) break;
             current = graph.nodes.find((node) => node.id === edge.target)!;
             continue;
@@ -462,7 +474,39 @@ export class ExecuteWorkflowRunUseCase {
             );
             if (context) prompt = `${context}\n\n${prompt}`;
           }
-          output = await agent.prompt(state.sessionId, prompt);
+          const rawReply = await agent.prompt(state.sessionId, prompt);
+          const outputSchema = InputSchemaSchema.safeParse(current.config.outputSchema);
+          if (outputSchema.success && outputSchema.data.fields.length > 0) {
+            try {
+              output = parseAndValidateAgentOutput(rawReply, outputSchema.data);
+            } catch (firstError) {
+              const reason =
+                firstError instanceof WorkflowInputValidationError
+                  ? firstError.issues.join("; ")
+                  : firstError instanceof Error
+                    ? firstError.message
+                    : String(firstError);
+              const repairPrompt = [
+                `La respuesta anterior no cumplió el esquema de salida JSON (${reason}).`,
+                `Esquema de salida JSON obligatorio: ${JSON.stringify(outputSchema.data.fields)}`,
+                "Devuelve ÚNICAMENTE un objeto JSON válido que cumpla todos los campos requeridos, sin texto adicional.",
+              ].join("\n\n");
+              const repairedReply = await agent.prompt(state.sessionId, repairPrompt);
+              try {
+                output = parseAndValidateAgentOutput(repairedReply, outputSchema.data);
+              } catch (secondError) {
+                const finalReason =
+                  secondError instanceof WorkflowInputValidationError
+                    ? secondError.issues.join("; ")
+                    : secondError instanceof Error
+                      ? secondError.message
+                      : String(secondError);
+                throw new NodeValidationError(`Salida estructurada inválida en ${current.id}: ${finalReason}`);
+              }
+            }
+          } else {
+            output = rawReply;
+          }
         } else if (current.type === "approval") {
           const override = approvalOverrides[current.id];
           if (override === undefined) {
@@ -535,9 +579,6 @@ export class ExecuteWorkflowRunUseCase {
           stepStatus: "succeeded",
           output,
         });
-        lastOutput = output;
-        currentInput = output;
-
         const decision =
           current.type === "decision"
             ? typeof output === "boolean"
@@ -546,6 +587,10 @@ export class ExecuteWorkflowRunUseCase {
                 ? (output as { result: boolean }).result
                 : Boolean(output)
             : undefined;
+        lastOutput = output;
+        if (current.type !== "decision") {
+          currentInput = output;
+        }
         const edge = nextEdge(graph, current.id, decision);
         if (!edge) break;
         const next = graph.nodes.find((node) => node.id === edge.target);
@@ -722,15 +767,42 @@ export async function executeHttpNode(node: NodeSpec, input: unknown): Promise<u
   return text;
 }
 
+export function parseAndValidateAgentOutput(raw: string, schema: InputSchema): Record<string, unknown> {
+  const trimmed = raw.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  let candidate = fenced ? fenced[1]!.trim() : trimmed;
+  if (!fenced && !candidate.startsWith("{")) {
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+    if (start !== -1 && end > start) candidate = candidate.slice(start, end + 1);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(candidate);
+  } catch {
+    throw new WorkflowInputValidationError(["La salida del agente no es JSON válido."]);
+  }
+  validateInputPayload(schema, parsed);
+  return parsed as Record<string, unknown>;
+}
+
 export function buildNodePrompt(graph: WorkflowGraph, nodeId: string, input: unknown): string {
   const node = graph.nodes.find((item) => item.id === nodeId);
   const instruction = typeof node?.config.instruction === "string" ? node.config.instruction : "";
+  const outputSchema = InputSchemaSchema.safeParse(node?.config.outputSchema);
+  const schemaInstruction =
+    outputSchema.success && outputSchema.data.fields.length > 0
+      ? [
+          `Esquema de salida JSON obligatorio: ${JSON.stringify(outputSchema.data.fields)}`,
+          "Devuelve ÚNICAMENTE un objeto JSON válido que cumpla exactamente el esquema de salida, sin texto adicional.",
+        ].join("\n")
+      : "Responde de forma concisa y accionable.";
   return [
     `Flujo: ${graph.name}. Nodo: ${node?.label ?? nodeId}.`,
     instruction,
     "Entrada del nodo (JSON):",
     JSON.stringify(input ?? null, null, 2),
-    "Responde de forma concisa y accionable.",
+    schemaInstruction,
   ]
     .filter(Boolean)
     .join("\n\n");

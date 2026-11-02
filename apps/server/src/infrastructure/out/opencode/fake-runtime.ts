@@ -48,6 +48,35 @@ export class FakeAgentRuntime implements AgentRuntimePort {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
     this.prompts.push(text);
+    const schemaMatch = /Esquema de salida JSON obligatorio:\s*(\[[\s\S]*?\])\r?\n/.exec(text);
+    if (schemaMatch) {
+      try {
+        const fields = JSON.parse(schemaMatch[1]!) as Array<{
+          name: string;
+          type: "string" | "number" | "boolean" | "json";
+          example?: unknown;
+        }>;
+        const structured: Record<string, unknown> = {};
+        for (const field of fields) {
+          if (field.example !== undefined) {
+            structured[field.name] = field.example;
+          } else if (field.type === "number") {
+            structured[field.name] = 1;
+          } else if (field.type === "boolean") {
+            structured[field.name] = false;
+          } else if (field.type === "json") {
+            structured[field.name] = {};
+          } else {
+            structured[field.name] = `simulado-${field.name}`;
+          }
+        }
+        const reply = JSON.stringify(structured);
+        this.emit({ type: "session.text.delta", sessionID: sessionId, text: reply });
+        return reply;
+      } catch {
+        // Fall through to standard simulated text
+      }
+    }
     const model = session.model ?? "opencode-go/fast";
     const preview = text.replace(/\s+/g, " ").slice(0, 220);
     const reply = `[simulado · ${model}] Recibí: ${preview}`;

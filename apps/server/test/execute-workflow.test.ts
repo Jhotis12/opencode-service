@@ -485,4 +485,112 @@ describe("workflow execution", () => {
     // `double` was already succeeded before crash, so marker file must not exist
     await expect(readFile(marker, "utf8")).rejects.toThrow();
   });
+
+  it("parses and validates structured outputSchema from agent nodes and routes downstream decision nodes", async () => {
+    const graph = baseGraph();
+    graph.nodes = [
+      graph.nodes[0]!,
+      {
+        id: "classify",
+        type: "agent",
+        agentId: "operaciones/clasificador",
+        position: { x: 1, y: 0 },
+        config: {
+          outputSchema: {
+            fields: [
+              { name: "urgencia", type: "string", required: true },
+              { name: "critico", type: "boolean", required: true },
+            ],
+          },
+        },
+        notebookIds: [],
+        timeoutMs: 30000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "route",
+        type: "decision",
+        position: { x: 2, y: 0 },
+        config: { mode: "condition", condition: { field: "critico", operator: "equals", value: true } },
+        notebookIds: [],
+        timeoutMs: 5000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      { id: "high", type: "code", codeFile: "nodes/high.ts", position: { x: 3, y: -1 }, config: {}, notebookIds: [], timeoutMs: 5000, retryPolicy: { maxRetries: 0 } },
+      { id: "low", type: "code", codeFile: "nodes/low.ts", position: { x: 3, y: 1 }, config: {}, notebookIds: [], timeoutMs: 5000, retryPolicy: { maxRetries: 0 } },
+    ];
+    graph.edges = [
+      { id: "e1", source: "start", target: "classify" },
+      { id: "e2", source: "classify", target: "route" },
+      { id: "e3", source: "route", target: "high", condition: "true" },
+      { id: "e4", source: "route", target: "low", condition: "false" },
+    ];
+    const { executor, agent, store } = await setup(graph, {
+      "nodes/high.ts": `export default async (input: { urgencia: string }) => ({ escalated: input.urgencia });`,
+      "nodes/low.ts": `export default async () => ({ escalated: "none" });`,
+    });
+    agent.prompt = async (_sid, text) => {
+      agent.prompts.push(text);
+      return "```json\n{\"urgencia\":\"alta\",\"critico\":true}\n```";
+    };
+
+    const run = await executor.execute({ projectSlug: "p1", graph, payload: { ticket: "caida" }, entryPoint: "web_ui" });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toEqual({ escalated: "alta" });
+    expect(store.runs.listSteps(run.id).find((s) => s.nodeId === "classify")?.output).toEqual({
+      urgencia: "alta",
+      critico: true,
+    });
+  });
+
+  it("repairs malformed agent JSON once and fails if the retry still violates outputSchema", async () => {
+    const graph = baseGraph();
+    graph.nodes = [
+      graph.nodes[0]!,
+      {
+        id: "classify",
+        type: "agent",
+        agentId: "operaciones/clasificador",
+        position: { x: 1, y: 0 },
+        config: {
+          outputSchema: {
+            fields: [{ name: "categoria", type: "string", required: true }],
+          },
+        },
+        notebookIds: [],
+        timeoutMs: 30000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      { id: "after", type: "code", codeFile: "nodes/after.ts", position: { x: 2, y: 0 }, config: {}, notebookIds: [], timeoutMs: 5000, retryPolicy: { maxRetries: 0 } },
+    ];
+    graph.edges = [
+      { id: "e1", source: "start", target: "classify" },
+      { id: "e2", source: "classify", target: "after" },
+    ];
+    const { executor, agent, store } = await setup(graph, {
+      "nodes/after.ts": `export default async (input: { categoria: string }) => ({ ok: input.categoria });`,
+    });
+
+    let call = 0;
+    agent.prompt = async (_sid, text) => {
+      agent.prompts.push(text);
+      call += 1;
+      if (call === 1) return "texto libre sin json";
+      return JSON.stringify({ categoria: "soporte" });
+    };
+
+    const repaired = await executor.execute({ projectSlug: "p1", graph, payload: {}, entryPoint: "web_ui" });
+    expect(repaired.status).toBe("succeeded");
+    expect(repaired.output).toEqual({ ok: "soporte" });
+    expect(call).toBe(2);
+
+    agent.prompt = async (_sid, text) => {
+      agent.prompts.push(text);
+      return JSON.stringify({ otro: 123 });
+    };
+    const failed = await executor.execute({ projectSlug: "p1", graph, payload: { retry: 2 }, entryPoint: "web_ui" });
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toContain("Falta el campo categoria");
+    expect(store.runs.listSteps(failed.id).some((s) => s.nodeId === "after")).toBe(false);
+  });
 });

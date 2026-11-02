@@ -69,6 +69,13 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   const canvasBox = await page.getByTestId("workflow-canvas").boundingBox();
   expect(canvasBox?.width ?? 0).toBeGreaterThan(1000);
   expect(canvasBox?.height ?? 0).toBeGreaterThan(700);
+  const initialZoom = await page.locator(".react-flow__viewport").evaluate((element) => {
+    const transform = getComputedStyle(element).transform;
+    return Number(transform.split("(")[1]?.split(",")[0] ?? 0);
+  });
+  expect(initialZoom).toBeGreaterThanOrEqual(0.8);
+  await expect(page.getByRole("button", { name: "Ajustar vista del flujo" })).toBeVisible();
+  await page.getByRole("button", { name: "Ajustar vista del flujo" }).click();
   const minimapColor = await page
     .locator(".react-flow__minimap")
     .evaluate((element) => getComputedStyle(element).backgroundColor);

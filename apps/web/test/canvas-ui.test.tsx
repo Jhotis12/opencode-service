@@ -130,6 +130,11 @@ describe("WorkflowCanvas", () => {
     expect(screen.getByRole("button", { name: "Duplicar nodo" })).toBeInTheDocument();
   });
 
+  it("exposes an explicit fit-view action", () => {
+    renderCanvas();
+    expect(screen.getByRole("button", { name: "Ajustar vista del flujo" })).toBeInTheDocument();
+  });
+
   it("uses the readable node footprint and title size", async () => {
     const { container } = renderCanvas({ graph: graph([node("code", "code", { label: "Consultar" })]) });
     const wrapper = container.querySelector('[data-node-id="code"]')!;

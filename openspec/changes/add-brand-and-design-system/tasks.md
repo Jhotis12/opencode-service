@@ -35,12 +35,12 @@ Desktop-only frontend change. Do not edit `apps/server`, `packages/shared`, data
 
 ## 4. Canvas legibility
 
-- [ ] 4.1 Replace the automatic `fitView` on mount with an explicit initial viewport: fit when the graph fits at 0.8 or higher, otherwise center on the trigger at 0.8; verify a Playwright assertion reads a viewport scale of at least 0.8 at 1440×900 for the seeded workflow.
-- [ ] 4.2 Add an `Ajustar vista` action next to `+ Nodo` that fits the full graph at the lower overview threshold; verify it is keyboard reachable and changes the viewport scale.
-- [ ] 4.3 Stop re-fitting on every graph update; fit only on project change/first load and preserve the current viewport during SSE or node edits; verify a component test or Playwright interaction does not reset the viewport after a node update.
-- [ ] 4.4 Apply the node footprint and typography from task 2.5 to `PlatformNode` and the shape mapping; verify the node title remains at least 11 px effective at the initial 0.8 zoom and the shape handles stay usable.
-- [ ] 4.5 Update the canvas tests and e2e assertions for the new viewport, `Ajustar vista`, node label size and the absence of clipped labels; verify `bun run test:e2e` covers the desktop canvas flow.
-- [ ] 4.6 Add the canvas legibility rules to `docs/design-standard.md`; verify the documented minimum zoom and fit behavior match `WorkflowCanvas.tsx`.
+- [x] 4.1 Replace the automatic `fitView` on mount with an explicit initial viewport: fit when the graph fits at 0.8 or higher, otherwise center on the trigger at 0.8; verify a Playwright assertion reads a viewport scale of at least 0.8 at 1440×900 for the seeded workflow.
+- [x] 4.2 Add an `Ajustar vista` action next to `+ Nodo` that fits the full graph at the lower overview threshold; verify it is keyboard reachable and changes the viewport scale.
+- [x] 4.3 Stop re-fitting on every graph update; fit only on project change/first load and preserve the current viewport during SSE or node edits; verify a component test or Playwright interaction does not reset the viewport after a node update.
+- [x] 4.4 Apply the node footprint and typography from task 2.5 to `PlatformNode` and the shape mapping; verify the node title remains at least 11 px effective at the initial 0.8 zoom and the shape handles stay usable.
+- [x] 4.5 Update the canvas tests and e2e assertions for the new viewport, `Ajustar vista`, node label size and the absence of clipped labels; verify `bun run test:e2e` covers the desktop canvas flow.
+- [x] 4.6 Add the canvas legibility rules to `docs/design-standard.md`; verify the documented minimum zoom and fit behavior match `WorkflowCanvas.tsx`.
 
 ## 5. Agent catalog
 

@@ -205,12 +205,40 @@ export function WorkflowCanvas({
   );
   const [flow, setFlow] = useState<ReactFlowInstance<PlatformFlowNode, PlatformFlowEdge>>();
   const draggedRef = useRef(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const lastFittedGraphRef = useRef<string | undefined>(undefined);
+
+  const NODE_WIDTH = 252;
+  const NODE_HEIGHT = 96;
 
   useEffect(() => {
-    if (!flow) return;
-    const timer = setTimeout(() => flow.fitView({ padding: 0.2, duration: 300 }), 300);
+    if (!flow || graph.nodes.length === 0 || lastFittedGraphRef.current === graph.id) return;
+    lastFittedGraphRef.current = graph.id;
+    const timer = setTimeout(() => {
+      const minX = Math.min(...graph.nodes.map((node) => node.position.x));
+      const maxX = Math.max(...graph.nodes.map((node) => node.position.x + NODE_WIDTH));
+      const minY = Math.min(...graph.nodes.map((node) => node.position.y));
+      const maxY = Math.max(...graph.nodes.map((node) => node.position.y + NODE_HEIGHT));
+      const width = canvasRef.current?.clientWidth ?? 0;
+      const height = canvasRef.current?.clientHeight ?? 0;
+      const horizontalFit = width > 0 ? (width * 0.8) / Math.max(maxX - minX, 1) : 0;
+      const verticalFit = height > 0 ? (height * 0.8) / Math.max(maxY - minY, 1) : 0;
+      const fitZoom = Math.min(horizontalFit, verticalFit, 1.2);
+      if (fitZoom >= 0.8) {
+        flow.fitView({ padding: 0.1, duration: 300, minZoom: 0.8, maxZoom: 1.2 });
+        return;
+      }
+      const trigger = graph.nodes.find((node) => node.type === "trigger") ?? graph.nodes[0];
+      const centerX = trigger.position.x + NODE_WIDTH / 2;
+      const centerY = trigger.position.y + NODE_HEIGHT / 2;
+      flow.setCenter(centerX, centerY, { zoom: 0.8, duration: 300 });
+    }, 80);
     return () => clearTimeout(timer);
-  }, [flow, graph.id, graph.nodes.length]);
+  }, [flow, graph.id, graph.nodes]);
+
+  function fitOverview() {
+    flow?.fitView({ padding: 0.1, duration: 300, minZoom: 0.25, maxZoom: 1.2 });
+  }
 
   useEffect(() => {
     setNodes(toNodes(graph, selectedId, runningNodeId, nodeStatuses, issues, validity, agentTouchedNodeIds));
@@ -291,7 +319,7 @@ export function WorkflowCanvas({
 
   return (
     <CanvasActionsContext.Provider value={actions}>
-      <div className={`${className ?? "h-full"} relative overflow-hidden bg-ink`} data-testid="workflow-canvas">
+      <div ref={canvasRef} className={`${className ?? "h-full"} relative overflow-hidden bg-ink`} data-testid="workflow-canvas">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -318,7 +346,6 @@ export function WorkflowCanvas({
               nodes: graph.nodes.map((item) => (item.id === node.id ? { ...item, position: node.position } : item)),
             });
           }}
-          fitView
           minZoom={0.25}
           maxZoom={1.6}
           deleteKeyCode={["Backspace", "Delete"]}
@@ -326,13 +353,23 @@ export function WorkflowCanvas({
         >
           <Background gap={18} color="var(--color-line)" />
           <Panel position="top-left">
-            <button
-              type="button"
-              className="rounded-lg border border-line bg-well/90 px-3 py-2 text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent"
-              onClick={onOpenPalette}
-            >
-              + Nodo
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-line bg-well/90 px-3 py-2 text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent"
+                onClick={onOpenPalette}
+              >
+                + Nodo
+              </button>
+              <button
+                type="button"
+                className="rounded-lg border border-line bg-well/90 px-3 py-2 text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent"
+                onClick={fitOverview}
+                aria-label="Ajustar vista del flujo"
+              >
+                Ajustar vista
+              </button>
+            </div>
           </Panel>
           {connecting && (
             <Panel position="top-center">

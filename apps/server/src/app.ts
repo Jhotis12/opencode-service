@@ -39,7 +39,9 @@ import {
   ChatWithProjectUseCase,
   CreateProjectUseCase,
   DeleteProjectUseCase,
+  RollbackWorkflowVersionUseCase,
   SaveWorkflowUseCase,
+  captureCodeBundle,
   syncProjectsFromDisk,
 } from "./application/use-cases/projects.ts";
 import { GetHealthUseCase } from "./application/use-cases/health.ts";
@@ -55,6 +57,7 @@ import {
   IdempotencyMismatchError,
   RunInFlightError,
   WorkflowValidationError,
+  computeGraphHash,
 } from "./domain/workflow/graph.ts";
 import { WorkflowInputValidationError } from "./domain/workflow/input.ts";
 import { ManageIntegrationsUseCase, type IntegrationCommand, type IntegrationUpdateCommand } from "./application/use-cases/manage-integrations.ts";
@@ -267,6 +270,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const createProject = new CreateProjectUseCase(store, workspace, events);
   const deleteProject = new DeleteProjectUseCase(store, workspace, events);
   const saveWorkflow = new SaveWorkflowUseCase(store, workspace, events);
+  const rollbackWorkflow = new RollbackWorkflowVersionUseCase(store, workspace, events);
+  await executor.recoverInterruptedRuns().catch(() => undefined);
   const chat = new ChatWithProjectUseCase({
     store,
     workspace,
@@ -695,12 +700,36 @@ export async function createApplication(config: AppConfig): Promise<Application>
     const body = (await c.req.json().catch(() => undefined)) as WorkflowGraph | undefined;
     if (!body) return c.json(apiError("VALIDATION_ERROR", "workflow body is required"), 422);
     try {
-      return c.json(await saveWorkflow.execute(c.req.param("slug"), body));
+      return c.json(await saveWorkflow.execute(c.req.param("slug"), body, c.get("user")?.username ?? "service"));
     } catch (error) {
       if (error instanceof WorkflowValidationError) {
         return c.json(apiError("INVALID_WORKFLOW", error.message, error.issues), 422);
       }
       if (error instanceof WorkspaceError) return c.json(apiError(error.code, error.message), 400);
+      throw error;
+    }
+  });
+
+  app.get("/api/projects/:slug/workflow/versions", (c) => {
+    const slug = c.req.param("slug");
+    if (!store.projects.findBySlug(slug)) return c.json(apiError("NOT_FOUND", "project not found"), 404);
+    const limit = Math.min(Number(c.req.query("limit") ?? 50) || 50, 100);
+    return c.json({ data: store.versions.list(slug, limit) });
+  });
+
+  app.post("/api/projects/:slug/workflow/versions/:version/rollback", async (c) => {
+    const slug = c.req.param("slug");
+    const version = Number(c.req.param("version"));
+    if (!Number.isInteger(version) || version < 1) {
+      return c.json(apiError("VALIDATION_ERROR", "invalid version number"), 422);
+    }
+    try {
+      const result = await rollbackWorkflow.execute(slug, version, c.get("user")?.username ?? "service");
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof WorkspaceError) {
+        return c.json(apiError(error.code, error.message), error.code === "NOT_FOUND" ? 404 : 400);
+      }
       throw error;
     }
   });
@@ -850,9 +879,21 @@ export async function createApplication(config: AppConfig): Promise<Application>
   app.put("/api/projects/:slug/nodes/:file{.+}", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { code?: string };
     if (typeof body.code !== "string") return c.json(apiError("VALIDATION_ERROR", "code is required"), 422);
+    const slug = c.req.param("slug");
     const file = c.req.param("file").replace(/^nodes\//, "");
     try {
-      await workspace.writeNode(c.req.param("slug"), `nodes/${file}`, body.code);
+      await workspace.writeNode(slug, `nodes/${file}`, body.code);
+      const graph = await workspace.readWorkflow(slug).catch(() => undefined);
+      if (graph) {
+        const codeBundle = await captureCodeBundle(workspace, slug, graph);
+        store.versions.record({
+          projectSlug: slug,
+          graphHash: computeGraphHash(graph),
+          graph,
+          codeBundle,
+          createdBy: c.get("user")?.username ?? "service",
+        });
+      }
       return c.json({ ok: true });
     } catch (error) {
       if (error instanceof WorkspaceError) return c.json(apiError(error.code, error.message), 400);

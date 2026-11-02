@@ -3,11 +3,30 @@ import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
 import type { EventBus } from "../ports/events.ts";
-import type { ChatMessageRecord, ProjectRecord } from "../../domain/entities.ts";
+import type { ChatMessageRecord, ProjectRecord, WorkflowVersionRecord } from "../../domain/entities.ts";
+import { computeGraphHash } from "../../domain/workflow/graph.ts";
 import { validateWorkflowResources } from "./workflow-resources.ts";
 import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
 import { createChatProgressHandler } from "./chat-progress.ts";
 import type { Logger } from "../../domain/telemetry/index.ts";
+import { WorkspaceError } from "../../infrastructure/out/workspace-fs/safe-workspace.ts";
+
+export async function captureCodeBundle(
+  workspace: WorkspacePort,
+  slug: string,
+  graph: WorkflowGraph,
+): Promise<Record<string, string>> {
+  const bundle: Record<string, string> = {};
+  const files = new Set<string>();
+  for (const node of graph.nodes) {
+    if (node.codeFile) files.add(node.codeFile);
+  }
+  for (const file of [...files].sort()) {
+    const code = await workspace.readNode(slug, file).catch(() => undefined);
+    if (code !== undefined) bundle[file] = code;
+  }
+  return bundle;
+}
 
 export class CreateProjectUseCase {
   constructor(
@@ -31,6 +50,14 @@ export class CreateProjectUseCase {
     };
     this.store.projects.create(project);
     const graph = await this.workspace.readWorkflow(input.slug);
+    const codeBundle = await captureCodeBundle(this.workspace, input.slug, graph);
+    this.store.versions.record({
+      projectSlug: input.slug,
+      graphHash: computeGraphHash(graph),
+      graph,
+      codeBundle,
+      createdBy: "system",
+    });
     this.events.publish({ type: "workflow.updated", projectSlug: input.slug, graph });
     return { project, graph };
   }
@@ -58,12 +85,54 @@ export class SaveWorkflowUseCase {
     private readonly events: EventBus,
   ) {}
 
-  async execute(slug: string, graph: WorkflowGraph): Promise<WorkflowGraph> {
+  async execute(slug: string, graph: WorkflowGraph, createdBy?: string): Promise<WorkflowGraph> {
     await validateWorkflowResources(this.store, this.workspace, slug, graph);
     await this.workspace.writeWorkflow(slug, graph);
     const saved = await this.workspace.readWorkflow(slug);
+    const codeBundle = await captureCodeBundle(this.workspace, slug, saved);
+    this.store.versions.record({
+      projectSlug: slug,
+      graphHash: computeGraphHash(saved),
+      graph: saved,
+      codeBundle,
+      createdBy,
+    });
     this.events.publish({ type: "workflow.updated", projectSlug: slug, graph: saved });
     return saved;
+  }
+}
+
+export class RollbackWorkflowVersionUseCase {
+  constructor(
+    private readonly store: Store,
+    private readonly workspace: WorkspacePort,
+    private readonly events: EventBus,
+  ) {}
+
+  async execute(
+    slug: string,
+    version: number,
+    createdBy?: string,
+  ): Promise<{ graph: WorkflowGraph; version: WorkflowVersionRecord }> {
+    const target = this.store.versions.findByVersion(slug, version);
+    if (!target) {
+      throw new WorkspaceError("NOT_FOUND", `workflow version not found: v${version}`);
+    }
+    for (const [file, code] of Object.entries(target.codeBundle)) {
+      await this.workspace.writeNode(slug, file, code);
+    }
+    await this.workspace.writeWorkflow(slug, target.graph);
+    const saved = await this.workspace.readWorkflow(slug);
+    const recorded = this.store.versions.record({
+      projectSlug: slug,
+      graphHash: computeGraphHash(saved),
+      graph: saved,
+      codeBundle: target.codeBundle,
+      createdBy: createdBy ?? `rollback:v${version}`,
+      forceNewVersion: true,
+    });
+    this.events.publish({ type: "workflow.updated", projectSlug: slug, graph: saved });
+    return { graph: saved, version: recorded };
   }
 }
 
@@ -172,16 +241,30 @@ export class ChatWithProjectUseCase {
 
 export async function syncProjectsFromDisk(store: Store, workspace: WorkspacePort): Promise<void> {
   for (const slug of await workspace.listProjects()) {
-    if (store.projects.findBySlug(slug)) continue;
-    const now = new Date().toISOString();
-    store.projects.create({
-      id: crypto.randomUUID(),
-      slug,
-      name: slug,
-      description: "",
-      primaryAgent: "principal/agente",
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (!store.projects.findBySlug(slug)) {
+      const now = new Date().toISOString();
+      store.projects.create({
+        id: crypto.randomUUID(),
+        slug,
+        name: slug,
+        description: "",
+        primaryAgent: "principal/agente",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    if (!store.versions.latest(slug)) {
+      const graph = await workspace.readWorkflow(slug).catch(() => undefined);
+      if (graph) {
+        const codeBundle = await captureCodeBundle(workspace, slug, graph);
+        store.versions.record({
+          projectSlug: slug,
+          graphHash: computeGraphHash(graph),
+          graph,
+          codeBundle,
+          createdBy: "system",
+        });
+      }
+    }
   }
 }

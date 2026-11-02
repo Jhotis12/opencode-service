@@ -7,8 +7,8 @@
 
 ## 2. Workflow Graph Snapshots, Version History, Rollback & Startup Run Recovery
 
-- [ ] 2.1 Update `SaveWorkflowUseCase` (`apps/server/src/application/use-cases/projects.ts`) and `ExecuteWorkflowRunUseCase` (`apps/server/src/application/use-cases/execute-workflow.ts`) to capture immutable snapshots (`workflow.json` + `nodes/*.ts` code bundle), bind runs to `versionId`, execute `replay()` and `resumeWithApproval()` from the stored snapshot, and recover interrupted `running` runs on startup from their last succeeded checkpoint; verify with tests in `apps/server/test/execute-workflow.test.ts`.
-- [ ] 2.2 Expose `GET /api/projects/:slug/workflow/versions` and `POST /api/projects/:slug/workflow/versions/:version/rollback` in `apps/server/src/app.ts` and verify snapshot listing and rollback behavior in `apps/server/test/app.http.test.ts`.
+- [x] 2.1 Update `SaveWorkflowUseCase` (`apps/server/src/application/use-cases/projects.ts`) and `ExecuteWorkflowRunUseCase` (`apps/server/src/application/use-cases/execute-workflow.ts`) to capture immutable snapshots (`workflow.json` + `nodes/*.ts` code bundle), bind runs to `versionId`, execute `replay()` and `resumeWithApproval()` from the stored snapshot, and recover interrupted `running` runs on startup from their last succeeded checkpoint; verify with tests in `apps/server/test/execute-workflow.test.ts`.
+- [x] 2.2 Expose `GET /api/projects/:slug/workflow/versions` and `POST /api/projects/:slug/workflow/versions/:version/rollback` in `apps/server/src/app.ts` and verify snapshot listing and rollback behavior in `apps/server/test/app.http.test.ts`.
 
 ## 3. Structured Agent Node Output (`outputSchema`)
 

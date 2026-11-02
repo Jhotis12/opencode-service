@@ -1,3 +1,4 @@
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   InputSchemaSchema,
@@ -7,6 +8,7 @@ import {
   type WorkflowGraph,
   type WorkflowRunStatus,
 } from "@platform/shared";
+import { captureCodeBundle } from "./projects.ts";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { CodeWorkerPort, WorkerRpcHandlers } from "../ports/worker.ts";
@@ -64,28 +66,31 @@ interface RunState {
   sessionId?: string;
   priorOutputs?: Map<string, unknown>;
   resumeNodeId?: string;
+  codeBundle?: Record<string, string>;
 }
 
 export class ExecuteWorkflowRunUseCase {
   constructor(protected readonly deps: ExecutorDeps) {}
 
   async execute(input: ExecuteRunInput): Promise<WorkflowRunRecord> {
-    const prepared = this.prepare(input);
+    const prepared = await this.prepare(input);
     if (!prepared.created) return prepared.run;
     return this.runGraph(input.graph, input.payload, {
       run: prepared.run,
       priorOutputs: undefined,
       resumeNodeId: undefined,
+      codeBundle: prepared.codeBundle,
     }, input.approvalOverrides ?? {});
   }
 
   async start(input: ExecuteRunInput): Promise<WorkflowRunRecord> {
-    const prepared = this.prepare(input);
+    const prepared = await this.prepare(input);
     if (!prepared.created) return prepared.run;
     void this.runGraph(input.graph, input.payload, {
       run: prepared.run,
       priorOutputs: undefined,
       resumeNodeId: undefined,
+      codeBundle: prepared.codeBundle,
     }, input.approvalOverrides ?? {}).catch((error) => {
       this.deps.logger.error({
         event: "workflow_background_failed",
@@ -97,7 +102,9 @@ export class ExecuteWorkflowRunUseCase {
     return prepared.run;
   }
 
-  private prepare(input: ExecuteRunInput): { run: WorkflowRunRecord; created: boolean } {
+  private async prepare(
+    input: ExecuteRunInput,
+  ): Promise<{ run: WorkflowRunRecord; created: boolean; codeBundle: Record<string, string> }> {
     validateWorkflowGraph(input.graph);
     const trigger = input.graph.nodes.find((node) => node.type === "trigger");
     const schema = InputSchemaSchema.safeParse(trigger?.config.inputSchema);
@@ -106,6 +113,15 @@ export class ExecuteWorkflowRunUseCase {
       throw new WorkflowInputValidationError(["El esquema de entrada del trigger no es válido."]);
     }
     const payloadHash = computePayloadHash(input.payload);
+    const graphHash = computeGraphHash(input.graph);
+    const codeBundle = await captureCodeBundle(this.deps.workspace, input.projectSlug, input.graph);
+    const snapshot = this.deps.store.versions.record({
+      projectSlug: input.projectSlug,
+      graphHash,
+      graph: input.graph,
+      codeBundle,
+      createdBy: input.launchedBy,
+    });
     const run: WorkflowRunRecord = {
       id: crypto.randomUUID(),
       projectSlug: input.projectSlug,
@@ -116,7 +132,8 @@ export class ExecuteWorkflowRunUseCase {
       input: input.payload,
       entryPoint: input.entryPoint,
       launchedBy: input.launchedBy,
-      graphHash: computeGraphHash(input.graph),
+      graphHash,
+      versionId: snapshot.id,
       integrationId: input.integrationId,
       sourceDetail: input.sourceDetail,
       startedAt: new Date().toISOString(),
@@ -125,7 +142,7 @@ export class ExecuteWorkflowRunUseCase {
     if (!claimed.created) {
       if (claimed.run.payloadHash !== payloadHash) throw new IdempotencyMismatchError();
       if (claimed.run.status === "running" || claimed.run.status === "paused") throw new RunInFlightError(claimed.run.id);
-      return { run: claimed.run, created: false };
+      return { run: claimed.run, created: false, codeBundle };
     }
     this.deps.events.publish({
       type: "run.updated",
@@ -134,7 +151,86 @@ export class ExecuteWorkflowRunUseCase {
       workflowId: run.workflowId,
       status: run.status,
     });
-    return { run, created: true };
+    return { run, created: true, codeBundle };
+  }
+
+  private async resolveRunSnapshot(
+    run: WorkflowRunRecord,
+  ): Promise<{ graph: WorkflowGraph; codeBundle: Record<string, string> }> {
+    const byId = run.versionId ? this.deps.store.versions.findById(run.versionId) : undefined;
+    if (byId) return { graph: byId.graph, codeBundle: byId.codeBundle };
+    const byHash = run.graphHash
+      ? this.deps.store.versions.findByGraphHash(run.projectSlug, run.graphHash)
+      : undefined;
+    if (byHash) return { graph: byHash.graph, codeBundle: byHash.codeBundle };
+    const graph = await this.deps.workspace.readWorkflow(run.projectSlug);
+    const codeBundle = await captureCodeBundle(this.deps.workspace, run.projectSlug, graph);
+    return { graph, codeBundle };
+  }
+
+  async recoverInterruptedRuns(): Promise<WorkflowRunRecord[]> {
+    const running = this.deps.store.runs.listByStatus("running");
+    const recovered: WorkflowRunRecord[] = [];
+    for (const run of running) {
+      let snapshot: { graph: WorkflowGraph; codeBundle: Record<string, string> };
+      try {
+        snapshot = await this.resolveRunSnapshot(run);
+      } catch (error) {
+        const message = `interrupted on restart: ${error instanceof Error ? error.message : String(error)}`;
+        this.deps.store.runs.update(run.id, {
+          status: "failed",
+          error: message,
+          finishedAt: new Date().toISOString(),
+        });
+        recovered.push(this.deps.store.runs.findById(run.id)!);
+        continue;
+      }
+      const steps = this.deps.store.runs.listSteps(run.id);
+      const priorOutputs = new Map<string, unknown>();
+      for (const step of steps) {
+        if (step.status === "succeeded") priorOutputs.set(step.nodeId, step.output);
+      }
+      let cursor: NodeSpec | undefined = startNode(snapshot.graph);
+      let resumeNodeId = cursor.id;
+      const visited = new Set<string>();
+      while (cursor && !visited.has(cursor.id)) {
+        visited.add(cursor.id);
+        if (!priorOutputs.has(cursor.id)) {
+          resumeNodeId = cursor.id;
+          break;
+        }
+        const out = priorOutputs.get(cursor.id);
+        const decision =
+          cursor.type === "decision"
+            ? typeof out === "boolean"
+              ? out
+              : typeof (out as { result?: unknown })?.result === "boolean"
+                ? (out as { result: boolean }).result
+                : Boolean(out)
+            : undefined;
+        const edge = nextEdge(snapshot.graph, cursor.id, decision);
+        if (!edge) {
+          resumeNodeId = cursor.id;
+          break;
+        }
+        cursor = snapshot.graph.nodes.find((node) => node.id === edge.target);
+        if (cursor) resumeNodeId = cursor.id;
+      }
+      const result = await this.runGraph(
+        snapshot.graph,
+        run.input,
+        {
+          run: { ...run, status: "running", error: undefined, finishedAt: undefined },
+          priorOutputs,
+          resumeNodeId,
+          codeBundle: snapshot.codeBundle,
+        },
+        {},
+        run.entryPoint,
+      );
+      recovered.push(result);
+    }
+    return recovered;
   }
 
   async replay(
@@ -145,7 +241,8 @@ export class ExecuteWorkflowRunUseCase {
   ): Promise<WorkflowRunRecord> {
     const run = this.deps.store.runs.findById(runId);
     if (!run) throw new Error(`run not found: ${runId}`);
-    const graph = await this.deps.workspace.readWorkflow(run.projectSlug);
+    const snapshot = await this.resolveRunSnapshot(run);
+    const graph = snapshot.graph;
     const steps = this.deps.store.runs.listSteps(runId);
     const priorOutputs = new Map<string, unknown>();
     for (const step of steps) {
@@ -171,7 +268,12 @@ export class ExecuteWorkflowRunUseCase {
     return this.runGraph(
       graph,
       run.input,
-      { run: { ...run, status: "running", error: undefined, finishedAt: undefined }, priorOutputs, resumeNodeId },
+      {
+        run: { ...run, status: "running", error: undefined, finishedAt: undefined },
+        priorOutputs,
+        resumeNodeId,
+        codeBundle: snapshot.codeBundle,
+      },
       {},
       entryPoint,
     );
@@ -181,7 +283,8 @@ export class ExecuteWorkflowRunUseCase {
     const run = this.deps.store.runs.findById(runId);
     if (!run) throw new Error(`run not found: ${runId}`);
     this.deps.store.runs.decideApproval(runId, nodeId, approved ? "approved" : "rejected", decidedBy);
-    const graph = await this.deps.workspace.readWorkflow(run.projectSlug);
+    const snapshot = await this.resolveRunSnapshot(run);
+    const graph = snapshot.graph;
     const steps = this.deps.store.runs.listSteps(runId);
     const priorOutputs = new Map<string, unknown>();
     for (const step of steps) {
@@ -207,7 +310,12 @@ export class ExecuteWorkflowRunUseCase {
     return this.runGraph(
       graph,
       run.input,
-      { run: { ...run, status: "running", error: undefined, finishedAt: undefined }, priorOutputs, resumeNodeId: nodeId },
+      {
+        run: { ...run, status: "running", error: undefined, finishedAt: undefined },
+        priorOutputs,
+        resumeNodeId: nodeId,
+        codeBundle: snapshot.codeBundle,
+      },
       { [nodeId]: true },
     );
   }
@@ -262,24 +370,39 @@ export class ExecuteWorkflowRunUseCase {
         let logs: Array<{ message: string; fields: Record<string, unknown> }> | undefined;
 
         const runWorkerNode = async () => {
-          const codePath = join(projectDirectory, current.codeFile!);
+          const diskCodePath = join(projectDirectory, current.codeFile!);
+          const snapshotCode = state.codeBundle?.[current.codeFile!];
+          let tempSnapshotPath: string | undefined;
+          let codePath = diskCodePath;
+          if (snapshotCode !== undefined) {
+            const diskCode = await readFile(diskCodePath, "utf8").catch(() => undefined);
+            if (diskCode !== snapshotCode) {
+              tempSnapshotPath = `${diskCodePath}.snapshot-${state.run.id}-${crypto.randomUUID()}.ts`;
+              await writeFile(tempSnapshotPath, snapshotCode, "utf8");
+              codePath = tempSnapshotPath;
+            }
+          }
           const maxRetries = current.retryPolicy.maxRetries;
           let attempt = 0;
-          for (;;) {
-            try {
-              return await worker.execute({
-                nodeId: current.id,
-                projectSlug: state.run.projectSlug,
-                codePath,
-                input: currentInput,
-                timeoutMs: current.timeoutMs,
-                handlers: this.deps.workerHandlers,
-              });
-            } catch (error) {
-              if (attempt >= maxRetries) throw error;
-              attempt += 1;
-              logger.warn({ event: "node_retry", nodeId: current.id, attempt, error: String(error) });
+          try {
+            for (;;) {
+              try {
+                return await worker.execute({
+                  nodeId: current.id,
+                  projectSlug: state.run.projectSlug,
+                  codePath,
+                  input: currentInput,
+                  timeoutMs: current.timeoutMs,
+                  handlers: this.deps.workerHandlers,
+                });
+              } catch (error) {
+                if (attempt >= maxRetries) throw error;
+                attempt += 1;
+                logger.warn({ event: "node_retry", nodeId: current.id, attempt, error: String(error) });
+              }
             }
+          } finally {
+            if (tempSnapshotPath) await rm(tempSnapshotPath, { force: true }).catch(() => undefined);
           }
         };
 

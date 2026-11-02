@@ -389,4 +389,24 @@ describe("application HTTP surface", () => {
     const body = (await response.json()) as { data: Array<{ providerID: string }> };
     expect(body.data.some((model) => model.providerID === "opencode-go")).toBe(true);
   });
+
+  it("lists workflow version snapshots and rolls back to a prior version", async () => {
+    const versionsRes = await json("/api/projects/ventas-bot/workflow/versions");
+    expect(versionsRes.status).toBe(200);
+    const versionsBody = (await versionsRes.json()) as { data: Array<{ version: number; graph: WorkflowGraph }> };
+    expect(versionsBody.data.length).toBeGreaterThanOrEqual(2);
+    const v1 = versionsBody.data.find((v) => v.version === 1);
+    expect(v1?.graph.nodes).toHaveLength(1);
+
+    const rollbackRes = await json("/api/projects/ventas-bot/workflow/versions/1/rollback", {
+      method: "POST",
+    });
+    expect(rollbackRes.status).toBe(200);
+    const rolled = (await rollbackRes.json()) as { graph: WorkflowGraph; version: { version: number } };
+    expect(rolled.graph.nodes).toHaveLength(1);
+    expect(rolled.version.version).toBeGreaterThan(2);
+
+    const currentWorkflow = (await (await json("/api/projects/ventas-bot/workflow")).json()) as WorkflowGraph;
+    expect(currentWorkflow.nodes).toHaveLength(1);
+  });
 });

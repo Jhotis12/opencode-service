@@ -141,7 +141,7 @@ export function Layout() {
               onClick={() => setMobileOpen(false)}
               className={({ isActive }) =>
                 `nav-item flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm ${
-                  collapsed ? "lg:px-[11px]" : ""
+                  collapsed ? "lg:gap-0 lg:px-[11px]" : ""
                 } ${
                   isActive
                     ? "border-line bg-panel-2 text-slate-100"

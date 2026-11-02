@@ -14,10 +14,10 @@
 
 ## 3. Smoke test del flujo por defecto
 
-- [ ] 3.1 Crear un change temporal con `openspec new change zz-review-gated-smoke` sin `--schema` y verificar con `openspec status --change zz-review-gated-smoke --json` que `schemaName` es `review-gated-delivery`.
-- [ ] 3.2 Pedir `openspec instructions tasks --change zz-review-gated-smoke --json` y verificar que la instrucción exige commits por grupo, rama y PR; pedir `openspec instructions apply --change zz-review-gated-smoke --json` y verificar que la guía de `apply` incluye commits, push y PR.
-- [ ] 3.3 Pedir `openspec instructions archive --change zz-review-gated-smoke --json` y verificar que la guía de `archive` exige la PR mergeada antes de archivar.
-- [ ] 3.4 Eliminar `openspec/changes/zz-review-gated-smoke/` y verificar con `openspec list --json` que solo queda `add-review-gated-delivery`; confirmar que no quedan archivos temporales con `git status --short`.
+- [x] 3.1 Crear un change temporal con `openspec new change zz-review-gated-smoke` sin `--schema` y verificar con `openspec status --change zz-review-gated-smoke --json` que `schemaName` es `review-gated-delivery`.
+- [x] 3.2 Pedir `openspec instructions tasks --change zz-review-gated-smoke --json` y verificar que la instrucción exige commits por grupo, rama y PR; pedir `openspec instructions apply --change zz-review-gated-smoke --json` y verificar que la guía de `apply` incluye commits, push y PR.
+- [x] 3.3 Pedir `openspec instructions archive --change zz-review-gated-smoke --json` y verificar que la guía de `archive` exige la PR mergeada antes de archivar.
+- [x] 3.4 Eliminar `openspec/changes/zz-review-gated-smoke/` y verificar con `openspec list --json` que solo queda `add-review-gated-delivery`; confirmar que no quedan archivos temporales con `git status --short`.
 
 ## 4. Validación final
 

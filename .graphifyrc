@@ -1,0 +1,3 @@
+# Graphify project configuration
+# Code is parsed locally with tree-sitter; docs are only indexed on explicit request.
+viz_node_limit=5000

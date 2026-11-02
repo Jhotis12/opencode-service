@@ -10,7 +10,9 @@
     "start": "bun run --cwd apps/server start",
     "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd packages/opencode-plugin typecheck && bun run --cwd apps/server typecheck && bun run --cwd apps/web typecheck",
     "test": "bun run --cwd packages/shared test && bun run --cwd apps/server test && bun run --cwd apps/web test",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "graph:build": "graphify extract . --code-only",
+    "graph:update": "graphify update ."
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",

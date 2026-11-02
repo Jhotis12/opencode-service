@@ -4,7 +4,8 @@ import QRCode from "qrcode";
 import type { IntegrationRecord } from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
-import { button, buttonDanger, buttonGhost, buttonPrimary, card, statusBadge } from "../ui.ts";
+import { StatusBadge } from "./StatusBadge.tsx";
+import { button, buttonDanger, buttonGhost, buttonPrimary, card } from "../ui.ts";
 
 const KINDS: Array<{ value: IntegrationRecord["kind"]; label: string; config: string; secrets: string }> = [
   {
@@ -122,10 +123,10 @@ export function ControlChannelsPanel() {
       {status && <p className="text-sm text-ok">{status}</p>}
       <div className="flex flex-col gap-2">
         {integrations.map((integration) => (
-          <article className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-[#0a1120] p-3" key={integration.id}>
+          <article className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-well p-3" key={integration.id}>
             <span>
               <strong className="text-sm">{integration.name}</strong>{" "}
-              <span className={statusBadge(integration.status)}>{integration.status}</span>
+              <StatusBadge status={integration.status} />
               <small className="block text-xs text-muted">
                 {integration.kind} · <code>{integration.slug}</code>
               </small>

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { api } from "../api.ts";
 import { useAuth } from "../auth.tsx";
+import { BrandLockup } from "../components/Brand.tsx";
 import { buttonPrimary, card } from "../ui.ts";
 
 export function ChangePasswordPage({
@@ -38,6 +39,7 @@ export function ChangePasswordPage({
   return (
     <main className="grid min-h-screen place-items-center p-6">
       <form className={`${card} w-full max-w-[420px] gap-4`} onSubmit={submit} aria-label="Cambiar contraseña">
+        <BrandLockup size={32} subtitle={false} />
         <h1 className="text-xl font-semibold text-slate-100">Cambia tu contraseña inicial</h1>
         <p className="text-sm text-muted">
           Hola {user?.username}. Antes de continuar, define una contraseña de al menos 12 caracteres.

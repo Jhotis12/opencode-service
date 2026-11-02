@@ -1,9 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, type HealthPayload } from "../api.ts";
 import { qk } from "../query.ts";
-import { badge, card, pageTitle, statusBadge } from "../ui.ts";
+import { StatusBadge } from "../components/StatusBadge.tsx";
+import { badge, card, pageTitle } from "../ui.ts";
+import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Promise<HealthPayload> } = {}) {
+  useDocumentTitle("Salud del sistema");
   const healthQuery = useQuery({ queryKey: qk.health, queryFn: loadHealth, refetchInterval: 5000 });
   const health = healthQuery.data;
 
@@ -25,9 +28,7 @@ export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Pro
             Estado en vivo de OpenCode V2, base de datos, canales, workers y errores recientes.
           </p>
         </div>
-        <span className={statusBadge(health.status)} data-testid="health-status">
-          {health.status}
-        </span>
+        <StatusBadge status={health.status} testId="health-status" />
       </header>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -41,7 +42,7 @@ export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Pro
         ].map((metric) => (
           <article className={`${card} gap-1 p-4`} key={metric.label}>
             <small className="text-xs text-muted">{metric.label}</small>
-            <strong className="text-xl font-semibold text-slate-100">{metric.value}</strong>
+            <strong className="text-xl font-semibold tabular-nums text-slate-100">{metric.value}</strong>
           </article>
         ))}
       </div>
@@ -63,10 +64,10 @@ export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Pro
                 <tr key={service.name} className="border-b border-line/60">
                   <td className="px-2 py-2.5">{service.name}</td>
                   <td className="px-2 py-2.5">
-                    <span className={statusBadge(service.status)}>{service.status}</span>
+                    <StatusBadge status={service.status} />
                   </td>
                   <td className="px-2 py-2.5 text-muted">{service.detail}</td>
-                  <td className="px-2 py-2.5">{service.latencyMs !== undefined ? `${service.latencyMs} ms` : "—"}</td>
+                  <td className="px-2 py-2.5 tabular-nums">{service.latencyMs !== undefined ? `${service.latencyMs} ms` : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -77,7 +78,14 @@ export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Pro
       <section className={card}>
         <h2 className="text-base font-semibold text-slate-100">Errores recientes</h2>
         {health.recentErrors.length === 0 ? (
-          <p className="text-sm text-muted">Sin errores registrados. 🎉</p>
+          <div className="flex items-center gap-2 text-sm text-muted">
+            <span className="grid h-6 w-6 place-items-center rounded-full bg-ok/10 text-ok" aria-hidden>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m5 12 4.5 4.5L19 7" />
+              </svg>
+            </span>
+            Sin errores registrados.
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">

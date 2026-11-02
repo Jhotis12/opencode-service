@@ -41,7 +41,7 @@ export function PlatformEdge({
     borderRadius: 14,
   });
   const label = data?.condition === "true" ? "sí" : data?.condition === "false" ? "no" : undefined;
-  const runColor = data?.runState === "active" ? "#38bdf8" : data?.runState === "completed" ? "#22c55e" : undefined;
+  const runColor = data?.runState === "active" ? "var(--color-accent)" : data?.runState === "completed" ? "var(--color-ok)" : undefined;
 
   return (
     <>
@@ -52,14 +52,14 @@ export function PlatformEdge({
         interactionWidth={22}
         style={{
           ...style,
-          stroke: selected ? "#38bdf8" : (runColor ?? String(style?.stroke ?? "#475569")),
+          stroke: selected ? "var(--color-accent)" : (runColor ?? String(style?.stroke ?? "var(--color-line-strong)")),
           strokeWidth: selected ? 2.2 : data?.runState === "active" ? 2.5 : data?.runState === "completed" ? 2 : 1.5,
         }}
       />
       {label && (
         <EdgeLabelRenderer>
           <span
-            className="nodrag nopan absolute rounded border border-line bg-[#0b1220] px-1.5 py-0.5 text-[10px] text-slate-300"
+            className="nodrag nopan absolute rounded border border-line bg-well px-1.5 py-0.5 text-[11px] text-slate-300"
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, pointerEvents: "all" }}
           >
             {label}
@@ -72,7 +72,7 @@ export function PlatformEdge({
         y={labelY}
         isVisible={selected}
         alignY="bottom"
-        className="flex items-center gap-1 rounded-lg border border-line bg-[#0b1220]/95 p-1 shadow-xl"
+        className="flex items-center gap-1 rounded-lg border border-line bg-well/95 p-1 shadow-xl"
       >
         {data?.issue && (
           <span role="img" aria-label="Problema de conexión" title={data.issue} className="px-1 text-[11px] text-warn">

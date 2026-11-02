@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ChatProgressEvent, NodeSpec, WorkflowGraph } from "@platform/shared";
 import { api, ApiClientError, type RunRecord } from "../api.ts";
 import { qk } from "../query.ts";
+import { AgentCatalog } from "../components/AgentCatalog.tsx";
+import { StatusBadge } from "../components/StatusBadge.tsx";
 import { ChatPanel } from "../components/ChatPanel.tsx";
 import { WorkflowCanvas } from "../components/WorkflowCanvas.tsx";
 import { ProjectTopBar, type ProjectTab } from "../components/ProjectTopBar.tsx";
@@ -23,7 +25,8 @@ import { ProjectKnowledgePanel } from "../components/ProjectKnowledgePanel.tsx";
 import { ProjectResourcesPanel } from "../components/ProjectResourcesPanel.tsx";
 import { ProjectSettingsPanel } from "../components/ProjectSettingsPanel.tsx";
 import { NODE_META } from "../components/nodes/node-catalog.ts";
-import { badge, buttonDanger, buttonGhost, buttonPrimary, card, statusBadge } from "../ui.ts";
+import { badge, buttonDanger, buttonGhost, buttonPrimary, card } from "../ui.ts";
+import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 const DEFAULT_CODE = `export default async function run(input: unknown, ctx: any) {
   ctx.log("nodo ejecutado", { input });
@@ -88,6 +91,7 @@ export function ProjectPage() {
   const versions = versionsQuery.data ?? [];
 
   const [graph, setGraph] = useState<WorkflowGraph>();
+  useDocumentTitle(graph?.name ?? "Proyecto");
   const [dirty, setDirty] = useState(false);
   const [selectedId, setSelectedId] = useState<string>();
   const [nodeCode, setNodeCode] = useState("");
@@ -116,16 +120,6 @@ export function ProjectPage() {
   chatOpenRef.current = chatOpen;
   chatBusyRef.current = chatBusy;
   graphRef.current = graph;
-  const [agentForm, setAgentForm] = useState({
-    category: "",
-    role: "",
-    description: "",
-    body: "",
-    model: "",
-    mode: "subagent" as "primary" | "subagent" | "all",
-    notebooks: "",
-    deniedTools: "",
-  });
 
   useEffect(() => {
     if (workflowQuery.data) {
@@ -312,42 +306,6 @@ export function ProjectPage() {
       setError(undefined);
     },
     onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo restaurar la versión"),
-  });
-
-  const upsertAgent = useMutation({
-    mutationFn: () => {
-      const denied = agentForm.deniedTools
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-      return api.upsertAgent(slug, agentForm.category, agentForm.role, {
-        description: agentForm.description,
-        body: agentForm.body,
-        model: agentForm.model || undefined,
-        mode: agentForm.mode,
-        notebooks: agentForm.notebooks
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
-        ...(denied.length > 0
-          ? { permissions: denied.map((resource) => ({ action: "tool", resource, effect: "deny" as const })) }
-          : {}),
-      });
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: qk.agents(slug) });
-      await queryClient.invalidateQueries({ queryKey: qk.projectSettings(slug) });
-      setStatus(`Agente ${agentForm.category}/${agentForm.role} guardado`);
-      setError(undefined);
-    },
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo guardar el agente"),
-  });
-
-  const deleteAgent = useMutation({
-    mutationFn: ({ category, role }: { category: string; role: string }) => api.deleteAgent(slug, category, role),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: qk.agents(slug) });
-    },
   });
 
   const chat = useMutation({
@@ -737,7 +695,7 @@ export function ProjectPage() {
                 <article className={`${card} gap-2`} key={run.id}>
                   <header className="flex flex-wrap items-center justify-between gap-3">
                     <strong className="text-sm">{run.id.slice(0, 8)}</strong>
-                    <span className={statusBadge(run.status)}>{run.status}</span>
+                    <StatusBadge status={run.status} />
                   </header>
                   <small className="text-xs text-muted">
                     {new Date(run.startedAt).toLocaleString()} · {run.launchedBy ?? "sistema"} · {run.sourceDetail ?? run.entryPoint}
@@ -758,133 +716,13 @@ export function ProjectPage() {
           )}
 
           {tab === "agents" && (
-            <div className="flex flex-col gap-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                {agents.map((agent) => (
-                  <article className={card} key={`${agent.category}/${agent.role}`}>
-                    <strong className="text-sm">
-                      {agent.category}/{agent.role}{" "}
-                      <span className={badge}>{agent.frontmatter.mode ?? "subagent"}</span>
-                    </strong>
-                    <p className="text-sm text-muted">{agent.frontmatter.description}</p>
-                    <small className="text-xs text-muted">{agent.frontmatter.model ?? "modelo heredado"}</small>
-                    <div className="flex flex-wrap gap-1.5">
-                      <button
-                        className={buttonGhost}
-                        onClick={() =>
-                          setAgentForm({
-                            category: agent.category,
-                            role: agent.role,
-                            description: agent.frontmatter.description,
-                            body: agent.body,
-                            model: agent.frontmatter.model ?? "",
-                            mode: agent.frontmatter.mode ?? "subagent",
-                            notebooks: (agent.frontmatter.notebooks ?? []).join(", "),
-                            deniedTools: (agent.frontmatter.permissions ?? [])
-                              .filter((p) => p.effect === "deny")
-                              .map((p) => p.resource)
-                              .join(", "),
-                          })
-                        }
-                      >
-                        Editar
-                      </button>
-                      <button
-                        className={buttonDanger}
-                        onClick={() => deleteAgent.mutate({ category: agent.category, role: agent.role })}
-                      >
-                        Borrar
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-              <form
-                className={`${card} !grid gap-3 md:grid-cols-2`}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  upsertAgent.mutate();
-                }}
-                aria-label="Editor de agente"
-              >
-                <h2 className="text-base font-semibold text-slate-100 md:col-span-2">Crear o editar agente</h2>
-                <label>
-                  Categoría
-                  <input
-                    value={agentForm.category}
-                    onChange={(event) => setAgentForm({ ...agentForm, category: event.target.value })}
-                    placeholder="ventas"
-                  />
-                </label>
-                <label>
-                  Rol
-                  <input
-                    value={agentForm.role}
-                    onChange={(event) => setAgentForm({ ...agentForm, role: event.target.value })}
-                    placeholder="calificador"
-                  />
-                </label>
-                <label>
-                  Descripción
-                  <input
-                    value={agentForm.description}
-                    onChange={(event) => setAgentForm({ ...agentForm, description: event.target.value })}
-                  />
-                </label>
-                <label>
-                  Modo
-                  <select
-                    value={agentForm.mode}
-                    onChange={(event) => setAgentForm({ ...agentForm, mode: event.target.value as typeof agentForm.mode })}
-                  >
-                    <option value="subagent">Sub-agente</option>
-                    <option value="primary">Principal</option>
-                    <option value="all">Principal y sub-agente</option>
-                  </select>
-                </label>
-                <label>
-                  Modelo
-                  <select value={agentForm.model} onChange={(event) => setAgentForm({ ...agentForm, model: event.target.value })}>
-                    <option value="">Heredar del flujo</option>
-                    {modelOptions.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Notebooks (separados por coma)
-                  <input
-                    value={agentForm.notebooks}
-                    onChange={(event) => setAgentForm({ ...agentForm, notebooks: event.target.value })}
-                  />
-                </label>
-                <label className="md:col-span-2">
-                  Herramientas bloqueadas (separadas por coma)
-                  <input
-                    value={agentForm.deniedTools}
-                    onChange={(event) => setAgentForm({ ...agentForm, deniedTools: event.target.value })}
-                    placeholder="workflow_upsert, subagent_upsert, db_query"
-                  />
-                </label>
-                <label className="md:col-span-2">
-                  Instrucciones (.md)
-                  <textarea
-                    rows={6}
-                    value={agentForm.body}
-                    onChange={(event) => setAgentForm({ ...agentForm, body: event.target.value })}
-                    placeholder="Eres el especialista de…"
-                  />
-                </label>
-                <button
-                  className={`${buttonPrimary} md:col-span-2`}
-                  disabled={upsertAgent.isPending || !agentForm.category || !agentForm.role || !agentForm.description || !agentForm.body}
-                >
-                  Guardar agente
-                </button>
-              </form>
-            </div>
+            <AgentCatalog
+              projectSlug={slug}
+              agents={agents}
+              modelOptions={modelOptions}
+              isLoading={agentsQuery.isLoading}
+              error={agentsQuery.error}
+            />
           )}
 
           {tab === "knowledge" && <ProjectKnowledgePanel projectSlug={slug} />}
@@ -900,7 +738,7 @@ export function ProjectPage() {
         inert={!chatOpen}
       >
         <div
-          className={`chat-backdrop absolute inset-0 bg-[#020617]/55 ${chatOpen ? "opacity-100" : "opacity-0"}`}
+          className={`chat-backdrop absolute inset-0 bg-ink/55 ${chatOpen ? "opacity-100" : "opacity-0"}`}
           onClick={() => setChatOpen(false)}
         />
         <div
@@ -927,7 +765,7 @@ export function ProjectPage() {
       {!chatOpen && (chatBusy || chatUnread) && (
         <button
           type="button"
-          className="agent-status-pill fixed bottom-28 right-4 z-40 flex max-w-[280px] items-center gap-2.5 rounded-full border border-accent/40 bg-[#0b1220]/95 px-3.5 py-2 text-left text-xs text-slate-100 shadow-2xl"
+          className="agent-status-pill fixed bottom-28 right-4 z-40 flex max-w-[280px] items-center gap-2.5 rounded-full border border-accent/40 bg-well/95 px-3.5 py-2 text-left text-xs text-slate-100 shadow-2xl"
           onClick={() => {
             setChatOpen(true);
             setChatUnread(false);
@@ -941,7 +779,7 @@ export function ProjectPage() {
           />
           <span className="min-w-0">
             <strong className="block text-[11px]">{chatBusy ? "Agente trabajando" : "Respuesta lista"}</strong>
-            <span className="block truncate text-[10px] text-muted">
+            <span className="block truncate text-[11px] text-muted">
               {chatBusy ? (chatActivity ?? "Preparando respuesta…") : "Abre el chat para verla"}
             </span>
           </span>

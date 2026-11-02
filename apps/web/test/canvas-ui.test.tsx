@@ -116,7 +116,7 @@ describe("WorkflowCanvas", () => {
     const first = graph([node("start", "trigger"), node("code", "code")]);
     const { rerender, props } = renderCanvas({ graph: first, selectedId: "code" });
     expect(await screen.findByRole("button", { name: "Duplicar nodo" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Estado: succeeded")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Estado: Completado")).not.toBeInTheDocument();
 
     rerender(
       <WorkflowCanvas
@@ -126,8 +126,24 @@ describe("WorkflowCanvas", () => {
         selectedId="code"
       />,
     );
-    expect(screen.getByLabelText("Estado: succeeded")).toBeInTheDocument();
+    const status = screen.getByLabelText("Estado: Completado");
+    expect(status).toBeInTheDocument();
+    expect(status.querySelector("svg")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Duplicar nodo" })).toBeInTheDocument();
+  });
+
+  it("exposes an explicit fit-view action", () => {
+    renderCanvas();
+    expect(screen.getByRole("button", { name: "Ajustar vista del flujo" })).toBeInTheDocument();
+  });
+
+  it("uses the readable node footprint and title size", async () => {
+    const { container } = renderCanvas({ graph: graph([node("code", "code", { label: "Consultar" })]) });
+    const wrapper = container.querySelector('[data-node-id="code"]')!;
+    expect(wrapper.className).toContain("h-[96px]");
+    expect(wrapper.className).toContain("w-[252px]");
+    expect(screen.getByText("Consultar").className).toContain("text-[14px]");
+    expect(screen.getByText("Código").className).toContain("text-[11px]");
   });
 
   it("selects a node on click and keeps long labels in a truncated element", async () => {
@@ -245,7 +261,7 @@ describe("NodeInspectorModal", () => {
     expect(onConnect).toHaveBeenCalledWith("agent", "code", undefined);
 
     await userEvent.click(within(dialog).getByRole("tab", { name: "Ejecución" }));
-    expect(within(dialog).getAllByText("succeeded").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("Completado").length).toBeGreaterThan(0);
     expect(within(dialog).getByText(/"ok": true/)).toBeInTheDocument();
   });
 
@@ -320,13 +336,22 @@ describe("ProjectTopBar", () => {
         />
       </MemoryRouter>,
     );
+    for (const label of ["Canvas", "Ejecuciones (2)", "Agentes (1)", "Conocimiento", "Recursos (3)", "Ajustes"]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByRole("button", { name: "Guardar flujo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ejecutar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Agente" })).toBeInTheDocument();
+
     await userEvent.click(screen.getByRole("button", { name: "Agentes (1)" }));
     expect(onTab).toHaveBeenCalledWith("agents");
-    await userEvent.click(screen.getByRole("button", { name: "Versiones del flujo" }));
+    await userEvent.click(screen.getByRole("button", { name: "Más acciones del flujo" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Versiones del flujo/ }));
     const versionsDialog = screen.getByRole("dialog", { name: "Versiones del flujo" });
     await userEvent.click(within(versionsDialog).getByRole("button", { name: "Restaurar v1" }));
     expect(onRollbackVersion).toHaveBeenCalledWith(1);
-    await userEvent.click(screen.getByRole("button", { name: "Ajustes del flujo" }));
+    await userEvent.click(screen.getByRole("button", { name: "Más acciones del flujo" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Ajustes del flujo" }));
     const dialog = screen.getByRole("dialog", { name: "Ajustes del flujo" });
     await userEvent.type(within(dialog).getByLabelText("Descripción"), " nuevo");
     expect(onChange).toHaveBeenCalled();
@@ -336,5 +361,37 @@ describe("ProjectTopBar", () => {
     expect(onRun).toHaveBeenCalled();
     expect(onChat).toHaveBeenCalled();
     expect(onSave).toHaveBeenCalled();
+  });
+
+  it("opens the overflow menu with the keyboard and closes it with Escape", async () => {
+    render(
+      <MemoryRouter>
+        <ProjectTopBar
+          slug="demo"
+          graph={graph([node("start", "trigger")])}
+          tab="canvas"
+          counts={{ runs: 0, agents: 0, integrations: 0 }}
+          dirty={false}
+          issueCount={0}
+          saving={false}
+          modelOptions={[]}
+          onTab={() => undefined}
+          onChange={() => undefined}
+          onSave={() => undefined}
+          onRun={() => undefined}
+          onChat={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Más acciones del flujo" });
+    trigger.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    const menu = await screen.findByRole("menu", { name: "Más acciones del flujo" });
+    const firstItem = within(menu).getByRole("menuitem", { name: /Versiones del flujo/ });
+    await waitFor(() => expect(firstItem).toHaveFocus());
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 });

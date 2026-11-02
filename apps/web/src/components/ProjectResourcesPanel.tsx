@@ -4,7 +4,8 @@ import QRCode from "qrcode";
 import type { IntegrationRecord } from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
-import { badge, button, buttonDanger, buttonGhost, buttonPrimary, card, statusBadge } from "../ui.ts";
+import { StatusBadge } from "./StatusBadge.tsx";
+import { badge, button, buttonDanger, buttonGhost, buttonPrimary, card, friendlyError } from "../ui.ts";
 
 const KIND_OPTIONS: Array<{ value: IntegrationRecord["kind"]; label: string; config: string; secrets: string }> = [
   {
@@ -72,6 +73,8 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
   const [secretAlias, setSecretAlias] = useState("");
   const [secretValue, setSecretValue] = useState("");
   const [status, setStatus] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [rawError, setRawError] = useState<string>();
   const [qr, setQr] = useState<{ id: string; qr: string }>();
 
   const integrations = integrationsQuery.data ?? [];
@@ -134,7 +137,10 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
       await queryClient.invalidateQueries({ queryKey: qk.integrations(projectSlug) });
       await queryClient.invalidateQueries({ queryKey: qk.projectSettings(projectSlug) });
     },
-    onError: (error) => setStatus(error instanceof Error ? error.message : "No se pudo crear la integración"),
+    onError: (cause) => {
+      setRawError(cause instanceof Error ? cause.message : undefined);
+      setError(friendlyError(cause, "No se pudo crear la integración."));
+    },
   });
 
   const test = useMutation({
@@ -174,7 +180,10 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
       setStatus("Secreto guardado en la bóveda del proyecto");
       await queryClient.invalidateQueries({ queryKey: qk.projectSecrets(projectSlug) });
     },
-    onError: (error) => setStatus(error instanceof Error ? error.message : "No se pudo guardar el secreto"),
+    onError: (cause) => {
+      setRawError(cause instanceof Error ? cause.message : undefined);
+      setError(friendlyError(cause, "No se pudo guardar el secreto."));
+    },
   });
 
   async function showQr(id: string) {
@@ -193,6 +202,11 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
 
   return (
     <div className="flex flex-col gap-4">
+      {error && (
+        <p className="text-sm text-danger" role="alert" title={rawError}>
+          {error}
+        </p>
+      )}
       {status && <p className="text-sm text-ok">{status}</p>}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {integrations.map((integration) => (
@@ -204,7 +218,7 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
                   {kindLabel(integration.kind)} · <code>{integration.slug}</code>
                 </p>
               </div>
-              <span className={statusBadge(integration.status)}>{integration.status}</span>
+              <StatusBadge status={integration.status} />
             </header>
             <small className="break-all text-xs text-muted">ID: {integration.id}</small>
             <div className="flex flex-wrap gap-1.5">

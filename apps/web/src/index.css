@@ -11,7 +11,32 @@
   --color-ok: #22c55e;
   --color-warn: #f59e0b;
   --color-danger: #fb7185;
-  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --color-well: #0a1120;
+  --color-code: #050a13;
+  --color-line-strong: #334155;
+  --color-faint: #64748b;
+  --color-text: #e2e8f0;
+  --color-selection: #f8fafc;
+  --color-accent-strong: #0ea5e9;
+  --color-node-input: #fbbf24;
+  --color-node-action: #22d3ee;
+  --color-node-logic: #2dd4bf;
+  --color-node-ai: #a78bfa;
+  --color-node-human: #f472b6;
+  --font-sans: "Inter Variable", "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 0.875rem;
+  --text-label: 0.75rem;
+  --text-label--line-height: 1rem;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.25rem;
+  --text-section: 1rem;
+  --text-section--line-height: 1.5rem;
+  --text-page: 1.5rem;
+  --text-page--line-height: 2rem;
+  --text-display: 1.875rem;
+  --text-display--line-height: 2.25rem;
 }
 
 :root {
@@ -40,7 +65,7 @@
   input,
   textarea,
   select {
-    @apply w-full rounded-lg border border-line bg-[#0a1120] px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30;
+    @apply w-full rounded-lg border border-line bg-well px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30;
   }
 
   textarea {
@@ -56,11 +81,11 @@
   }
 
   code {
-    @apply rounded border border-line bg-[#0b1220] px-1.5 py-0.5 text-[0.85em];
+    @apply rounded border border-line bg-well px-1.5 py-0.5 text-[0.85em];
   }
 
   pre {
-    @apply overflow-auto rounded-lg border border-line bg-[#050a13] p-3 text-xs;
+    @apply overflow-auto rounded-lg border border-line bg-code p-3 text-xs;
   }
 
   ::-webkit-scrollbar {
@@ -69,7 +94,7 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #1e293b;
+    background: var(--color-line);
     border-radius: 999px;
   }
 
@@ -83,12 +108,12 @@
 }
 
 .react-flow__controls-button {
-  background: #0f172a !important;
-  border-bottom: 1px solid #1e293b !important;
+  background: var(--color-panel) !important;
+  border-bottom: 1px solid var(--color-line) !important;
 }
 
 .react-flow__controls-button:hover {
-  background: #1e293b !important;
+  background: var(--color-line) !important;
 }
 
 .react-flow__controls-button svg {
@@ -96,17 +121,17 @@
 }
 
 .react-flow__minimap {
-  background: #0b1220 !important;
-  border: 1px solid #1e293b;
+  background: var(--color-well) !important;
+  border: 1px solid var(--color-line);
   border-radius: 8px;
 }
 
 .react-flow__minimap-mask {
-  fill: rgba(2, 6, 23, 0.72);
+  fill: rgba(7, 11, 20, 0.72);
 }
 
 .react-flow__edge-text {
-  fill: #94a3b8;
+  fill: var(--color-muted);
 }
 
 .run-node-running {
@@ -211,5 +236,19 @@
 
   .agent-touch-layer {
     opacity: 0.4;
+  }
+}
+
+@layer base {
+  :where(a, button, [role="button"], summary):focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:active,
+  a:active {
+    transform: none !important;
   }
 }

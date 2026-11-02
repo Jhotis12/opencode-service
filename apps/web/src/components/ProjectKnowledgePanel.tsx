@@ -168,7 +168,7 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
             </form>
             <div className="flex flex-col gap-2.5">
               {hits.map((hit) => (
-                <article key={hit.chunkId} className="rounded-lg border border-line bg-[#0a1120] p-3">
+                <article key={hit.chunkId} className="rounded-lg border border-line bg-well p-3">
                   <strong className="text-sm text-slate-100">{hit.citation}</strong>
                   <p className="mt-1.5 whitespace-pre-wrap text-sm text-muted">{hit.content}</p>
                   <small className="text-xs text-muted">score {hit.score.toFixed(4)}</small>

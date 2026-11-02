@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "@monaco-editor/react": "^4.6.0",
     "@platform/shared": "workspace:*",
     "@sentry/react": "^9.0.0",

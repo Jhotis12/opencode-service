@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatProgressEvent } from "@platform/shared";
 import type { ChatHistoryMessage } from "../api.ts";
+import { BrandMark } from "./Brand.tsx";
 import { buttonGhost, buttonPrimary } from "../ui.ts";
 
 type ChatActivity = {
@@ -16,7 +17,7 @@ export interface ChatMessage {
   text: string;
 }
 
-type ChatSurface = "docked" | "expanded" | "minimized";
+type ChatSurface = "docked" | "minimized";
 
 const WELCOME =
   "Hola. Soy el agente principal de este proyecto. Puedo crear o editar nodos, sub-agentes y ejecutar el flujo. Te hablaré en términos de nodos y resultados; si necesitas el detalle técnico, lo abrimos.";
@@ -45,7 +46,7 @@ async function copyText(text: string): Promise<void> {
 
 function MarkdownMessage({ text }: { text: string }) {
   return (
-    <div className="prose-chat flex flex-col gap-2 text-[13px] leading-relaxed">
+    <div className="prose-chat flex flex-col gap-2 text-sm leading-relaxed">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -73,7 +74,7 @@ function MarkdownMessage({ text }: { text: string }) {
               <div className="relative">
                 <button
                   type="button"
-                  className="absolute right-2 top-2 z-10 rounded border border-line bg-panel px-2 py-1 text-[10px] text-muted hover:text-slate-100"
+                  className="absolute right-2 top-2 z-10 rounded border border-line bg-panel px-2 py-1 text-[11px] text-muted hover:text-slate-100"
                   onClick={() => void copyText(raw)}
                 >
                   Copiar
@@ -83,7 +84,7 @@ function MarkdownMessage({ text }: { text: string }) {
             );
           },
           code: ({ children, className }) => (
-            <code className={className ? "block" : "rounded border border-line bg-[#0b1220] px-1 py-0.5 text-[0.85em]"}>
+            <code className={className ? "block" : "rounded border border-line bg-well px-1 py-0.5 text-[0.85em]"}>
               {children}
             </code>
           ),
@@ -128,7 +129,6 @@ export function ChatPanel({
   const [elapsed, setElapsed] = useState(0);
   const [surface, setSurface] = useState<ChatSurface>(() => {
     const saved = localStorage.getItem(`chat-surface:${storageKey}`);
-    if (saved === "expanded") return "expanded";
     if (saved === "minimized" && !onMinimize) return "minimized";
     return "docked";
   });
@@ -154,20 +154,17 @@ export function ChatPanel({
     return () => clearInterval(timer);
   }, [busy]);
 
-  useEffect(() => {
-    if (surface === "minimized" || !atBottom) return;
-    if (typeof endRef.current?.scrollIntoView === "function") {
-      endRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-    }
-  }, [messages, busy, draft, activities, surface, atBottom]);
+  function scrollToLatest() {
+    if (typeof endRef.current?.scrollIntoView !== "function") return;
+    const reduced =
+      typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    endRef.current.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "end" });
+  }
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && surface === "expanded") setSurface("docked");
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [surface]);
+    if (surface === "minimized" || !atBottom) return;
+    scrollToLatest();
+  }, [messages, busy, draft, activities, surface, atBottom]);
 
   function upsertActivity(event: ChatProgressEvent & { type: "activity" }) {
     setActivities((current) => {
@@ -235,19 +232,16 @@ export function ChatPanel({
         onClick={() => setSurface("docked")}
         aria-label="Restaurar chat del agente"
       >
-        <span className="text-accent">◆</span>
+        <BrandMark size={16} />
         {title}
-        {messages.length > 1 && <span className="rounded-full bg-accent px-1.5 text-[10px] text-ink">{messages.length}</span>}
+        {messages.length > 1 && <span className="rounded-full bg-accent px-1.5 text-[11px] text-ink">{messages.length}</span>}
       </button>
     );
   }
 
-  const expanded = surface === "expanded";
-  const panelClass = expanded
-    ? "fixed inset-0 z-40 flex flex-col gap-2.5 rounded-none border border-line bg-panel p-4 shadow-2xl sm:inset-4 sm:rounded-xl"
-    : fill
-      ? "flex h-full min-h-0 flex-col gap-2.5 rounded-xl border border-line bg-panel p-3.5"
-      : "flex min-h-[380px] flex-col gap-2.5 rounded-xl border border-line bg-panel p-3.5";
+  const panelClass = fill
+    ? "flex h-full min-h-0 flex-col gap-2.5 rounded-xl border border-line bg-panel p-3.5"
+    : "flex min-h-[380px] flex-col gap-2.5 rounded-xl border border-line bg-panel p-3.5";
 
   return (
     <section className={panelClass} aria-label={`Chat con ${title}`} data-testid="chat-panel">
@@ -257,14 +251,6 @@ export function ChatPanel({
           {hint && <small className="text-[11px] text-muted">{hint}</small>}
         </div>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            className={buttonGhost}
-            onClick={() => setSurface(expanded ? "docked" : "expanded")}
-            aria-label={expanded ? "Contraer chat" : "Expandir chat"}
-          >
-            {expanded ? "Contraer" : "Expandir"}
-          </button>
           <button
             type="button"
             className={buttonGhost}
@@ -280,7 +266,7 @@ export function ChatPanel({
       </header>
       <div
         ref={listRef}
-        className={`flex flex-col gap-2 overflow-auto pr-1 ${expanded || fill ? "min-h-0 flex-1" : "max-h-80"}`}
+        className={`flex flex-col gap-2 overflow-auto pr-1 ${fill ? "min-h-0 flex-1" : "max-h-80"}`}
         onScroll={handleScroll}
         aria-live="polite"
         data-testid="chat-messages"
@@ -288,25 +274,25 @@ export function ChatPanel({
         {messages.map((message, index) => (
           <article
             key={index}
-            className={`whitespace-pre-wrap rounded-[10px] px-3 py-2 text-[13px] leading-relaxed ${
+            className={`whitespace-pre-wrap rounded-[10px] px-3 py-2 text-sm leading-relaxed ${
               message.role === "user"
                 ? "ml-auto max-w-[90%] border border-accent/30 bg-accent/10"
                 : message.role === "system"
                   ? "border border-danger/35 bg-danger/10 text-rose-200"
-                  : "border border-line bg-[#0b1220]"
+                  : "border border-line bg-well"
             }`}
           >
             {message.role === "agent" ? <MarkdownMessage text={message.text} /> : message.text}
           </article>
         ))}
         {busy && (
-          <article className="flex flex-col gap-2 rounded-[10px] border border-accent/25 bg-[#0b1220] px-3 py-2.5 text-[13px]">
+          <article className="flex flex-col gap-2 rounded-[10px] border border-accent/25 bg-well px-3 py-2.5 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="flex items-center gap-1.5 text-[11px] font-medium text-accent">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
                 Agente trabajando
               </span>
-              <small className="text-[10px] text-muted">{elapsed > 0 ? formatElapsed(elapsed) : "ahora"}</small>
+              <small className="text-[11px] text-muted">{elapsed > 0 ? formatElapsed(elapsed) : "ahora"}</small>
             </div>
             {activities.length > 0 && (
               <ul className="flex flex-col gap-1 text-[11px] text-muted" aria-label="Actividad del agente">
@@ -338,23 +324,23 @@ export function ChatPanel({
         )}
         <div ref={endRef} />
       </div>
-      {!atBottom && (
-        <button
-          type="button"
-          className={buttonGhost}
-          onClick={() => {
-            if (typeof endRef.current?.scrollIntoView === "function") endRef.current.scrollIntoView({ behavior: "smooth" });
-          }}
-        >
-          Ir al último mensaje
-        </button>
-      )}
+      <div className="flex min-h-6 items-center justify-end">
+        {!atBottom && (
+          <button
+            type="button"
+            className="rounded-full border border-line bg-panel-2 px-3 py-1 text-[11px] text-slate-200 transition hover:border-accent"
+            onClick={scrollToLatest}
+          >
+            Ir al último mensaje
+          </button>
+        )}
+      </div>
       <form className="flex flex-col gap-2" onSubmit={submit}>
         <textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}
           placeholder="Pídele un flujo, una corrección o un reporte…"
-          rows={expanded ? 4 : 3}
+          rows={3}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();

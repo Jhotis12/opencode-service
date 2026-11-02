@@ -4,7 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type ProjectSummary } from "../api.ts";
 import { qk } from "../query.ts";
 import { Modal } from "../components/Modal.tsx";
-import { badge, button, buttonDanger, buttonGhost, buttonPrimary, card, pageTitle } from "../ui.ts";
+import { badge, button, buttonDanger, buttonGhost, buttonPrimary, card, friendlyError, pageTitle } from "../ui.ts";
+import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 function slugify(value: string): string {
   return value
@@ -21,6 +22,7 @@ function formatDate(value: string): string {
 }
 
 export function ProjectsPage() {
+  useDocumentTitle("Proyectos");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const projectsQuery = useQuery({ queryKey: qk.projects, queryFn: () => api.listProjects().then((result) => result.data) });
@@ -34,6 +36,7 @@ export function ProjectsPage() {
   const [template, setTemplate] = useState<"blank" | "triaje-operativo">("blank");
   const [slugTouched, setSlugTouched] = useState(false);
   const [formError, setFormError] = useState<string>();
+  const [rawError, setRawError] = useState<string>();
   const [status, setStatus] = useState<string>();
 
   const projects = projectsQuery.data ?? [];
@@ -69,7 +72,10 @@ export function ProjectsPage() {
       resetCreate();
       navigate(`/projects/${result.project.slug}`);
     },
-    onError: (error) => setFormError(error instanceof Error ? error.message : "No se pudo crear el proyecto"),
+    onError: (error) => {
+      setRawError(error instanceof Error ? error.message : undefined);
+      setFormError(friendlyError(error, "No se pudo crear el proyecto."));
+    },
   });
 
   const remove = useMutation({
@@ -83,7 +89,10 @@ export function ProjectsPage() {
       setDeleteConfirm("");
       setStatus(`Proyecto ${project.name} eliminado`);
     },
-    onError: (error) => setFormError(error instanceof Error ? error.message : "No se pudo eliminar el proyecto"),
+    onError: (error) => {
+      setRawError(error instanceof Error ? error.message : undefined);
+      setFormError(friendlyError(error, "No se pudo eliminar el proyecto."));
+    },
   });
 
   function submit(event: FormEvent) {
@@ -125,7 +134,7 @@ export function ProjectsPage() {
         </p>
       )}
       {(projectsQuery.error || formError) && !createOpen && !deleteTarget && (
-        <p className="text-sm text-danger">
+        <p className="text-sm text-danger" title={rawError}>
           {formError ?? (projectsQuery.error instanceof Error ? projectsQuery.error.message : "Error de proyectos")}
         </p>
       )}
@@ -163,8 +172,12 @@ export function ProjectsPage() {
                   {project.description || "Sin descripción. Puedes agregarla en los ajustes del proyecto."}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  <span className={badge}>Agente: {project.primaryAgent ?? "sin definir"}</span>
-                  <span className={badge}>Modelo: {project.defaultModel ?? "global"}</span>
+                  <span className={`${badge} max-w-full`} title={project.primaryAgent ?? "sin definir"}>
+                    <span className="truncate">Agente: {project.primaryAgent ?? "sin definir"}</span>
+                  </span>
+                  <span className={`${badge} max-w-full`} title={project.defaultModel ?? "global"}>
+                    <span className="truncate">Modelo: {project.defaultModel ?? "global"}</span>
+                  </span>
                 </div>
               </div>
               <div className="flex items-center justify-between gap-2 border-t border-line pt-3">
@@ -270,7 +283,7 @@ export function ProjectsPage() {
                 <option value="triaje-operativo">Triaje operativo (vertical de referencia)</option>
               </select>
             </label>
-            {formError && <p className="text-sm text-danger">{formError}</p>}
+            {formError && <p className="text-sm text-danger" title={rawError}>{formError}</p>}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -303,7 +316,7 @@ export function ProjectsPage() {
             Escribe <code>{deleteTarget.slug}</code> para confirmar
             <input value={deleteConfirm} onChange={(event) => setDeleteConfirm(event.target.value)} autoFocus />
           </label>
-          {formError && <p className="text-sm text-danger">{formError}</p>}
+          {formError && <p className="text-sm text-danger" title={rawError}>{formError}</p>}
           <div className="flex justify-end gap-2">
             <button className={buttonGhost} onClick={() => setDeleteTarget(undefined)}>
               Cancelar

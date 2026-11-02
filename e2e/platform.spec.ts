@@ -69,6 +69,13 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   const canvasBox = await page.getByTestId("workflow-canvas").boundingBox();
   expect(canvasBox?.width ?? 0).toBeGreaterThan(1000);
   expect(canvasBox?.height ?? 0).toBeGreaterThan(700);
+  const initialZoom = await page.locator(".react-flow__viewport").evaluate((element) => {
+    const transform = getComputedStyle(element).transform;
+    return Number(transform.split("(")[1]?.split(",")[0] ?? 0);
+  });
+  expect(initialZoom).toBeGreaterThanOrEqual(0.8);
+  await expect(page.getByRole("button", { name: "Ajustar vista del flujo" })).toBeVisible();
+  await page.getByRole("button", { name: "Ajustar vista del flujo" }).click();
   const minimapColor = await page
     .locator(".react-flow__minimap")
     .evaluate((element) => getComputedStyle(element).backgroundColor);
@@ -78,6 +85,23 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
     .evaluate((element) => getComputedStyle(element).backgroundColor);
   expect(minimapColor).not.toBe("rgb(255, 255, 255)");
   expect(controlsColor).not.toBe("rgb(255, 255, 255)");
+
+  // The desktop top bar keeps every tab label inside the strip at 1440 and 1280.
+  const assertTabsFit = async () => {
+    const nav = page.locator('nav[aria-label="Secciones del proyecto"]');
+    const navBox = await nav.boundingBox();
+    expect(navBox).not.toBeNull();
+    for (const name of [/^Canvas$/, /^Ejecuciones/, /^Agentes/, /^Conocimiento$/, /^Recursos/, /^Ajustes$/]) {
+      const box = await page.getByRole("button", { name }).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(navBox!.x - 1);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(navBox!.x + navBox!.width + 1);
+    }
+  };
+  await assertTabsFit();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await assertTabsFit();
+  await page.setViewportSize({ width: 1440, height: 960 });
 
   // Delete the edge through its toolbar and recreate the connection.
   await page.locator(".react-flow__edge-interaction").first().click({ force: true });
@@ -124,7 +148,7 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   const runDialog = page.getByRole("dialog", { name: /Ejecución/ });
   await expect(runDialog.getByText("Resultado final")).toBeVisible();
   await expect(runDialog.getByText("Preparar datos")).toBeVisible();
-  await expect(runDialog.getByTestId("run-status")).toHaveText("succeeded", { timeout: 15_000 });
+  await expect(runDialog.getByTestId("run-status")).toHaveText("Completado", { timeout: 15_000 });
   await runDialog.getByRole("button", { name: "Cerrar" }).click();
 
   await page.getByRole("button", { name: "Agente", exact: true }).click();
@@ -155,24 +179,53 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await expect(page.getByText("Preparar datos", { exact: true })).toBeVisible();
 
   // Workflow versions modal lists snapshots and allows rolling back.
-  await page.getByRole("button", { name: "Versiones del flujo" }).click();
+  await page.getByRole("button", { name: "Más acciones del flujo" }).click();
+  await page.getByRole("menuitem", { name: /Versiones del flujo/ }).click();
   const versionsModal = page.getByRole("dialog", { name: "Versiones del flujo" });
   await expect(versionsModal).toBeVisible();
   await expect(versionsModal.getByRole("button", { name: "Restaurar v1" })).toBeVisible();
   await versionsModal.getByRole("button", { name: "Cerrar" }).click();
 
+  await page.getByRole("button", { name: "Más acciones del flujo" }).click();
+  await page.getByRole("menuitem", { name: "Ajustes del flujo" }).click();
+  const flowSettings = page.getByRole("dialog", { name: "Ajustes del flujo" });
+  await expect(flowSettings).toBeVisible();
+  await flowSettings.getByRole("button", { name: "Cerrar" }).click();
+
   await page.getByRole("button", { name: /Agentes/ }).click();
-  await page.getByLabel("Categoría").fill("ventas");
-  await page.getByLabel("Rol").fill("calificador");
-  await page.getByLabel("Descripción").fill("Califica leads entrantes");
-  await page.getByLabel("Instrucciones (.md)").fill("Eres el calificador de ventas. Devuelve un score de 1 a 10.");
-  await page.getByRole("button", { name: "Guardar agente" }).click();
+  await page.getByRole("button", { name: "Nuevo agente" }).click();
+  const newAgent = page.getByRole("dialog", { name: "Nuevo agente" });
+  await expect(newAgent).toBeVisible();
+  await newAgent.getByLabel("Categoría").fill("ventas");
+  await newAgent.getByLabel("Rol").fill("calificador");
+  await newAgent.getByLabel("Descripción").fill("Califica leads entrantes");
+  await newAgent.getByLabel("Instrucciones (.md)").fill("Eres el calificador de ventas. Devuelve un score de 1 a 10.");
+  await newAgent.getByRole("button", { name: "Guardar agente" }).click();
+  await expect(newAgent).toBeHidden();
   await expect(page.getByText("Agente ventas/calificador guardado")).toBeVisible();
+
+  const agentCard = page.getByTestId("agent-card-ventas-calificador");
+  await expect(agentCard).toBeVisible();
+  await agentCard.getByRole("button", { name: "Editar" }).click();
+  const editAgent = page.getByRole("dialog", { name: "Editar agente" });
+  await editAgent.getByLabel("Descripción").fill("Califica leads entrantes v2");
+  await editAgent.getByRole("button", { name: "Guardar agente" }).click();
+  await expect(editAgent).toBeHidden();
+  await expect(agentCard.getByText("Califica leads entrantes v2")).toBeVisible();
 
   const agents = await page.request.get("/api/projects/e2e-bot/agents");
   expect(agents.ok()).toBeTruthy();
-  const agentList = (await agents.json()) as { data: Array<{ category: string; role: string }> };
-  expect(agentList.data.some((agent) => agent.category === "ventas" && agent.role === "calificador")).toBe(true);
+  const agentList = (await agents.json()) as {
+    data: Array<{ category: string; role: string; frontmatter: { description: string } }>;
+  };
+  expect(
+    agentList.data.some(
+      (agent) =>
+        agent.category === "ventas" &&
+        agent.role === "calificador" &&
+        agent.frontmatter.description === "Califica leads entrantes v2",
+    ),
+  ).toBe(true);
 
   // Project-owned resources: create an external chat integration inside the project.
   const createdIntegration = await page.request.post("/api/projects/e2e-bot/integrations", {
@@ -213,9 +266,14 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await page.goto("/orchestrator");
   await expect(page.getByRole("heading", { name: "Orquestador global", level: 1 })).toBeVisible();
   await expect(page.getByText("E2E Bot")).toBeVisible();
+  await expect(page.getByTestId("chat-panel")).toBeVisible();
+  await page.getByRole("button", { name: "Minimizar chat" }).click();
+  await expect(page.getByRole("button", { name: "Restaurar chat del agente" })).toBeVisible();
+  await page.getByRole("button", { name: "Restaurar chat del agente" }).click();
+  await expect(page.getByTestId("chat-panel")).toBeVisible();
 
   await page.goto("/system/health");
-  await expect(page.getByTestId("health-status")).toHaveText("ok");
+  await expect(page.getByTestId("health-status")).toHaveText("Operativo");
   await expect(page.getByRole("cell", { name: "OpenCode V2" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Database" })).toBeVisible();
 
@@ -237,7 +295,7 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await page.getByRole("button", { name: /^Ejecuciones/ }).first().click();
   await page.getByRole("button", { name: "Ver detalle" }).first().click();
   const triajeRunDialog = page.getByRole("dialog", { name: /Ejecución/ });
-  await expect(triajeRunDialog.getByTestId("run-status")).toHaveText("succeeded", { timeout: 15_000 });
+  await expect(triajeRunDialog.getByTestId("run-status")).toHaveText("Completado", { timeout: 15_000 });
   await expect(triajeRunDialog.getByText(/procesado/).first()).toBeVisible();
   await triajeRunDialog.getByRole("button", { name: "Cerrar" }).click();
 

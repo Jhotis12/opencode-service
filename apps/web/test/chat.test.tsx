@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChatPanel } from "../src/components/ChatPanel.tsx";
 import { renderWithProviders } from "./render.tsx";
@@ -28,14 +28,40 @@ describe("ChatPanel", () => {
     expect(document.querySelector("script")).toBeNull();
   });
 
-  it("expands, minimizes and restores the chat surface", async () => {
+  it("minimizes and restores the chat without an expand control", async () => {
     renderWithProviders(<ChatPanel storageKey="surface-test" onSend={async () => "ok"} />);
-    await userEvent.click(screen.getByRole("button", { name: "Expandir chat" }));
-    expect(screen.getByRole("button", { name: "Contraer chat" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Expandir chat" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Minimizar chat" }));
     expect(screen.getByRole("button", { name: "Restaurar chat del agente" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Restaurar chat del agente" }));
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+  });
+
+  it("falls back to docked from a persisted expanded value", () => {
+    localStorage.setItem("chat-surface:legacy-expanded", "expanded");
+    renderWithProviders(<ChatPanel storageKey="legacy-expanded" onSend={async () => "ok"} />);
+    expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Expandir chat" })).not.toBeInTheDocument();
+  });
+
+  it("shows a jump-to-latest pill above the composer and respects reduced motion", async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
+    renderWithProviders(<ChatPanel storageKey="jump-test" onSend={async () => "ok"} />);
+    scrollIntoView.mockClear();
+
+    const list = screen.getByTestId("chat-messages");
+    Object.defineProperty(list, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(list, "clientHeight", { value: 200, configurable: true });
+    list.scrollTop = 0;
+    fireEvent.scroll(list);
+
+    const jump = await screen.findByRole("button", { name: "Ir al último mensaje" });
+    expect(jump.closest("form")).toBeNull();
+    await userEvent.click(jump);
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "end" });
+    vi.unstubAllGlobals();
   });
 
   it("sends a message and appends the reply", async () => {

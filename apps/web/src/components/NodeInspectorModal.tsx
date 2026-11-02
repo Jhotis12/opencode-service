@@ -6,6 +6,7 @@ import { NodeInspector } from "./NodeInspector.tsx";
 import { NODE_META } from "./nodes/node-catalog.ts";
 import { NodeIcon } from "./nodes/node-icons.tsx";
 import { getConnectionIssue, nodeIssues, type GraphIssue } from "./canvas/graph-edits.ts";
+import { StatusBadge } from "./StatusBadge.tsx";
 import { badge, button, buttonDanger, buttonGhost, statusBadge } from "../ui.ts";
 
 type InspectorTab = "settings" | "connections" | "execution";
@@ -153,13 +154,13 @@ export function NodeInspectorModal({
       <div className="flex flex-wrap items-center gap-2">
         <span
           className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
-          style={{ background: `color-mix(in srgb, ${meta.color} 20%, #0b1220)`, color: meta.color }}
+          style={{ background: `color-mix(in srgb, ${meta.color} 20%, var(--color-well))`, color: meta.color }}
         >
           <NodeIcon type={node.type} />
         </span>
         <span className={badge}>{meta.title}</span>
         <small className="truncate text-[11px] text-muted">{node.id}</small>
-        {lastStep && <span className={statusBadge(lastStep.status)}>{lastStep.status}</span>}
+        {lastStep && <StatusBadge status={lastStep.status} />}
         {nodeIssueList.length > 0 && (
           <span className={statusBadge("paused")}>
             {nodeIssueList.length} {nodeIssueList.length === 1 ? "problema" : "problemas"}
@@ -286,7 +287,7 @@ export function NodeInspectorModal({
             <strong className="text-xs uppercase tracking-wide text-muted">Salidas ({outgoing.length})</strong>
             {outgoing.length === 0 && <p className="text-xs text-muted">Este nodo todavía no tiene salidas.</p>}
             {outgoing.map((edge) => (
-              <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-[#0a1120] p-2">
+              <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2">
                 <span className="min-w-0 flex-1 truncate text-xs text-slate-200">
                   → {edgeTargetLabel(graph, edge)}
                 </span>
@@ -317,7 +318,7 @@ export function NodeInspectorModal({
             <strong className="text-xs uppercase tracking-wide text-muted">Entradas ({incoming.length})</strong>
             {incoming.length === 0 && <p className="text-xs text-muted">Este nodo todavía no tiene entradas.</p>}
             {incoming.map((edge) => (
-              <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-[#0a1120] p-2">
+              <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2">
                 <span className="min-w-0 flex-1 truncate text-xs text-slate-200">
                   ← {edgeSourceLabel(graph, edge)}
                   {graph.nodes.find((source) => source.id === edge.source)?.type === "decision" &&
@@ -342,7 +343,7 @@ export function NodeInspectorModal({
           {lastStep ? (
             <>
               <div className="flex flex-wrap gap-1.5">
-                <span className={statusBadge(lastStep.status)}>{lastStep.status}</span>
+                <StatusBadge status={lastStep.status} />
                 <span className={badge}>{lastStep.durationMs} ms</span>
                 {lastStep.model && <span className={badge}>{lastStep.model}</span>}
                 {lastStep.agentId && <span className={badge}>{lastStep.agentId}</span>}

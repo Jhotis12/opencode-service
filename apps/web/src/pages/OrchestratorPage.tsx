@@ -3,9 +3,12 @@ import { Link } from "react-router-dom";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { ChatPanel } from "../components/ChatPanel.tsx";
-import { badge, card, pageTitle, statusBadge } from "../ui.ts";
+import { StatusBadge } from "../components/StatusBadge.tsx";
+import { badge, card, pageTitle } from "../ui.ts";
+import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 export function OrchestratorPage() {
+  useDocumentTitle("Orchestrator global");
   const queryClient = useQueryClient();
   const overviewQuery = useQuery({
     queryKey: qk.controlOverview,
@@ -50,7 +53,7 @@ export function OrchestratorPage() {
             ].map((item) => (
               <div className="flex min-w-[120px] flex-col gap-1" key={item.label}>
                 <small className="text-xs text-muted">{item.label}</small>
-                <strong className="text-lg text-slate-100">{item.value}</strong>
+                <strong className="text-lg tabular-nums text-slate-100">{item.value}</strong>
               </div>
             ))}
           </div>
@@ -71,12 +74,12 @@ export function OrchestratorPage() {
             <h2 className="text-base font-semibold text-slate-100">Fallos recientes</h2>
             <div className="flex flex-col gap-2">
               {failedRuns.map((run) => (
-                <article className="rounded-lg border border-line bg-[#0a1120] p-3" key={run.id}>
+                <article className="rounded-lg border border-line bg-well p-3" key={run.id}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <strong className="text-sm">
                       {run.projectSlug} · {run.workflowId}
                     </strong>
-                    <span className={statusBadge(run.status)}>{run.status}</span>
+                    <StatusBadge status={run.status} />
                   </div>
                   <small className="text-xs text-muted">
                     {new Date(run.startedAt).toLocaleString()} · run {run.id.slice(0, 8)}
@@ -92,9 +95,11 @@ export function OrchestratorPage() {
             <h2 className="text-base font-semibold text-slate-100">Estado de integraciones</h2>
             <div className="flex flex-wrap gap-2">
               {(overview?.integrations ?? []).map((integration) => (
-                <span className={statusBadge(integration.status)} key={integration.id}>
-                  {integration.name} · {integration.kind} · {integration.scope}
-                  {integration.projectSlug ? ` · ${integration.projectSlug}` : ""}
+                <span key={integration.id} className="inline-flex flex-wrap items-center gap-1.5">
+                  <StatusBadge status={integration.status} />
+                  <span>{integration.name} · {integration.kind} · {integration.scope}
+                    {integration.projectSlug ? ` · ${integration.projectSlug}` : ""}
+                  </span>
                 </span>
               ))}
               {overview?.integrations.length === 0 && <p className="text-sm text-muted">Sin integraciones configuradas.</p>}

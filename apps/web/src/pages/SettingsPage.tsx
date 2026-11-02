@@ -6,10 +6,12 @@ import { qk } from "../query.ts";
 import { Modal } from "../components/Modal.tsx";
 import { ControlChannelsPanel } from "../components/ControlChannelsPanel.tsx";
 import { badge, button, buttonPrimary, card, pageTitle, statusBadge } from "../ui.ts";
+import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 type ModalKey = "model" | "provider" | "vault" | "telemetry";
 
 export function SettingsPage() {
+  useDocumentTitle("Ajustes");
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({ queryKey: qk.settings, queryFn: () => api.getSettings().then((result) => result.data) });
   const secretsQuery = useQuery({ queryKey: qk.secrets, queryFn: () => api.listSecrets().then((result) => result.data) });
@@ -116,7 +118,7 @@ export function SettingsPage() {
         ].map((item) => (
           <div className="flex min-w-[120px] flex-col gap-1" key={item.label}>
             <small className="text-xs text-muted">{item.label}</small>
-            <strong className="text-sm text-slate-100">{item.value}</strong>
+            <strong className="text-sm tabular-nums text-slate-100">{item.value}</strong>
           </div>
         ))}
       </div>
@@ -126,8 +128,13 @@ export function SettingsPage() {
           <h2 className="text-base font-semibold text-slate-100">Modelo por defecto</h2>
           <p className="text-xs text-muted">Se usa cuando el proyecto, el flujo o el nodo no definen un modelo propio.</p>
           <div className="flex items-center justify-between gap-2">
-            <code>{settings?.defaultModel ?? "sin definir"}</code>
-            <button className={button} onClick={() => setModal("model")}>
+            <code
+              className="block min-w-0 flex-1 truncate"
+              title={settings?.defaultModel ?? "sin definir"}
+            >
+              {settings?.defaultModel ?? "sin definir"}
+            </code>
+            <button className={`${button} shrink-0`} onClick={() => setModal("model")}>
               Elegir modelo
             </button>
           </div>
@@ -235,7 +242,7 @@ export function SettingsPage() {
             </button>
           </div>
           <h3 className="text-sm font-semibold text-slate-100">Modelos disponibles ({models.length})</h3>
-          <div className="flex max-h-64 flex-col gap-1 overflow-auto rounded-lg border border-line bg-[#080f1c] p-2">
+          <div className="flex max-h-64 flex-col gap-1 overflow-auto rounded-lg border border-line bg-well p-2">
             {models.map((model) => (
               <div
                 className="flex justify-between gap-3 border-b border-line/50 px-1.5 py-1 text-xs last:border-0"

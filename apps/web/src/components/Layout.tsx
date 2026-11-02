@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.tsx";
 import { buttonGhost } from "../ui.ts";
+import { BrandLockup } from "./Brand.tsx";
+import { useMediaQuery } from "../useMediaQuery.ts";
 import { NavIcon, type NavIconName } from "./NavIcon.tsx";
 
 const NAV_ITEMS: Array<{ to: string; label: string; icon: NavIconName }> = [
@@ -35,6 +37,8 @@ export function Layout() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const isMobileNav = useMediaQuery("(max-width: 1023px)");
+  const navInert = isMobileNav && !mobileOpen;
   const fluid = location.pathname.startsWith("/projects/");
 
   useEffect(() => {
@@ -59,7 +63,13 @@ export function Layout() {
 
   return (
     <div className={`min-h-dvh lg:grid ${collapsed ? "lg:grid-cols-[64px_1fr]" : "lg:grid-cols-[240px_1fr]"}`}>
-      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-line bg-[#080d18]/95 px-4 lg:hidden">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:border focus:border-line focus:bg-panel focus:px-4 focus:py-2 focus:text-sm focus:text-slate-100"
+      >
+        Saltar al contenido
+      </a>
+      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-line bg-ink/95 px-4 lg:hidden">
         <button
           type="button"
           className={buttonGhost}
@@ -68,34 +78,33 @@ export function Layout() {
         >
           <NavIcon name="menu" />
         </button>
-        <span className="text-2xl text-accent">◆</span>
-        <strong className="text-sm text-slate-100">Agentic Platform</strong>
+        <BrandLockup size={24} subtitle={false} to="/projects" />
       </header>
 
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 bg-[#020617]/65 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-ink/65 backdrop-blur-sm lg:hidden"
           onClick={() => setMobileOpen(false)}
           aria-hidden
         />
       )}
 
       <aside
-        className={`nav-drawer fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col gap-6 border-r border-line bg-[#080d18]/95 p-4 lg:static lg:z-auto lg:h-dvh lg:translate-x-0 ${
+        className={`nav-drawer fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col gap-6 border-r border-line bg-ink/95 p-4 lg:static lg:z-auto lg:h-dvh lg:translate-x-0 ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         } ${collapsed ? "lg:w-16 lg:gap-4 lg:p-3" : "lg:w-60 lg:p-5"}`}
         aria-label="Navegación lateral"
+        inert={navInert}
+        aria-hidden={navInert || undefined}
       >
         <div className={`flex items-center gap-3 ${collapsed ? "lg:flex-col lg:gap-2" : ""}`}>
-          <span className="text-3xl text-accent" aria-hidden>
-            ◆
-          </span>
-          {!collapsed && (
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <strong className="block whitespace-nowrap text-[13px] text-slate-100">Agentic Platform</strong>
-              <small className="block whitespace-nowrap text-[10px] text-muted">OpenCode V2 · Hexagonal</small>
-            </div>
-          )}
+          <BrandLockup
+            size={32}
+            compact={collapsed}
+            subtitle={collapsed ? false : "Agentes sobre OpenCode"}
+            to="/projects"
+            className={collapsed ? "lg:justify-center" : "flex-1"}
+          />
           <button
             type="button"
             className={`ml-auto hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-transparent text-slate-300 transition hover:border-line hover:bg-panel-2 lg:grid ${
@@ -158,6 +167,8 @@ export function Layout() {
       </aside>
 
       <main
+        id="main-content"
+        tabIndex={-1}
         data-testid="app-main"
         className={
           fluid

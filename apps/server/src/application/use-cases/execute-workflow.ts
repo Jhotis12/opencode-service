@@ -1,12 +1,15 @@
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   InputSchemaSchema,
   ValidateConfigSchema,
+  type InputSchema,
   type NodeSpec,
   type SseEvent,
   type WorkflowGraph,
   type WorkflowRunStatus,
 } from "@platform/shared";
+import { captureCodeBundle } from "./projects.ts";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { CodeWorkerPort, WorkerRpcHandlers } from "../ports/worker.ts";
@@ -64,28 +67,31 @@ interface RunState {
   sessionId?: string;
   priorOutputs?: Map<string, unknown>;
   resumeNodeId?: string;
+  codeBundle?: Record<string, string>;
 }
 
 export class ExecuteWorkflowRunUseCase {
   constructor(protected readonly deps: ExecutorDeps) {}
 
   async execute(input: ExecuteRunInput): Promise<WorkflowRunRecord> {
-    const prepared = this.prepare(input);
+    const prepared = await this.prepare(input);
     if (!prepared.created) return prepared.run;
     return this.runGraph(input.graph, input.payload, {
       run: prepared.run,
       priorOutputs: undefined,
       resumeNodeId: undefined,
+      codeBundle: prepared.codeBundle,
     }, input.approvalOverrides ?? {});
   }
 
   async start(input: ExecuteRunInput): Promise<WorkflowRunRecord> {
-    const prepared = this.prepare(input);
+    const prepared = await this.prepare(input);
     if (!prepared.created) return prepared.run;
     void this.runGraph(input.graph, input.payload, {
       run: prepared.run,
       priorOutputs: undefined,
       resumeNodeId: undefined,
+      codeBundle: prepared.codeBundle,
     }, input.approvalOverrides ?? {}).catch((error) => {
       this.deps.logger.error({
         event: "workflow_background_failed",
@@ -97,7 +103,9 @@ export class ExecuteWorkflowRunUseCase {
     return prepared.run;
   }
 
-  private prepare(input: ExecuteRunInput): { run: WorkflowRunRecord; created: boolean } {
+  private async prepare(
+    input: ExecuteRunInput,
+  ): Promise<{ run: WorkflowRunRecord; created: boolean; codeBundle: Record<string, string> }> {
     validateWorkflowGraph(input.graph);
     const trigger = input.graph.nodes.find((node) => node.type === "trigger");
     const schema = InputSchemaSchema.safeParse(trigger?.config.inputSchema);
@@ -106,6 +114,15 @@ export class ExecuteWorkflowRunUseCase {
       throw new WorkflowInputValidationError(["El esquema de entrada del trigger no es válido."]);
     }
     const payloadHash = computePayloadHash(input.payload);
+    const graphHash = computeGraphHash(input.graph);
+    const codeBundle = await captureCodeBundle(this.deps.workspace, input.projectSlug, input.graph);
+    const snapshot = this.deps.store.versions.record({
+      projectSlug: input.projectSlug,
+      graphHash,
+      graph: input.graph,
+      codeBundle,
+      createdBy: input.launchedBy,
+    });
     const run: WorkflowRunRecord = {
       id: crypto.randomUUID(),
       projectSlug: input.projectSlug,
@@ -116,7 +133,8 @@ export class ExecuteWorkflowRunUseCase {
       input: input.payload,
       entryPoint: input.entryPoint,
       launchedBy: input.launchedBy,
-      graphHash: computeGraphHash(input.graph),
+      graphHash,
+      versionId: snapshot.id,
       integrationId: input.integrationId,
       sourceDetail: input.sourceDetail,
       startedAt: new Date().toISOString(),
@@ -125,7 +143,7 @@ export class ExecuteWorkflowRunUseCase {
     if (!claimed.created) {
       if (claimed.run.payloadHash !== payloadHash) throw new IdempotencyMismatchError();
       if (claimed.run.status === "running" || claimed.run.status === "paused") throw new RunInFlightError(claimed.run.id);
-      return { run: claimed.run, created: false };
+      return { run: claimed.run, created: false, codeBundle };
     }
     this.deps.events.publish({
       type: "run.updated",
@@ -134,7 +152,86 @@ export class ExecuteWorkflowRunUseCase {
       workflowId: run.workflowId,
       status: run.status,
     });
-    return { run, created: true };
+    return { run, created: true, codeBundle };
+  }
+
+  private async resolveRunSnapshot(
+    run: WorkflowRunRecord,
+  ): Promise<{ graph: WorkflowGraph; codeBundle: Record<string, string> }> {
+    const byId = run.versionId ? this.deps.store.versions.findById(run.versionId) : undefined;
+    if (byId) return { graph: byId.graph, codeBundle: byId.codeBundle };
+    const byHash = run.graphHash
+      ? this.deps.store.versions.findByGraphHash(run.projectSlug, run.graphHash)
+      : undefined;
+    if (byHash) return { graph: byHash.graph, codeBundle: byHash.codeBundle };
+    const graph = await this.deps.workspace.readWorkflow(run.projectSlug);
+    const codeBundle = await captureCodeBundle(this.deps.workspace, run.projectSlug, graph);
+    return { graph, codeBundle };
+  }
+
+  async recoverInterruptedRuns(): Promise<WorkflowRunRecord[]> {
+    const running = this.deps.store.runs.listByStatus("running");
+    const recovered: WorkflowRunRecord[] = [];
+    for (const run of running) {
+      let snapshot: { graph: WorkflowGraph; codeBundle: Record<string, string> };
+      try {
+        snapshot = await this.resolveRunSnapshot(run);
+      } catch (error) {
+        const message = `interrupted on restart: ${error instanceof Error ? error.message : String(error)}`;
+        this.deps.store.runs.update(run.id, {
+          status: "failed",
+          error: message,
+          finishedAt: new Date().toISOString(),
+        });
+        recovered.push(this.deps.store.runs.findById(run.id)!);
+        continue;
+      }
+      const steps = this.deps.store.runs.listSteps(run.id);
+      const priorOutputs = new Map<string, unknown>();
+      for (const step of steps) {
+        if (step.status === "succeeded") priorOutputs.set(step.nodeId, step.output);
+      }
+      let cursor: NodeSpec | undefined = startNode(snapshot.graph);
+      let resumeNodeId = cursor.id;
+      const visited = new Set<string>();
+      while (cursor && !visited.has(cursor.id)) {
+        visited.add(cursor.id);
+        if (!priorOutputs.has(cursor.id)) {
+          resumeNodeId = cursor.id;
+          break;
+        }
+        const out = priorOutputs.get(cursor.id);
+        const decision =
+          cursor.type === "decision"
+            ? typeof out === "boolean"
+              ? out
+              : typeof (out as { result?: unknown })?.result === "boolean"
+                ? (out as { result: boolean }).result
+                : Boolean(out)
+            : undefined;
+        const edge = nextEdge(snapshot.graph, cursor.id, decision);
+        if (!edge) {
+          resumeNodeId = cursor.id;
+          break;
+        }
+        cursor = snapshot.graph.nodes.find((node) => node.id === edge.target);
+        if (cursor) resumeNodeId = cursor.id;
+      }
+      const result = await this.runGraph(
+        snapshot.graph,
+        run.input,
+        {
+          run: { ...run, status: "running", error: undefined, finishedAt: undefined },
+          priorOutputs,
+          resumeNodeId,
+          codeBundle: snapshot.codeBundle,
+        },
+        {},
+        run.entryPoint,
+      );
+      recovered.push(result);
+    }
+    return recovered;
   }
 
   async replay(
@@ -145,7 +242,8 @@ export class ExecuteWorkflowRunUseCase {
   ): Promise<WorkflowRunRecord> {
     const run = this.deps.store.runs.findById(runId);
     if (!run) throw new Error(`run not found: ${runId}`);
-    const graph = await this.deps.workspace.readWorkflow(run.projectSlug);
+    const snapshot = await this.resolveRunSnapshot(run);
+    const graph = snapshot.graph;
     const steps = this.deps.store.runs.listSteps(runId);
     const priorOutputs = new Map<string, unknown>();
     for (const step of steps) {
@@ -171,7 +269,12 @@ export class ExecuteWorkflowRunUseCase {
     return this.runGraph(
       graph,
       run.input,
-      { run: { ...run, status: "running", error: undefined, finishedAt: undefined }, priorOutputs, resumeNodeId },
+      {
+        run: { ...run, status: "running", error: undefined, finishedAt: undefined },
+        priorOutputs,
+        resumeNodeId,
+        codeBundle: snapshot.codeBundle,
+      },
       {},
       entryPoint,
     );
@@ -181,7 +284,8 @@ export class ExecuteWorkflowRunUseCase {
     const run = this.deps.store.runs.findById(runId);
     if (!run) throw new Error(`run not found: ${runId}`);
     this.deps.store.runs.decideApproval(runId, nodeId, approved ? "approved" : "rejected", decidedBy);
-    const graph = await this.deps.workspace.readWorkflow(run.projectSlug);
+    const snapshot = await this.resolveRunSnapshot(run);
+    const graph = snapshot.graph;
     const steps = this.deps.store.runs.listSteps(runId);
     const priorOutputs = new Map<string, unknown>();
     for (const step of steps) {
@@ -207,7 +311,12 @@ export class ExecuteWorkflowRunUseCase {
     return this.runGraph(
       graph,
       run.input,
-      { run: { ...run, status: "running", error: undefined, finishedAt: undefined }, priorOutputs, resumeNodeId: nodeId },
+      {
+        run: { ...run, status: "running", error: undefined, finishedAt: undefined },
+        priorOutputs,
+        resumeNodeId: nodeId,
+        codeBundle: snapshot.codeBundle,
+      },
       { [nodeId]: true },
     );
   }
@@ -236,9 +345,20 @@ export class ExecuteWorkflowRunUseCase {
           if (current.id === state.resumeNodeId) {
             resumed = true;
           } else {
-            if (state.priorOutputs?.has(current.id)) currentInput = state.priorOutputs.get(current.id);
-            lastOutput = currentInput;
-            const edge = nextEdge(graph, current.id);
+            const priorOut = state.priorOutputs?.get(current.id);
+            if (current.type !== "decision" && state.priorOutputs?.has(current.id)) {
+              currentInput = priorOut;
+            }
+            lastOutput = priorOut ?? currentInput;
+            const priorDecision =
+              current.type === "decision"
+                ? typeof priorOut === "boolean"
+                  ? priorOut
+                  : typeof (priorOut as { result?: unknown })?.result === "boolean"
+                    ? (priorOut as { result: boolean }).result
+                    : Boolean(priorOut)
+                : undefined;
+            const edge = nextEdge(graph, current.id, priorDecision);
             if (!edge) break;
             current = graph.nodes.find((node) => node.id === edge.target)!;
             continue;
@@ -262,24 +382,39 @@ export class ExecuteWorkflowRunUseCase {
         let logs: Array<{ message: string; fields: Record<string, unknown> }> | undefined;
 
         const runWorkerNode = async () => {
-          const codePath = join(projectDirectory, current.codeFile!);
+          const diskCodePath = join(projectDirectory, current.codeFile!);
+          const snapshotCode = state.codeBundle?.[current.codeFile!];
+          let tempSnapshotPath: string | undefined;
+          let codePath = diskCodePath;
+          if (snapshotCode !== undefined) {
+            const diskCode = await readFile(diskCodePath, "utf8").catch(() => undefined);
+            if (diskCode !== snapshotCode) {
+              tempSnapshotPath = `${diskCodePath}.snapshot-${state.run.id}-${crypto.randomUUID()}.ts`;
+              await writeFile(tempSnapshotPath, snapshotCode, "utf8");
+              codePath = tempSnapshotPath;
+            }
+          }
           const maxRetries = current.retryPolicy.maxRetries;
           let attempt = 0;
-          for (;;) {
-            try {
-              return await worker.execute({
-                nodeId: current.id,
-                projectSlug: state.run.projectSlug,
-                codePath,
-                input: currentInput,
-                timeoutMs: current.timeoutMs,
-                handlers: this.deps.workerHandlers,
-              });
-            } catch (error) {
-              if (attempt >= maxRetries) throw error;
-              attempt += 1;
-              logger.warn({ event: "node_retry", nodeId: current.id, attempt, error: String(error) });
+          try {
+            for (;;) {
+              try {
+                return await worker.execute({
+                  nodeId: current.id,
+                  projectSlug: state.run.projectSlug,
+                  codePath,
+                  input: currentInput,
+                  timeoutMs: current.timeoutMs,
+                  handlers: this.deps.workerHandlers,
+                });
+              } catch (error) {
+                if (attempt >= maxRetries) throw error;
+                attempt += 1;
+                logger.warn({ event: "node_retry", nodeId: current.id, attempt, error: String(error) });
+              }
             }
+          } finally {
+            if (tempSnapshotPath) await rm(tempSnapshotPath, { force: true }).catch(() => undefined);
           }
         };
 
@@ -339,7 +474,39 @@ export class ExecuteWorkflowRunUseCase {
             );
             if (context) prompt = `${context}\n\n${prompt}`;
           }
-          output = await agent.prompt(state.sessionId, prompt);
+          const rawReply = await agent.prompt(state.sessionId, prompt);
+          const outputSchema = InputSchemaSchema.safeParse(current.config.outputSchema);
+          if (outputSchema.success && outputSchema.data.fields.length > 0) {
+            try {
+              output = parseAndValidateAgentOutput(rawReply, outputSchema.data);
+            } catch (firstError) {
+              const reason =
+                firstError instanceof WorkflowInputValidationError
+                  ? firstError.issues.join("; ")
+                  : firstError instanceof Error
+                    ? firstError.message
+                    : String(firstError);
+              const repairPrompt = [
+                `La respuesta anterior no cumplió el esquema de salida JSON (${reason}).`,
+                `Esquema de salida JSON obligatorio: ${JSON.stringify(outputSchema.data.fields)}`,
+                "Devuelve ÚNICAMENTE un objeto JSON válido que cumpla todos los campos requeridos, sin texto adicional.",
+              ].join("\n\n");
+              const repairedReply = await agent.prompt(state.sessionId, repairPrompt);
+              try {
+                output = parseAndValidateAgentOutput(repairedReply, outputSchema.data);
+              } catch (secondError) {
+                const finalReason =
+                  secondError instanceof WorkflowInputValidationError
+                    ? secondError.issues.join("; ")
+                    : secondError instanceof Error
+                      ? secondError.message
+                      : String(secondError);
+                throw new NodeValidationError(`Salida estructurada inválida en ${current.id}: ${finalReason}`);
+              }
+            }
+          } else {
+            output = rawReply;
+          }
         } else if (current.type === "approval") {
           const override = approvalOverrides[current.id];
           if (override === undefined) {
@@ -412,9 +579,6 @@ export class ExecuteWorkflowRunUseCase {
           stepStatus: "succeeded",
           output,
         });
-        lastOutput = output;
-        currentInput = output;
-
         const decision =
           current.type === "decision"
             ? typeof output === "boolean"
@@ -423,6 +587,10 @@ export class ExecuteWorkflowRunUseCase {
                 ? (output as { result: boolean }).result
                 : Boolean(output)
             : undefined;
+        lastOutput = output;
+        if (current.type !== "decision") {
+          currentInput = output;
+        }
         const edge = nextEdge(graph, current.id, decision);
         if (!edge) break;
         const next = graph.nodes.find((node) => node.id === edge.target);
@@ -599,15 +767,42 @@ export async function executeHttpNode(node: NodeSpec, input: unknown): Promise<u
   return text;
 }
 
+export function parseAndValidateAgentOutput(raw: string, schema: InputSchema): Record<string, unknown> {
+  const trimmed = raw.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+  let candidate = fenced ? fenced[1]!.trim() : trimmed;
+  if (!fenced && !candidate.startsWith("{")) {
+    const start = candidate.indexOf("{");
+    const end = candidate.lastIndexOf("}");
+    if (start !== -1 && end > start) candidate = candidate.slice(start, end + 1);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(candidate);
+  } catch {
+    throw new WorkflowInputValidationError(["La salida del agente no es JSON válido."]);
+  }
+  validateInputPayload(schema, parsed);
+  return parsed as Record<string, unknown>;
+}
+
 export function buildNodePrompt(graph: WorkflowGraph, nodeId: string, input: unknown): string {
   const node = graph.nodes.find((item) => item.id === nodeId);
   const instruction = typeof node?.config.instruction === "string" ? node.config.instruction : "";
+  const outputSchema = InputSchemaSchema.safeParse(node?.config.outputSchema);
+  const schemaInstruction =
+    outputSchema.success && outputSchema.data.fields.length > 0
+      ? [
+          `Esquema de salida JSON obligatorio: ${JSON.stringify(outputSchema.data.fields)}`,
+          "Devuelve ÚNICAMENTE un objeto JSON válido que cumpla exactamente el esquema de salida, sin texto adicional.",
+        ].join("\n")
+      : "Responde de forma concisa y accionable.";
   return [
     `Flujo: ${graph.name}. Nodo: ${node?.label ?? nodeId}.`,
     instruction,
     "Entrada del nodo (JSON):",
     JSON.stringify(input ?? null, null, 2),
-    "Responde de forma concisa y accionable.",
+    schemaInstruction,
   ]
     .filter(Boolean)
     .join("\n\n");

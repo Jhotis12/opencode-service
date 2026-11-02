@@ -4,9 +4,12 @@ import type {
   HealthSnapshot,
   IntegrationRecord,
   NodeSpec,
+  PermissionRule,
+  ProjectTemplate,
   SubagentProfile,
   User,
   WorkflowGraph,
+  WorkflowVersion,
 } from "@platform/shared";
 
 export class ApiClientError extends Error {
@@ -235,7 +238,7 @@ export const api = {
     }),
 
   listProjects: () => request<{ data: ProjectSummary[] }>("/api/projects"),
-  createProject: (input: { slug: string; name: string; description?: string }) =>
+  createProject: (input: { slug: string; name: string; description?: string; template?: ProjectTemplate }) =>
     request<{ project: ProjectSummary; graph: WorkflowGraph }>("/api/projects", {
       method: "POST",
       body: JSON.stringify(input),
@@ -254,6 +257,13 @@ export const api = {
   getWorkflow: (slug: string) => request<WorkflowGraph>(`/api/projects/${slug}/workflow`),
   saveWorkflow: (slug: string, graph: WorkflowGraph) =>
     request<WorkflowGraph>(`/api/projects/${slug}/workflow`, { method: "PUT", body: JSON.stringify(graph) }),
+  listWorkflowVersions: (slug: string) =>
+    request<{ data: WorkflowVersion[] }>(`/api/projects/${slug}/workflow/versions`),
+  rollbackWorkflowVersion: (slug: string, version: number) =>
+    request<{ graph: WorkflowGraph; version: WorkflowVersion }>(
+      `/api/projects/${slug}/workflow/versions/${version}/rollback`,
+      { method: "POST" },
+    ),
   listRuns: (slug: string) => request<{ data: RunRecord[] }>(`/api/projects/${slug}/runs?limit=20`),
   runWorkflow: (slug: string, payload: unknown, idempotencyKey?: string) =>
     request<RunRecord>(`/api/projects/${slug}/runs`, {
@@ -279,7 +289,14 @@ export const api = {
     slug: string,
     category: string,
     role: string,
-    input: { description: string; mode?: string; model?: string; body: string; notebooks?: string[] },
+    input: {
+      description: string;
+      mode?: string;
+      model?: string;
+      body: string;
+      notebooks?: string[];
+      permissions?: PermissionRule[];
+    },
   ) =>
     request<SubagentProfile>(`/api/projects/${slug}/agents/${category}/${role}`, {
       method: "PUT",
@@ -434,4 +451,4 @@ export const api = {
   errors: () => request<{ data: HealthPayload["recentErrors"] }>("/api/system/errors"),
 };
 
-export type { ChatThread, IntegrationRecord, NodeSpec, WorkflowGraph, SubagentProfile, User };
+export type { ChatThread, IntegrationRecord, NodeSpec, WorkflowGraph, WorkflowVersion, SubagentProfile, User };

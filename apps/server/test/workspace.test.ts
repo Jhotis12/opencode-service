@@ -88,4 +88,22 @@ describe("safe filesystem workspace", () => {
     expect(await ws.readAgent("p1", ".opencode/agents/ventas/calificador.md")).toContain("body");
     await expect(ws.writeAgent("p1", "nodes/evil.md", "x")).rejects.toMatchObject({ code: "FORBIDDEN_PATH" });
   });
+
+  it("scaffolds the triaje-operativo vertical template with 6 nodes, code file, and scoped classifier agent", async () => {
+    const { ws } = await workspace();
+    await ws.createProject({ slug: "triaje-1", name: "Triaje 1", template: "triaje-operativo" });
+    const graph = await ws.readWorkflow("triaje-1");
+    expect(graph.nodes.map((n) => n.id)).toEqual([
+      "start",
+      "validar-entrada",
+      "clasificar-caso",
+      "requiere-aprobacion",
+      "aprobacion-supervisor",
+      "emitir-dictamen",
+    ]);
+    expect(await ws.listNodes("triaje-1")).toEqual(["resumen-accion.ts"]);
+    const agentMd = await ws.readAgent("triaje-1", ".opencode/agents/operaciones/clasificador.md");
+    expect(agentMd).toContain("workflow_upsert");
+    expect(agentMd).toContain("effect: deny");
+  });
 });

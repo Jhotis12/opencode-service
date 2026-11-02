@@ -1,10 +1,16 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { streamSSE } from "hono/streaming";
-import { apiError, type ChatProgressEvent, type WorkflowGraph } from "@platform/shared";
+import {
+  apiError,
+  evaluateToolPermission,
+  type AgentExecutionContext,
+  type ChatProgressEvent,
+  type WorkflowGraph,
+} from "@platform/shared";
 import type { IntegrationRecord, UserRecord } from "./domain/entities.ts";
 import { InMemoryMetrics } from "./domain/telemetry/metrics.ts";
 import type { Logger } from "./domain/telemetry/index.ts";
@@ -39,7 +45,9 @@ import {
   ChatWithProjectUseCase,
   CreateProjectUseCase,
   DeleteProjectUseCase,
+  RollbackWorkflowVersionUseCase,
   SaveWorkflowUseCase,
+  captureCodeBundle,
   syncProjectsFromDisk,
 } from "./application/use-cases/projects.ts";
 import { GetHealthUseCase } from "./application/use-cases/health.ts";
@@ -55,6 +63,7 @@ import {
   IdempotencyMismatchError,
   RunInFlightError,
   WorkflowValidationError,
+  computeGraphHash,
 } from "./domain/workflow/graph.ts";
 import { WorkflowInputValidationError } from "./domain/workflow/input.ts";
 import { ManageIntegrationsUseCase, type IntegrationCommand, type IntegrationUpdateCommand } from "./application/use-cases/manage-integrations.ts";
@@ -63,6 +72,7 @@ import { GetProjectSettingsUseCase, UpdateProjectSettingsUseCase } from "./appli
 import { ChatWithOrchestratorUseCase } from "./application/use-cases/orchestrator.ts";
 import { AlertService } from "./application/use-cases/alerts.ts";
 import { validateWorkflowResources } from "./application/use-cases/workflow-resources.ts";
+import { WorkflowScheduler } from "./domain/workflow/cron.ts";
 
 export interface AppConfig {
   dataDir: string;
@@ -90,6 +100,7 @@ export interface Application {
   events: SseHub;
   agent: import("./application/ports/runtime.ts").AgentRuntimePort;
   integrationManager: IntegrationManager;
+  scheduler: WorkflowScheduler;
   close(): void;
 }
 
@@ -101,6 +112,19 @@ type AppEnv = {
     serviceProject?: string;
   };
 };
+
+function resolveProjectRouteTool(method: string, path: string): string | undefined {
+  if (method === "PUT" && (/\/workflow$/.test(path) || /\/nodes\//.test(path))) return "workflow_upsert";
+  if (method === "POST" && /\/workflow\/versions\/\d+\/rollback$/.test(path)) return "workflow_upsert";
+  if ((method === "PUT" || method === "DELETE") && /\/agents\/[^/]+\/[^/]+$/.test(path)) return "subagent_upsert";
+  if (method === "POST" && /\/integrations\/[^/]+\/database\/query$/.test(path)) return "db_query";
+  if (method === "POST" && /\/integrations\/[^/]+\/notify$/.test(path)) return "notify";
+  if (method === "POST" && /\/runs$/.test(path)) return "workflow_trigger";
+  if (method === "POST" && (/\/notebooks\/[^/]+\/search$/.test(path) || /\/knowledge\/search$/.test(path))) {
+    return "kb_search";
+  }
+  return undefined;
+}
 
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
@@ -267,6 +291,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const createProject = new CreateProjectUseCase(store, workspace, events);
   const deleteProject = new DeleteProjectUseCase(store, workspace, events);
   const saveWorkflow = new SaveWorkflowUseCase(store, workspace, events);
+  const rollbackWorkflow = new RollbackWorkflowVersionUseCase(store, workspace, events);
+  await executor.recoverInterruptedRuns().catch(() => undefined);
   const chat = new ChatWithProjectUseCase({
     store,
     workspace,
@@ -291,6 +317,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const updateProjectSettings = new UpdateProjectSettingsUseCase(store, events);
   const alerts = new AlertService({ store, egress, events, logger });
   alerts.start();
+  const scheduler = new WorkflowScheduler({ store, workspace, executor, logger });
+  scheduler.start();
 
   const app = new Hono<AppEnv>();
 
@@ -306,7 +334,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   app.use("/api/*", async (c, next) => {
     const path = c.req.path;
     if (path === "/api/auth/login" || path === "/api/auth/logout" || path === "/api/auth/me") return next();
-    if (path.startsWith("/api/v1/integrations/")) return next();
+    if (path.startsWith("/api/v1/integrations/") || path.startsWith("/api/v1/webhooks/")) return next();
     const token = c.req.header("x-platform-token");
     if (token) {
       const scopeHeader = c.req.header("x-platform-scope");
@@ -337,9 +365,39 @@ export async function createApplication(config: AppConfig): Promise<Application>
 
   app.use("/api/projects/:slug/*", async (c, next) => {
     const scope = c.get("serviceScope");
+    const slug = c.req.param("slug");
     if (scope === "project") {
-      if (c.get("serviceProject") !== c.req.param("slug")) {
+      if (c.get("serviceProject") !== slug) {
         return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
+      }
+      const agentHeader = c.req.header("x-platform-agent")?.trim();
+      const contextHeader = (c.req.header("x-platform-context")?.trim() as AgentExecutionContext | undefined) ?? "chat";
+      const toolName = resolveProjectRouteTool(c.req.method, c.req.path);
+      if (toolName && (agentHeader || contextHeader !== "chat")) {
+        let permissions: Array<{ action: string; resource: string; effect: "allow" | "deny" | "ask" }> | undefined;
+        if (agentHeader && agentHeader.includes("/")) {
+          const [category, role] = agentHeader.split("/");
+          if (category && role) {
+            const profile = await agents.get(slug, category, role).catch(() => undefined);
+            permissions = profile?.frontmatter.permissions;
+          }
+        }
+        const verdict = evaluateToolPermission({
+          tool: toolName,
+          context: contextHeader,
+          permissions,
+        });
+        if (!verdict.allowed) {
+          logger.warn({
+            event: "agent_tool_permission_denied",
+            entryPoint: "worker",
+            projectSlug: slug,
+            agentId: agentHeader,
+            tool: toolName,
+            reason: verdict.reason,
+          });
+          return c.json(apiError("FORBIDDEN", verdict.reason ?? "tool permission denied"), 403);
+        }
       }
       return next();
     }
@@ -347,7 +405,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
       return c.json(apiError("FORBIDDEN", "global orchestrator is read-only for project data"), 403);
     }
     const scoped = c.req.header("x-platform-project");
-    if (scoped && c.req.param("slug") !== scoped) {
+    if (scoped && slug !== scoped) {
       return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
     }
     await next();
@@ -396,6 +454,65 @@ export async function createApplication(config: AppConfig): Promise<Application>
       logger,
     }),
   );
+
+  app.post("/api/v1/webhooks/:projectSlug/:nodeId", async (c) => {
+    const projectSlug = c.req.param("projectSlug");
+    const nodeId = c.req.param("nodeId");
+    const rawBody = await c.req.text();
+    let payload: unknown = {};
+    if (rawBody.trim()) {
+      try {
+        payload = JSON.parse(rawBody);
+      } catch {
+        return c.json(apiError("VALIDATION_ERROR", "invalid JSON payload"), 422);
+      }
+    }
+    const graph = await workspace.readWorkflow(projectSlug).catch(() => undefined);
+    if (!graph) return c.json(apiError("NOT_FOUND", "workflow not found"), 404);
+    const trigger = graph.nodes.find(
+      (node) => node.id === nodeId && node.type === "trigger" && node.config.kind === "webhook",
+    );
+    if (!trigger) return c.json(apiError("NOT_FOUND", "webhook trigger not found"), 404);
+    const secretAlias = String(trigger.config.secretAlias ?? "").trim();
+    const secretRecord = secretAlias
+      ? store.vault.findByAlias({ scope: "project", projectSlug, alias: secretAlias })
+      : undefined;
+    if (!secretRecord) return c.json(apiError("UNAUTHORIZED", "webhook secret is not configured"), 401);
+    const secret = vault.decrypt(secretRecord.ciphertext);
+    const headerSecret = c.req.header("x-webhook-secret") ?? "";
+    const signatureHeader = c.req.header("x-webhook-signature") ?? "";
+    const expectedSig = `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}`;
+    const validSecret = Boolean(headerSecret && safeEqual(headerSecret, secret));
+    const validSignature = Boolean(signatureHeader && safeEqual(signatureHeader, expectedSig));
+    if (!validSecret && !validSignature) {
+      return c.json(apiError("UNAUTHORIZED", "invalid webhook secret or signature"), 401);
+    }
+    try {
+      await validateWorkflowResources(store, workspace, projectSlug, graph);
+      const run = await executor.start({
+        projectSlug,
+        graph,
+        payload,
+        entryPoint: "webhook",
+        idempotencyKey: c.req.header("idempotency-key") ?? undefined,
+        launchedBy: "webhook",
+        sourceDetail: `webhook:${nodeId}`,
+      });
+      return c.json({ runId: run.id, ...run, steps: store.runs.listSteps(run.id) }, 202);
+    } catch (error) {
+      if (error instanceof WorkflowInputValidationError) {
+        return c.json(apiError("VALIDATION_ERROR", error.message, error.issues), 422);
+      }
+      if (error instanceof WorkflowValidationError) {
+        return c.json(apiError("INVALID_WORKFLOW", error.message, error.issues), 422);
+      }
+      if (error instanceof IdempotencyMismatchError) return c.json(apiError("IDEMPOTENCY_MISMATCH", error.message), 422);
+      if (error instanceof RunInFlightError) {
+        return c.json(apiError("RUN_IN_FLIGHT", error.message, { runId: error.runId }), 409);
+      }
+      throw error;
+    }
+  });
 
   // Project integrations
   app.get("/api/projects/:slug/integrations", (c) =>
@@ -654,14 +771,27 @@ export async function createApplication(config: AppConfig): Promise<Application>
   });
 
   app.post("/api/projects", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { slug?: string; name?: string; description?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      slug?: string;
+      name?: string;
+      description?: string;
+      template?: "blank" | "triaje-operativo";
+    };
     const scoped = c.req.header("x-platform-project");
     if (scoped && body.slug && body.slug !== scoped) {
       return c.json(apiError("FORBIDDEN", "a project agent cannot create another project"), 403);
     }
     if (!body.slug || !body.name) return c.json(apiError("VALIDATION_ERROR", "slug and name are required"), 422);
     try {
-      return c.json(await createProject.execute({ slug: body.slug, name: body.name, description: body.description }), 201);
+      return c.json(
+        await createProject.execute({
+          slug: body.slug,
+          name: body.name,
+          description: body.description,
+          template: body.template === "triaje-operativo" ? "triaje-operativo" : "blank",
+        }),
+        201,
+      );
     } catch (error) {
       return c.json(apiError("CONFLICT", error instanceof Error ? error.message : "could not create project"), 409);
     }
@@ -695,12 +825,36 @@ export async function createApplication(config: AppConfig): Promise<Application>
     const body = (await c.req.json().catch(() => undefined)) as WorkflowGraph | undefined;
     if (!body) return c.json(apiError("VALIDATION_ERROR", "workflow body is required"), 422);
     try {
-      return c.json(await saveWorkflow.execute(c.req.param("slug"), body));
+      return c.json(await saveWorkflow.execute(c.req.param("slug"), body, c.get("user")?.username ?? "service"));
     } catch (error) {
       if (error instanceof WorkflowValidationError) {
         return c.json(apiError("INVALID_WORKFLOW", error.message, error.issues), 422);
       }
       if (error instanceof WorkspaceError) return c.json(apiError(error.code, error.message), 400);
+      throw error;
+    }
+  });
+
+  app.get("/api/projects/:slug/workflow/versions", (c) => {
+    const slug = c.req.param("slug");
+    if (!store.projects.findBySlug(slug)) return c.json(apiError("NOT_FOUND", "project not found"), 404);
+    const limit = Math.min(Number(c.req.query("limit") ?? 50) || 50, 100);
+    return c.json({ data: store.versions.list(slug, limit) });
+  });
+
+  app.post("/api/projects/:slug/workflow/versions/:version/rollback", async (c) => {
+    const slug = c.req.param("slug");
+    const version = Number(c.req.param("version"));
+    if (!Number.isInteger(version) || version < 1) {
+      return c.json(apiError("VALIDATION_ERROR", "invalid version number"), 422);
+    }
+    try {
+      const result = await rollbackWorkflow.execute(slug, version, c.get("user")?.username ?? "service");
+      return c.json(result);
+    } catch (error) {
+      if (error instanceof WorkspaceError) {
+        return c.json(apiError(error.code, error.message), error.code === "NOT_FOUND" ? 404 : 400);
+      }
       throw error;
     }
   });
@@ -850,9 +1004,21 @@ export async function createApplication(config: AppConfig): Promise<Application>
   app.put("/api/projects/:slug/nodes/:file{.+}", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { code?: string };
     if (typeof body.code !== "string") return c.json(apiError("VALIDATION_ERROR", "code is required"), 422);
+    const slug = c.req.param("slug");
     const file = c.req.param("file").replace(/^nodes\//, "");
     try {
-      await workspace.writeNode(c.req.param("slug"), `nodes/${file}`, body.code);
+      await workspace.writeNode(slug, `nodes/${file}`, body.code);
+      const graph = await workspace.readWorkflow(slug).catch(() => undefined);
+      if (graph) {
+        const codeBundle = await captureCodeBundle(workspace, slug, graph);
+        store.versions.record({
+          projectSlug: slug,
+          graphHash: computeGraphHash(graph),
+          graph,
+          codeBundle,
+          createdBy: c.get("user")?.username ?? "service",
+        });
+      }
       return c.json({ ok: true });
     } catch (error) {
       if (error instanceof WorkspaceError) return c.json(apiError(error.code, error.message), 400);
@@ -1179,7 +1345,9 @@ export async function createApplication(config: AppConfig): Promise<Application>
     events,
     agent,
     integrationManager,
+    scheduler,
     close: () => {
+      scheduler.stop();
       alerts.stop();
       void integrationManager.stopAll();
       store.close();

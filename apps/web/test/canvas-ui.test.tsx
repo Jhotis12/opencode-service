@@ -286,27 +286,46 @@ describe("ProjectTopBar", () => {
     const onSave = vi.fn();
     const onRun = vi.fn();
     const onChat = vi.fn();
+    const onRollbackVersion = vi.fn();
+    const flowGraph = graph([node("start", "trigger")]);
     render(
       <MemoryRouter>
         <ProjectTopBar
           slug="demo"
-          graph={graph([node("start", "trigger")])}
+          graph={flowGraph}
           tab="canvas"
           counts={{ runs: 2, agents: 1, integrations: 3 }}
           dirty
           issueCount={0}
           saving={false}
           modelOptions={["opencode-go/fast"]}
+          versions={[
+            {
+              id: "v1",
+              projectSlug: "demo",
+              version: 1,
+              graphHash: "h1",
+              graph: flowGraph,
+              codeBundle: {},
+              createdBy: "admin",
+              createdAt: new Date().toISOString(),
+            },
+          ]}
           onTab={onTab}
           onChange={onChange}
           onSave={onSave}
           onRun={onRun}
           onChat={onChat}
+          onRollbackVersion={onRollbackVersion}
         />
       </MemoryRouter>,
     );
     await userEvent.click(screen.getByRole("button", { name: "Agentes (1)" }));
     expect(onTab).toHaveBeenCalledWith("agents");
+    await userEvent.click(screen.getByRole("button", { name: "Versiones del flujo" }));
+    const versionsDialog = screen.getByRole("dialog", { name: "Versiones del flujo" });
+    await userEvent.click(within(versionsDialog).getByRole("button", { name: "Restaurar v1" }));
+    expect(onRollbackVersion).toHaveBeenCalledWith(1);
     await userEvent.click(screen.getByRole("button", { name: "Ajustes del flujo" }));
     const dialog = screen.getByRole("dialog", { name: "Ajustes del flujo" });
     await userEvent.type(within(dialog).getByLabelText("Descripción"), " nuevo");

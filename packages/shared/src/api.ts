@@ -38,3 +38,11 @@ export const UserSchema = z.object({
   createdAt: z.string(),
 });
 export type User = z.infer<typeof UserSchema>;
+
+export const CreateProjectRequestSchema = z.object({
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  template: z.enum(["blank", "triaje-operativo"]).default("blank"),
+});
+export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;

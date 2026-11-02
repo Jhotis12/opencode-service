@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { createHmac } from "node:crypto";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -388,5 +389,144 @@ describe("application HTTP surface", () => {
     const response = await json("/api/models");
     const body = (await response.json()) as { data: Array<{ providerID: string }> };
     expect(body.data.some((model) => model.providerID === "opencode-go")).toBe(true);
+  });
+
+  it("lists workflow version snapshots and rolls back to a prior version", async () => {
+    const versionsRes = await json("/api/projects/ventas-bot/workflow/versions");
+    expect(versionsRes.status).toBe(200);
+    const versionsBody = (await versionsRes.json()) as { data: Array<{ version: number; graph: WorkflowGraph }> };
+    expect(versionsBody.data.length).toBeGreaterThanOrEqual(2);
+    const v1 = versionsBody.data.find((v) => v.version === 1);
+    expect(v1?.graph.nodes).toHaveLength(1);
+
+    const rollbackRes = await json("/api/projects/ventas-bot/workflow/versions/1/rollback", {
+      method: "POST",
+    });
+    expect(rollbackRes.status).toBe(200);
+    const rolled = (await rollbackRes.json()) as { graph: WorkflowGraph; version: { version: number } };
+    expect(rolled.graph.nodes).toHaveLength(1);
+    expect(rolled.version.version).toBeGreaterThan(2);
+
+    const currentWorkflow = (await (await json("/api/projects/ventas-bot/workflow")).json()) as WorkflowGraph;
+    expect(currentWorkflow.nodes).toHaveLength(1);
+  });
+
+  it("executes webhook and schedule triggers with secret/HMAC verification and per-window idempotency", async () => {
+    await json("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ slug: "auto-bot", name: "Auto Bot" }),
+    });
+    await json("/api/projects/auto-bot/secrets", {
+      method: "POST",
+      body: JSON.stringify({ alias: "wh-key", value: "top-secret-wh", kind: "webhook" }),
+    });
+    const wf = (await (await json("/api/projects/auto-bot/workflow")).json()) as WorkflowGraph;
+    wf.nodes[0] = {
+      ...wf.nodes[0]!,
+      config: { kind: "webhook", secretAlias: "wh-key" },
+    };
+    const savedWh = await json("/api/projects/auto-bot/workflow", {
+      method: "PUT",
+      body: JSON.stringify(wf),
+    });
+    expect(savedWh.status).toBe(200);
+
+    const unauthorized = await app.request("/api/v1/webhooks/auto-bot/start", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-webhook-secret": "wrong" },
+      body: JSON.stringify({ event: "order.created" }),
+    });
+    expect(unauthorized.status).toBe(401);
+
+    const payloadText = JSON.stringify({ event: "order.created" });
+    const sig = `sha256=${createHmac("sha256", "top-secret-wh").update(payloadText).digest("hex")}`;
+    const authorized = await app.request("/api/v1/webhooks/auto-bot/start", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-webhook-signature": sig },
+      body: payloadText,
+    });
+    expect(authorized.status).toBe(202);
+    const whRun = (await authorized.json()) as { runId: string; entryPoint: string };
+    expect(whRun.entryPoint).toBe("webhook");
+
+    // Switch trigger to schedule and verify scheduler tick
+    wf.nodes[0] = {
+      ...wf.nodes[0]!,
+      config: { kind: "schedule", cron: "* * * * *" },
+    };
+    const savedCron = await json("/api/projects/auto-bot/workflow", {
+      method: "PUT",
+      body: JSON.stringify(wf),
+    });
+    expect(savedCron.status).toBe(200);
+
+    const tickTime = new Date("2026-11-02T10:00:00.000Z");
+    const firstTick = await application.scheduler.tick(tickTime);
+    expect(firstTick.some((run) => run.projectSlug === "auto-bot" && run.entryPoint === "schedule")).toBe(true);
+    // Second tick in the same minute window is deduplicated via idempotencyKey
+    const secondTick = await application.scheduler.tick(tickTime);
+    const firstRunId = firstTick.find((r) => r.projectSlug === "auto-bot")?.id;
+    const secondRunId = secondTick.find((r) => r.projectSlug === "auto-bot")?.id;
+    if (secondRunId && firstRunId) expect(secondRunId).toBe(firstRunId);
+  });
+
+  it("enforces per-agent tool permissions and blocks design mutations in workflow/external_channel context", async () => {
+    await json("/api/projects/ventas-bot/agents/ventas/restringido", {
+      method: "PUT",
+      body: JSON.stringify({
+        description: "Agente con permisos restringidos",
+        mode: "subagent",
+        body: "Solo lectura.",
+        permissions: [
+          { action: "tool", resource: "db_query", effect: "deny" },
+          { action: "tool", resource: "notify", effect: "deny" },
+        ],
+        notebooks: [],
+      }),
+    });
+
+    const wf = (await (await json("/api/projects/ventas-bot/workflow")).json()) as WorkflowGraph;
+
+    // Workflow step context cannot mutate workflow definition by default
+    const blockedUpsert = await app.request("/api/projects/ventas-bot/workflow", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-platform-token": serviceToken,
+        "x-platform-project": "ventas-bot",
+        "x-platform-agent": "ventas/calificador",
+        "x-platform-context": "workflow",
+      },
+      body: JSON.stringify(wf),
+    });
+    expect(blockedUpsert.status).toBe(403);
+
+    // Deny rule on notify is enforced even in chat context
+    const blockedNotify = await app.request("/api/projects/ventas-bot/integrations/any-id/notify", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-platform-token": serviceToken,
+        "x-platform-project": "ventas-bot",
+        "x-platform-agent": "ventas/restringido",
+        "x-platform-context": "chat",
+      },
+      body: JSON.stringify({ text: "hola" }),
+    });
+    expect(blockedNotify.status).toBe(403);
+
+    // Primary agent in chat context without deny rules can still update workflow
+    const allowedPrimary = await app.request("/api/projects/ventas-bot/workflow", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-platform-token": serviceToken,
+        "x-platform-project": "ventas-bot",
+        "x-platform-agent": "principal/agente",
+        "x-platform-context": "chat",
+      },
+      body: JSON.stringify(wf),
+    });
+    expect(allowedPrimary.status).toBe(200);
   });
 });

@@ -153,14 +153,30 @@ export function NodeInspector({
                 <select value={String(node.config.kind ?? "manual")} onChange={(event) => onConfig({ kind: event.target.value })}>
                   <option value="manual">Manual (canvas / formulario)</option>
                   <option value="integration">Integración (Telegram, WhatsApp, API)</option>
-                  <option value="schedule" disabled>
-                    Programado (próximamente)
-                  </option>
-                  <option value="webhook" disabled>
-                    Webhook (próximamente)
-                  </option>
+                  <option value="schedule">Programado (cron)</option>
+                  <option value="webhook">Webhook HTTP</option>
                 </select>
               </label>
+              {String(node.config.kind ?? "manual") === "schedule" && (
+                <label>
+                  Expresión Cron (5 campos UTC)
+                  <input
+                    value={String(node.config.cron ?? "")}
+                    onChange={(event) => onConfig({ cron: event.target.value })}
+                    placeholder="0 9 * * 1-5"
+                  />
+                </label>
+              )}
+              {String(node.config.kind ?? "manual") === "webhook" && (
+                <label>
+                  Alias de secreto del webhook
+                  <input
+                    value={String(node.config.secretAlias ?? "")}
+                    onChange={(event) => onConfig({ secretAlias: event.target.value })}
+                    placeholder="wh-secret"
+                  />
+                </label>
+              )}
               {String(node.config.kind ?? "manual") === "integration" && (
                 <>
                   <label>
@@ -193,16 +209,16 @@ export function NodeInspector({
                   </p>
                 </>
               )}
-              {["schedule", "webhook"].includes(String(node.config.kind ?? "")) && (
+              {!["manual", "integration", "schedule", "webhook"].includes(String(node.config.kind ?? "manual")) && (
                 <p className="text-xs text-warn md:col-span-2">
-                  Este tipo de entrada está definido en el esquema, pero todavía no tiene un ejecutor activo. Usa manual o una integración.
+                  Este tipo de entrada no tiene un ejecutor activo. Cambia a manual, integración, programado o webhook.
                 </p>
               )}
-              {String(node.config.kind ?? "manual") === "manual" && (
+              {["manual", "webhook"].includes(String(node.config.kind ?? "manual")) && (
                 <div className="flex flex-col gap-2 md:col-span-2">
                   <div className="flex items-center justify-between gap-2">
                     <strong className="text-xs text-muted">Datos de entrada manual</strong>
-                    <small className="text-[11px] text-muted">El formulario de “Ejecutar” se genera desde aquí.</small>
+                    <small className="text-[11px] text-muted">El formulario de “Ejecutar” y la validación inicial se generan desde aquí.</small>
                   </div>
                   <InputFieldsEditor
                     fields={((node.config.inputSchema as { fields?: InputField[] } | undefined)?.fields ?? []) as InputField[]}
@@ -398,6 +414,18 @@ export function NodeInspector({
                 />
                 Respuestas fundamentadas solo en Notebooks
               </label>
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <div className="flex items-center justify-between gap-2">
+                  <strong className="text-xs text-muted">Esquema de salida estructurada (JSON)</strong>
+                  <small className="text-[11px] text-muted">
+                    Si agregas campos, el agente responderá en JSON validado para el siguiente nodo.
+                  </small>
+                </div>
+                <InputFieldsEditor
+                  fields={((node.config.outputSchema as { fields?: InputField[] } | undefined)?.fields ?? []) as InputField[]}
+                  onChange={(fields) => onConfig({ outputSchema: { fields } })}
+                />
+              </div>
             </>
           )}
 

@@ -18,6 +18,7 @@ import {
 import {
   IdempotencyMismatchError,
   RunInFlightError,
+  computeGraphHash,
   computePayloadHash,
 } from "../src/domain/workflow/graph.ts";
 
@@ -385,5 +386,211 @@ describe("workflow execution", () => {
     const run = await executor.execute({ projectSlug: "p1", graph, payload: {}, entryPoint: "web_ui" });
     expect(run.status).toBe("timed_out");
     expect(store.runs.listSteps(run.id).find((step) => step.nodeId === "double")?.status).toBe("timed_out");
+  });
+
+  it("replays and resumes approvals using the original workflow snapshot even after disk mutations", async () => {
+    const graph = baseGraph();
+    graph.nodes.push(
+      { id: "review", type: "approval", position: { x: 2, y: 0 }, config: {}, notebookIds: [], timeoutMs: 5000, retryPolicy: { maxRetries: 0 } },
+      { id: "after", type: "code", codeFile: "nodes/after.ts", position: { x: 3, y: 0 }, config: {}, notebookIds: [], timeoutMs: 5000, retryPolicy: { maxRetries: 0 } },
+    );
+    graph.edges.push({ id: "e2", source: "double", target: "review" }, { id: "e3", source: "review", target: "after" });
+    const { executor, workspace } = await setup(graph, {
+      "nodes/double.ts": `export default async () => ({ v: 1 });`,
+      "nodes/after.ts": `export default async (input: { v: number }) => ({ fromSnapshot: input.v });`,
+    });
+
+    const paused = await executor.execute({ projectSlug: "p1", graph, payload: {}, entryPoint: "web_ui" });
+    expect(paused.status).toBe("paused");
+    expect(paused.versionId).toBeDefined();
+
+    // Mutate both the code file and workflow.json on disk while the run is paused
+    await workspace.writeNode("p1", "nodes/after.ts", `export default async () => ({ fromSnapshot: 999 });`);
+    const mutatedGraph = baseGraph();
+    await workspace.writeWorkflow("p1", mutatedGraph);
+
+    const resumed = await executor.resumeWithApproval(paused.id, "review", true, "admin");
+    expect(resumed.status).toBe("succeeded");
+    expect(resumed.output).toEqual({ fromSnapshot: 1 });
+  });
+
+  it("recovers interrupted running executions from their last succeeded checkpoint on startup", async () => {
+    const graph = baseGraph();
+    graph.nodes.push({
+      id: "final",
+      type: "code",
+      codeFile: "nodes/final.ts",
+      position: { x: 2, y: 0 },
+      config: {},
+      notebookIds: [],
+      timeoutMs: 5000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    graph.edges.push({ id: "e2", source: "double", target: "final" });
+    const { executor, store, dir } = await setup(graph, {
+      "nodes/double.ts": `export default async () => ({ step1: true });`,
+      "nodes/final.ts": `export default async (input: { step1: boolean }) => ({ recovered: input.step1 });`,
+    });
+    const marker = join(dir, "double-ran.txt");
+    const snapshot = store.versions.record({
+      projectSlug: "p1",
+      graphHash: computeGraphHash(graph),
+      graph,
+      codeBundle: {
+        "nodes/double.ts": `import { appendFileSync } from "node:fs"; export default async () => { appendFileSync(${JSON.stringify(marker)}, "1"); return { step1: true }; };`,
+        "nodes/final.ts": `export default async (input: { step1: boolean }) => ({ recovered: input.step1 });`,
+      },
+      createdBy: "system",
+    });
+    const now = new Date().toISOString();
+    store.runs.claim({
+      id: "interrupted-1",
+      projectSlug: "p1",
+      workflowId: graph.id,
+      status: "running",
+      payloadHash: computePayloadHash({}),
+      input: {},
+      entryPoint: "web_ui",
+      graphHash: snapshot.graphHash,
+      versionId: snapshot.id,
+      startedAt: now,
+    });
+    store.runs.insertStep({
+      id: "s-start",
+      runId: "interrupted-1",
+      nodeId: "start",
+      status: "succeeded",
+      input: {},
+      output: {},
+      durationMs: 1,
+      startedAt: now,
+      finishedAt: now,
+    });
+    store.runs.insertStep({
+      id: "s-double",
+      runId: "interrupted-1",
+      nodeId: "double",
+      status: "succeeded",
+      input: {},
+      output: { step1: true },
+      durationMs: 5,
+      startedAt: now,
+      finishedAt: now,
+    });
+
+    const recovered = await executor.recoverInterruptedRuns();
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]?.status).toBe("succeeded");
+    expect(recovered[0]?.output).toEqual({ recovered: true });
+    // `double` was already succeeded before crash, so marker file must not exist
+    await expect(readFile(marker, "utf8")).rejects.toThrow();
+  });
+
+  it("parses and validates structured outputSchema from agent nodes and routes downstream decision nodes", async () => {
+    const graph = baseGraph();
+    graph.nodes = [
+      graph.nodes[0]!,
+      {
+        id: "classify",
+        type: "agent",
+        agentId: "operaciones/clasificador",
+        position: { x: 1, y: 0 },
+        config: {
+          outputSchema: {
+            fields: [
+              { name: "urgencia", type: "string", required: true },
+              { name: "critico", type: "boolean", required: true },
+            ],
+          },
+        },
+        notebookIds: [],
+        timeoutMs: 30000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "route",
+        type: "decision",
+        position: { x: 2, y: 0 },
+        config: { mode: "condition", condition: { field: "critico", operator: "equals", value: true } },
+        notebookIds: [],
+        timeoutMs: 5000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      { id: "high", type: "code", codeFile: "nodes/high.ts", position: { x: 3, y: -1 }, config: {}, notebookIds: [], timeoutMs: 5000, retryPolicy: { maxRetries: 0 } },
+      { id: "low", type: "code", codeFile: "nodes/low.ts", position: { x: 3, y: 1 }, config: {}, notebookIds: [], timeoutMs: 5000, retryPolicy: { maxRetries: 0 } },
+    ];
+    graph.edges = [
+      { id: "e1", source: "start", target: "classify" },
+      { id: "e2", source: "classify", target: "route" },
+      { id: "e3", source: "route", target: "high", condition: "true" },
+      { id: "e4", source: "route", target: "low", condition: "false" },
+    ];
+    const { executor, agent, store } = await setup(graph, {
+      "nodes/high.ts": `export default async (input: { urgencia: string }) => ({ escalated: input.urgencia });`,
+      "nodes/low.ts": `export default async () => ({ escalated: "none" });`,
+    });
+    agent.prompt = async (_sid, text) => {
+      agent.prompts.push(text);
+      return "```json\n{\"urgencia\":\"alta\",\"critico\":true}\n```";
+    };
+
+    const run = await executor.execute({ projectSlug: "p1", graph, payload: { ticket: "caida" }, entryPoint: "web_ui" });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toEqual({ escalated: "alta" });
+    expect(store.runs.listSteps(run.id).find((s) => s.nodeId === "classify")?.output).toEqual({
+      urgencia: "alta",
+      critico: true,
+    });
+  });
+
+  it("repairs malformed agent JSON once and fails if the retry still violates outputSchema", async () => {
+    const graph = baseGraph();
+    graph.nodes = [
+      graph.nodes[0]!,
+      {
+        id: "classify",
+        type: "agent",
+        agentId: "operaciones/clasificador",
+        position: { x: 1, y: 0 },
+        config: {
+          outputSchema: {
+            fields: [{ name: "categoria", type: "string", required: true }],
+          },
+        },
+        notebookIds: [],
+        timeoutMs: 30000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      { id: "after", type: "code", codeFile: "nodes/after.ts", position: { x: 2, y: 0 }, config: {}, notebookIds: [], timeoutMs: 5000, retryPolicy: { maxRetries: 0 } },
+    ];
+    graph.edges = [
+      { id: "e1", source: "start", target: "classify" },
+      { id: "e2", source: "classify", target: "after" },
+    ];
+    const { executor, agent, store } = await setup(graph, {
+      "nodes/after.ts": `export default async (input: { categoria: string }) => ({ ok: input.categoria });`,
+    });
+
+    let call = 0;
+    agent.prompt = async (_sid, text) => {
+      agent.prompts.push(text);
+      call += 1;
+      if (call === 1) return "texto libre sin json";
+      return JSON.stringify({ categoria: "soporte" });
+    };
+
+    const repaired = await executor.execute({ projectSlug: "p1", graph, payload: {}, entryPoint: "web_ui" });
+    expect(repaired.status).toBe("succeeded");
+    expect(repaired.output).toEqual({ ok: "soporte" });
+    expect(call).toBe(2);
+
+    agent.prompt = async (_sid, text) => {
+      agent.prompts.push(text);
+      return JSON.stringify({ otro: 123 });
+    };
+    const failed = await executor.execute({ projectSlug: "p1", graph, payload: { retry: 2 }, entryPoint: "web_ui" });
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toContain("Falta el campo categoria");
+    expect(store.runs.listSteps(failed.id).some((s) => s.nodeId === "after")).toBe(false);
   });
 });

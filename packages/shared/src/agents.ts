@@ -3,6 +3,25 @@ import { z } from "zod";
 export const AgentModeSchema = z.enum(["primary", "subagent", "all"]);
 export type AgentMode = z.infer<typeof AgentModeSchema>;
 
+export const AgentExecutionContextSchema = z.enum(["chat", "workflow", "external_channel"]);
+export type AgentExecutionContext = z.infer<typeof AgentExecutionContextSchema>;
+
+export const PlatformToolNameSchema = z.enum([
+  "workflow_list",
+  "workflow_get",
+  "workflow_upsert",
+  "workflow_trigger",
+  "workflow_runs",
+  "project_overview",
+  "subagent_upsert",
+  "subagent_list",
+  "kb_search",
+  "db_query",
+  "notify",
+  "health_summary",
+]);
+export type PlatformToolName = z.infer<typeof PlatformToolNameSchema>;
+
 export const PermissionRuleSchema = z.object({
   action: z.string().min(1),
   resource: z.string().min(1),
@@ -48,4 +67,33 @@ export function parseModelRef(value: string): ModelRef | undefined {
   const [modelID, variant] = rest.split("#");
   if (!modelID) return undefined;
   return { providerID, modelID, ...(variant ? { variant } : {}) };
+}
+
+export function evaluateToolPermission(input: {
+  tool: string;
+  context?: AgentExecutionContext;
+  permissions?: PermissionRule[];
+}): { allowed: boolean; reason?: string } {
+  const rules = input.permissions ?? [];
+  const context = input.context ?? "chat";
+  const matchesRule = (rule: PermissionRule) =>
+    (rule.action === "tool" || rule.action === "*" || rule.action === input.tool) &&
+    (rule.resource === input.tool || rule.resource === "*" || rule.resource === `platform_${input.tool}`);
+
+  const denied = rules.find((rule) => matchesRule(rule) && rule.effect === "deny");
+  if (denied) {
+    return { allowed: false, reason: `permission denied by agent rule for tool ${input.tool}` };
+  }
+  const explicitlyAllowed = rules.some((rule) => matchesRule(rule) && rule.effect === "allow");
+  if (
+    (context === "workflow" || context === "external_channel") &&
+    (input.tool === "workflow_upsert" || input.tool === "subagent_upsert") &&
+    !explicitlyAllowed
+  ) {
+    return {
+      allowed: false,
+      reason: `tool ${input.tool} is blocked in ${context} context without explicit allow permission`,
+    };
+  }
+  return { allowed: true };
 }

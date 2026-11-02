@@ -160,8 +160,15 @@ export function getGraphIssues(graph: WorkflowGraph): GraphIssue[] {
   }
 
   for (const node of graph.nodes) {
-    if (node.type === "trigger" && ["schedule", "webhook"].includes(String(node.config.kind ?? ""))) {
-      issue(issues, { nodeId: node.id, message: "Este tipo de trigger todavía no tiene un ejecutor activo." });
+    if (node.type === "trigger") {
+      const kind = String(node.config.kind ?? "manual");
+      if (!["manual", "integration", "schedule", "webhook"].includes(kind)) {
+        issue(issues, { nodeId: node.id, message: "Este tipo de trigger todavía no tiene un ejecutor activo." });
+      } else if (kind === "schedule" && !String(node.config.cron ?? "").trim()) {
+        issue(issues, { nodeId: node.id, message: "El trigger programado necesita una expresión cron." });
+      } else if (kind === "webhook" && !String(node.config.secretAlias ?? "").trim()) {
+        issue(issues, { nodeId: node.id, message: "El trigger webhook necesita un alias de secreto." });
+      }
     }
     if (node.type === "code" && !node.codeFile) {
       issue(issues, { nodeId: node.id, message: "El nodo de código necesita un archivo TypeScript." });

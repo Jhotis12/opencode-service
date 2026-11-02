@@ -156,4 +156,38 @@ describe("platform tool namespace", () => {
     expect(plugin.id).toBe("platform-tools");
     expect(typeof plugin.setup).toBe("function");
   });
+
+  it("blocks workflow_upsert and subagent_upsert in workflow/external_channel contexts and enforces deny rules", async () => {
+    const client = new FakeClient();
+    await expect(
+      tool("workflow_upsert", client, { projectSlug: "p1", executionContext: "workflow" }).execute({
+        projectSlug: "p1",
+        graph,
+      }),
+    ).rejects.toThrow(/FORBIDDEN/);
+    await expect(
+      tool("subagent_upsert", client, { projectSlug: "p1", executionContext: "external_channel" }).execute({
+        projectSlug: "p1",
+        category: "ventas",
+        role: "calificador",
+        description: "Califica",
+        body: "Instrucciones",
+      }),
+    ).rejects.toThrow(/FORBIDDEN/);
+    await expect(
+      tool("db_query", client, {
+        projectSlug: "p1",
+        permissions: [{ action: "tool", resource: "db_query", effect: "deny" }],
+      }).execute({ projectSlug: "p1", integrationId: "db1", sql: "SELECT 1" }),
+    ).rejects.toThrow(/FORBIDDEN/);
+    expect(client.calls).toHaveLength(0);
+
+    // Allowed when explicitly permitted in workflow context
+    await tool("workflow_upsert", client, {
+      projectSlug: "p1",
+      executionContext: "workflow",
+      permissions: [{ action: "tool", resource: "workflow_upsert", effect: "allow" }],
+    }).execute({ projectSlug: "p1", graph });
+    expect(client.calls).toHaveLength(1);
+  });
 });

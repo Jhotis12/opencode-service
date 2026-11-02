@@ -154,6 +154,13 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await page.reload();
   await expect(page.getByText("Preparar datos", { exact: true })).toBeVisible();
 
+  // Workflow versions modal lists snapshots and allows rolling back.
+  await page.getByRole("button", { name: "Versiones del flujo" }).click();
+  const versionsModal = page.getByRole("dialog", { name: "Versiones del flujo" });
+  await expect(versionsModal).toBeVisible();
+  await expect(versionsModal.getByRole("button", { name: "Restaurar v1" })).toBeVisible();
+  await versionsModal.getByRole("button", { name: "Cerrar" }).click();
+
   await page.getByRole("button", { name: /Agentes/ }).click();
   await page.getByLabel("Categoría").fill("ventas");
   await page.getByLabel("Rol").fill("calificador");
@@ -211,6 +218,28 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await expect(page.getByTestId("health-status")).toHaveText("ok");
   await expect(page.getByRole("cell", { name: "OpenCode V2" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Database" })).toBeVisible();
+
+  // Create a vertical template project (triaje-operativo) and run it end-to-end.
+  await page.goto("/projects");
+  await page.getByRole("button", { name: "Nuevo proyecto" }).click();
+  await page.getByLabel(/Nombre del proyecto/).fill("Mesa Triaje");
+  await page.getByLabel(/Plantilla inicial/).selectOption("triaje-operativo");
+  await page.getByRole("button", { name: "Crear proyecto" }).click();
+  await expect(page).toHaveURL(/\/projects\/mesa-triaje$/);
+  await expect(page.getByText("Clasificar caso", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Ejecutar" }).first().click();
+  const triajeLaunch = page.getByRole("dialog", { name: "Ejecutar flujo" });
+  await expect(triajeLaunch).toBeVisible();
+  await triajeLaunch.getByLabel(/Cliente/).fill("Acme Corp");
+  await triajeLaunch.getByLabel(/Mensaje/).fill("Caída en producción");
+  await triajeLaunch.getByRole("button", { name: "Ejecutar" }).click();
+  await page.getByRole("button", { name: /^Ejecuciones/ }).first().click();
+  await page.getByRole("button", { name: "Ver detalle" }).first().click();
+  const triajeRunDialog = page.getByRole("dialog", { name: /Ejecución/ });
+  await expect(triajeRunDialog.getByTestId("run-status")).toHaveText("succeeded", { timeout: 15_000 });
+  await expect(triajeRunDialog.getByText(/procesado/).first()).toBeVisible();
+  await triajeRunDialog.getByRole("button", { name: "Cerrar" }).click();
 
   expect(consoleErrors).toEqual([]);
 });

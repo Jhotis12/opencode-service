@@ -5,6 +5,7 @@ import type {
   IntegrationScope,
   IntegrationStatus,
   StepStatus,
+  WorkflowGraph,
   WorkflowRunStatus,
 } from "@platform/shared";
 
@@ -70,10 +71,22 @@ export interface WorkflowRunRecord {
   entryPoint: EntryPointType;
   launchedBy?: string;
   graphHash?: string;
+  versionId?: string;
   integrationId?: string;
   sourceDetail?: string;
   startedAt: string;
   finishedAt?: string;
+}
+
+export interface WorkflowVersionRecord {
+  id: string;
+  projectSlug: string;
+  version: number;
+  graphHash: string;
+  graph: WorkflowGraph;
+  codeBundle: Record<string, string>;
+  createdBy?: string;
+  createdAt: string;
 }
 
 export interface StepRunRecord {

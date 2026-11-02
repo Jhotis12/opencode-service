@@ -70,6 +70,14 @@ export function ProjectPage() {
     queryFn: () => api.getProjectSettings(slug),
     enabled: Boolean(slug),
   });
+  const versionsQuery = useQuery({
+    queryKey: qk.workflowVersions(slug),
+    queryFn: () =>
+      typeof api.listWorkflowVersions === "function"
+        ? api.listWorkflowVersions(slug).then((result) => result.data)
+        : Promise.resolve([]),
+    enabled: Boolean(slug),
+  });
 
   const runs = runsQuery.data ?? [];
   const agents = agentsQuery.data ?? [];
@@ -77,6 +85,7 @@ export function ProjectPage() {
   const chatHistory = chatQuery.data ?? [];
   const integrations = integrationsQuery.data ?? [];
   const projectSettings = settingsQuery.data;
+  const versions = versionsQuery.data ?? [];
 
   const [graph, setGraph] = useState<WorkflowGraph>();
   const [dirty, setDirty] = useState(false);
@@ -115,6 +124,7 @@ export function ProjectPage() {
     model: "",
     mode: "subagent" as "primary" | "subagent" | "all",
     notebooks: "",
+    deniedTools: "",
   });
 
   useEffect(() => {
@@ -220,6 +230,7 @@ export function ProjectPage() {
     mutationFn: (next: WorkflowGraph) => api.saveWorkflow(slug, next),
     onSuccess: (saved) => {
       queryClient.setQueryData(qk.workflow(slug), saved);
+      void queryClient.invalidateQueries({ queryKey: qk.workflowVersions(slug) });
       setGraph(saved);
       setDirty(false);
       setSaveIssues([]);
@@ -290,9 +301,26 @@ export function ProjectPage() {
     onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo guardar el nodo"),
   });
 
+  const rollbackVersion = useMutation({
+    mutationFn: (version: number) => api.rollbackWorkflowVersion(slug, version),
+    onSuccess: async (result, version) => {
+      queryClient.setQueryData(qk.workflow(slug), result.graph);
+      await queryClient.invalidateQueries({ queryKey: qk.workflowVersions(slug) });
+      setGraph(result.graph);
+      setDirty(false);
+      setStatus(`Flujo restaurado a v${version}`);
+      setError(undefined);
+    },
+    onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo restaurar la versión"),
+  });
+
   const upsertAgent = useMutation({
-    mutationFn: () =>
-      api.upsertAgent(slug, agentForm.category, agentForm.role, {
+    mutationFn: () => {
+      const denied = agentForm.deniedTools
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      return api.upsertAgent(slug, agentForm.category, agentForm.role, {
         description: agentForm.description,
         body: agentForm.body,
         model: agentForm.model || undefined,
@@ -301,7 +329,11 @@ export function ProjectPage() {
           .split(",")
           .map((item) => item.trim())
           .filter(Boolean),
-      }),
+        ...(denied.length > 0
+          ? { permissions: denied.map((resource) => ({ action: "tool", resource, effect: "deny" as const })) }
+          : {}),
+      });
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: qk.agents(slug) });
       await queryClient.invalidateQueries({ queryKey: qk.projectSettings(slug) });
@@ -575,6 +607,7 @@ export function ProjectPage() {
         modelOptions={modelOptions}
         chatBusy={chatBusy}
         chatUnread={chatUnread}
+        versions={versions}
         onTab={(next) => {
           setTab(next);
           setPaletteOpen(false);
@@ -587,6 +620,7 @@ export function ProjectPage() {
           setChatOpen(true);
           setChatUnread(false);
         }}
+        onRollbackVersion={(version) => rollbackVersion.mutate(version)}
       />
 
       {(status || displayError || (projectSettings && projectSettings.readiness.some((item) => !item.ready))) && (
@@ -746,6 +780,10 @@ export function ProjectPage() {
                             model: agent.frontmatter.model ?? "",
                             mode: agent.frontmatter.mode ?? "subagent",
                             notebooks: (agent.frontmatter.notebooks ?? []).join(", "),
+                            deniedTools: (agent.frontmatter.permissions ?? [])
+                              .filter((p) => p.effect === "deny")
+                              .map((p) => p.resource)
+                              .join(", "),
                           })
                         }
                       >
@@ -820,6 +858,14 @@ export function ProjectPage() {
                   <input
                     value={agentForm.notebooks}
                     onChange={(event) => setAgentForm({ ...agentForm, notebooks: event.target.value })}
+                  />
+                </label>
+                <label className="md:col-span-2">
+                  Herramientas bloqueadas (separadas por coma)
+                  <input
+                    value={agentForm.deniedTools}
+                    onChange={(event) => setAgentForm({ ...agentForm, deniedTools: event.target.value })}
+                    placeholder="workflow_upsert, subagent_upsert, db_query"
                   />
                 </label>
                 <label className="md:col-span-2">

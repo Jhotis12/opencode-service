@@ -1,6 +1,6 @@
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
-import { WorkflowGraphSchema, type WorkflowGraph } from "@platform/shared";
+import { WorkflowGraphSchema, type ProjectTemplate, type WorkflowGraph } from "@platform/shared";
 import type { WorkspacePort } from "../../../application/ports/workspace.ts";
 import { validateWorkflowGraph } from "../../../domain/workflow/graph.ts";
 
@@ -76,7 +76,12 @@ export class SafeFsWorkspaceAdapter implements WorkspacePort {
     await rename(temporary, path);
   }
 
-  async createProject(input: { slug: string; name: string; description?: string }): Promise<void> {
+  async createProject(input: {
+    slug: string;
+    name: string;
+    description?: string;
+    template?: ProjectTemplate;
+  }): Promise<void> {
     this.assertSlug(input.slug);
     const projectRoot = join(this.rootDir, input.slug);
     await mkdir(join(projectRoot, "nodes"), { recursive: true });
@@ -84,26 +89,170 @@ export class SafeFsWorkspaceAdapter implements WorkspacePort {
     await mkdir(join(projectRoot, "knowledge"), { recursive: true });
     await this.ensureProjectScaffold(input.slug, input.name);
     const now = new Date().toISOString();
-    const graph: WorkflowGraph = {
-      version: 1,
-      id: input.slug,
-      name: input.name,
-      description: input.description ?? "",
-      nodes: [
-        {
-          id: "start",
-          type: "trigger",
-          label: "Inicio manual",
-          position: { x: 0, y: 0 },
-          config: { kind: "manual", isPublic: false },
-          notebookIds: [],
-          timeoutMs: 30_000,
-          retryPolicy: { maxRetries: 0 },
-        },
-      ],
-      edges: [],
-      updatedAt: now,
-    };
+    let graph: WorkflowGraph;
+    if (input.template === "triaje-operativo") {
+      await mkdir(join(projectRoot, ".opencode", "agents", "operaciones"), { recursive: true });
+      await this.atomicWrite(
+        join(projectRoot, ".opencode", "agents", "operaciones", "clasificador.md"),
+        [
+          "---",
+          "description: Clasifica tickets operativos y devuelve un dictamen estructurado con urgencia y necesidad de aprobación.",
+          "mode: subagent",
+          "permissions:",
+          "  - action: tool",
+          "    resource: workflow_upsert",
+          "    effect: deny",
+          "  - action: tool",
+          "    resource: subagent_upsert",
+          "    effect: deny",
+          "---",
+          "",
+          "Eres el agente clasificador de operaciones. Analiza el ticket entrante y responde con el objeto JSON solicitado indicando categoría, urgencia, si requiere aprobación humana y la acción sugerida.",
+        ].join("\n") + "\n",
+      );
+      await this.atomicWrite(
+        join(projectRoot, "nodes", "resumen-accion.ts"),
+        [
+          "export default async function run(input: Record<string, unknown>) {",
+          "  return {",
+          '    estado: "procesado",',
+          '    categoria: input.categoria ?? "general",',
+          '    urgencia: input.urgencia ?? "media",',
+          '    accion: input.accionSugerida ?? "Atender en cola operativa",',
+          "  };",
+          "}",
+        ].join("\n") + "\n",
+      );
+      graph = {
+        version: 1,
+        id: input.slug,
+        name: input.name,
+        description: input.description || "Triaje y escalamiento operativo con salida estructurada.",
+        nodes: [
+          {
+            id: "start",
+            type: "trigger",
+            label: "Ticket entrante",
+            position: { x: 0, y: 120 },
+            config: {
+              kind: "manual",
+              inputSchema: {
+                fields: [
+                  { name: "cliente", label: "Cliente", type: "string", required: true, example: "Acme Corp" },
+                  { name: "mensaje", label: "Mensaje", type: "string", required: true, example: "Caída en producción" },
+                  { name: "canal", label: "Canal", type: "string", required: false, example: "whatsapp" },
+                ],
+              },
+            },
+            notebookIds: [],
+            timeoutMs: 30_000,
+            retryPolicy: { maxRetries: 0 },
+          },
+          {
+            id: "validar-entrada",
+            type: "validate",
+            label: "Validar ticket",
+            position: { x: 240, y: 120 },
+            config: {
+              rules: [
+                { name: "cliente", type: "string", required: true, message: "Falta el nombre del cliente." },
+                { name: "mensaje", type: "string", required: true, message: "Falta el mensaje del ticket." },
+              ],
+            },
+            notebookIds: [],
+            timeoutMs: 10_000,
+            retryPolicy: { maxRetries: 0 },
+          },
+          {
+            id: "clasificar-caso",
+            type: "agent",
+            label: "Clasificar caso",
+            agentId: "operaciones/clasificador",
+            position: { x: 480, y: 120 },
+            config: {
+              instruction: "Clasifica el ticket y determina si requiere aprobación de un supervisor.",
+              outputSchema: {
+                fields: [
+                  { name: "categoria", type: "string", required: true, example: "incidente" },
+                  { name: "urgencia", type: "string", required: true, example: "alta" },
+                  { name: "requiereAprobacion", type: "boolean", required: true, example: false },
+                  { name: "accionSugerida", type: "string", required: true, example: "Notificar guardia" },
+                ],
+              },
+            },
+            notebookIds: [],
+            timeoutMs: 60_000,
+            retryPolicy: { maxRetries: 1 },
+          },
+          {
+            id: "requiere-aprobacion",
+            type: "decision",
+            label: "¿Requiere aprobación?",
+            position: { x: 740, y: 120 },
+            config: {
+              mode: "condition",
+              condition: { field: "requiereAprobacion", operator: "equals", value: true },
+            },
+            notebookIds: [],
+            timeoutMs: 10_000,
+            retryPolicy: { maxRetries: 0 },
+          },
+          {
+            id: "aprobacion-supervisor",
+            type: "approval",
+            label: "Aprobación supervisor",
+            position: { x: 1000, y: 20 },
+            config: {
+              message: "Revisar caso crítico antes de emitir dictamen operativo.",
+            },
+            notebookIds: [],
+            timeoutMs: 60_000,
+            retryPolicy: { maxRetries: 0 },
+          },
+          {
+            id: "emitir-dictamen",
+            type: "code",
+            label: "Emitir dictamen",
+            codeFile: "nodes/resumen-accion.ts",
+            position: { x: 1260, y: 120 },
+            config: {},
+            notebookIds: [],
+            timeoutMs: 15_000,
+            retryPolicy: { maxRetries: 0 },
+          },
+        ],
+        edges: [
+          { id: "e1", source: "start", target: "validar-entrada" },
+          { id: "e2", source: "validar-entrada", target: "clasificar-caso" },
+          { id: "e3", source: "clasificar-caso", target: "requiere-aprobacion" },
+          { id: "e4", source: "requiere-aprobacion", target: "aprobacion-supervisor", condition: "true" },
+          { id: "e5", source: "requiere-aprobacion", target: "emitir-dictamen", condition: "false" },
+          { id: "e6", source: "aprobacion-supervisor", target: "emitir-dictamen" },
+        ],
+        updatedAt: now,
+      };
+    } else {
+      graph = {
+        version: 1,
+        id: input.slug,
+        name: input.name,
+        description: input.description ?? "",
+        nodes: [
+          {
+            id: "start",
+            type: "trigger",
+            label: "Inicio manual",
+            position: { x: 0, y: 0 },
+            config: { kind: "manual", isPublic: false },
+            notebookIds: [],
+            timeoutMs: 30_000,
+            retryPolicy: { maxRetries: 0 },
+          },
+        ],
+        edges: [],
+        updatedAt: now,
+      };
+    }
     await this.atomicWrite(join(projectRoot, "workflow.json"), JSON.stringify(graph, null, 2));
     await this.atomicWrite(
       join(projectRoot, "opencode.jsonc"),

@@ -91,6 +91,7 @@ export const workflowRuns = sqliteTable(
     entryPoint: text("entry_point").notNull(),
     launchedBy: text("launched_by"),
     graphHash: text("graph_hash"),
+    versionId: text("version_id"),
     integrationId: text("integration_id"),
     sourceDetail: text("source_detail"),
     startedAt: text("started_at").notNull(),
@@ -102,6 +103,23 @@ export const workflowRuns = sqliteTable(
       table.workflowId,
       table.idempotencyKey,
     ),
+  }),
+);
+
+export const workflowVersions = sqliteTable(
+  "workflow_versions",
+  {
+    id: text("id").primaryKey(),
+    projectSlug: text("project_slug").notNull(),
+    version: integer("version").notNull(),
+    graphHash: text("graph_hash").notNull(),
+    graphJson: text("graph_json").notNull(),
+    codeBundle: text("code_bundle").notNull().default("{}"),
+    createdBy: text("created_by"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    projectVersion: uniqueIndex("workflow_versions_project_version").on(table.projectSlug, table.version),
   }),
 );
 
@@ -207,6 +225,7 @@ export const schema = {
   projects,
   integrations,
   workflowRuns,
+  workflowVersions,
   workflowStepRuns,
   workflowApprovals,
   chatThreads,

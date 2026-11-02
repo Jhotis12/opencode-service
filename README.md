@@ -107,13 +107,29 @@ Los notebooks viven dentro de cada proyecto. La pestaña **Conocimiento** permit
 
 El orquestador global puede buscar conocimiento cross-project en modo lectura, con citas que incluyen el proyecto.
 
-## Ejecución manual
+## Ejecución manual, programada (Cron) y Webhooks
 
 El trigger declara `inputSchema` con campos, tipos, obligatoriedad, descripción y ejemplo. El botón **Ejecutar** abre un formulario generado desde ese esquema; el servidor valida el payload antes de crear cualquier paso.
 
-- El run guarda `launchedBy`, `graphHash`, `integrationId` y origen.
+- **Manual (`kind: "manual"`):** Lanzamiento desde el canvas o `POST /api/projects/:slug/runs`.
+- **Programado (`kind: "schedule"`):** Expresión cron de 5 campos UTC (`config.cron`, ej. `0 9 * * 1-5`). El `WorkflowScheduler` evalúa cada ventana de minuto y reclama una clave de idempotencia determinista (`schedule:<workflowId>:<nodeId>:<YYYY-MM-DDTHH:mm>`).
+- **Webhook (`kind: "webhook"`):** Recibe llamadas en `POST /api/v1/webhooks/:projectSlug/:nodeId` verificando en tiempo constante `x-webhook-secret` o la firma HMAC-SHA256 `x-webhook-signature: sha256=...` contra el alias de secreto del proyecto (`config.secretAlias`).
+- **Recuperación al arranque:** Si el servidor se reinicia con ejecuciones en estado `running`, el motor las reanuda automáticamente desde el último paso `succeeded` usando el snapshot inmutable del grafo con el que iniciaron.
+- El run guarda `launchedBy`, `graphHash`, `versionId`, `integrationId` y origen.
 - El endpoint devuelve `202 { runId }` antes de terminar y el SSE actualiza el estado.
 - El nodo `validate` permite reglas declarativas en cualquier punto; si falta un campo, falla el paso con un mensaje accionable y no ejecuta los siguientes.
+
+## Versionado del grafo, Snapshots y Rollback
+
+- Cada guardado o ejecución registra un snapshot inmutable en `workflow_versions` con el JSON del grafo y el paquete de código `nodes/*.ts`.
+- `replay` y `resumeWithApproval` ejecutan siempre sobre el snapshot original del run aunque el flujo en disco haya cambiado después.
+- Desde **Versiones** en la barra superior del proyecto (o `GET /api/projects/:slug/workflow/versions` y `POST /api/projects/:slug/workflow/versions/:version/rollback`) puedes restaurar cualquier versión previa en un clic.
+
+## Salida estructurada del nodo Agente y Permisos de herramientas
+
+- **Salida estructurada (`config.outputSchema`):** Los nodos `agent` pueden declarar campos de salida tipados (`string`, `number`, `boolean`, `json`). El motor instruye al agente a devolver JSON, limpia bloques Markdown, valida el contrato y ejecuta un turno automático de reparación si la primera respuesta no cumple el esquema antes de pasar el objeto tipado a nodos `decision`, `validate`, `transform` o `code`.
+- **Permisos por agente y contexto:** Las herramientas `platform_*` validan `x-platform-agent` y `x-platform-context` (`chat`, `workflow`, `external_channel`). Por defecto, los pasos de workflow y canales externos no pueden mutar definiciones (`workflow_upsert`, `subagent_upsert`), y cualquier regla `deny` en el frontmatter del agente bloquea `db_query`, `notify` o `workflow_trigger` con HTTP `403`.
+- **Plantilla vertical (`triaje-operativo`):** Al crear un proyecto puedes elegir la plantilla **Triaje operativo**, que despliega un flujo completo de 6 nodos (trigger con esquema, validación, agente clasificador con `outputSchema` y permisos restringidos, decisión condicional, aprobación y nodo de código).
 
 ## Sesiones y credenciales de OpenCode
 

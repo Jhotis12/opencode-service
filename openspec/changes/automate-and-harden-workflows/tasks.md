@@ -29,7 +29,7 @@
 
 ## 7. End-to-End Verification, Documentation & GitHub Actions CI
 
-- [ ] 7.1 Add `.github/workflows/ci.yml` to run `bun run typecheck`, `bun run test`, `bun run build`, and `bun run test:e2e` on pull requests and pushes to `main`, update `README.md` with documentation for cron/webhook triggers, snapshots/rollback, structured agent outputs, tool permissions, and the vertical template, and extend `e2e/` Playwright tests; verify `bun run typecheck`, `bun run test`, `bun run build`, and `bun run test:e2e` all pass locally.
+- [x] 7.1 Add `.github/workflows/ci.yml` to run `bun run typecheck`, `bun run test`, `bun run build`, and `bun run test:e2e` on pull requests and pushes to `main`, update `README.md` with documentation for cron/webhook triggers, snapshots/rollback, structured agent outputs, tool permissions, and the vertical template, and extend `e2e/` Playwright tests; verify `bun run typecheck`, `bun run test`, `bun run build`, and `bun run test:e2e` all pass locally.
 
 ## Workflow follow-up
 

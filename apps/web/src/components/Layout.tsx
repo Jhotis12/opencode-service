@@ -1,84 +1,170 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.tsx";
 import { buttonGhost } from "../ui.ts";
+import { NavIcon, type NavIconName } from "./NavIcon.tsx";
+
+const NAV_ITEMS: Array<{ to: string; label: string; icon: NavIconName }> = [
+  { to: "/projects", label: "Proyectos", icon: "projects" },
+  { to: "/orchestrator", label: "Orquestador global", icon: "orchestrator" },
+  { to: "/settings", label: "Ajustes", icon: "settings" },
+  { to: "/system/health", label: "Salud del sistema", icon: "health" },
+];
+
+const COLLAPSE_KEY = "platform.nav.collapsed";
+
+function initialCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveCollapsed(value: boolean) {
+  try {
+    localStorage.setItem(COLLAPSE_KEY, value ? "1" : "0");
+  } catch {
+    // Storage can be unavailable in private browsing; the rail still works for the session.
+  }
+}
 
 export function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const fluid = location.pathname.startsWith("/projects/");
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [mobileOpen]);
+
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      saveCollapsed(!current);
+      return !current;
+    });
+  }
+
   return (
-    <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[240px_1fr]">
-      <aside className="sticky top-0 flex h-auto flex-col gap-6 border-b border-line bg-[#080d18]/85 p-5 lg:h-screen lg:border-b-0 lg:border-r">
-        <div className="flex items-center gap-3">
-          <span className="text-3xl text-accent">◆</span>
-          <div>
-            <strong className="block text-sm text-slate-100">Agentic Platform</strong>
-            <small className="text-[11px] text-muted">OpenCode V2 · Hexagonal</small>
-          </div>
-        </div>
-        <nav className="flex flex-col gap-1.5" aria-label="Navegación principal">
-          <NavLink
-            to="/projects"
-            className={({ isActive }) =>
-              `rounded-lg border px-3 py-2.5 text-sm transition ${
-                isActive
-                  ? "border-line bg-panel-2 text-slate-100"
-                  : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
-              }`
-            }
-          >
-            Proyectos
-          </NavLink>
-          <NavLink
-            to="/notebooks"
-            className={({ isActive }) =>
-              `rounded-lg border px-3 py-2.5 text-sm transition ${
-                isActive
-                  ? "border-line bg-panel-2 text-slate-100"
-                  : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
-              }`
-            }
-          >
-            Bancos de información
-          </NavLink>
-          <NavLink
-            to="/settings"
-            className={({ isActive }) =>
-              `rounded-lg border px-3 py-2.5 text-sm transition ${
-                isActive
-                  ? "border-line bg-panel-2 text-slate-100"
-                  : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
-              }`
-            }
-          >
-            Ajustes
-          </NavLink>
-          <NavLink
-            to="/system/health"
-            className={({ isActive }) =>
-              `rounded-lg border px-3 py-2.5 text-sm transition ${
-                isActive
-                  ? "border-line bg-panel-2 text-slate-100"
-                  : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
-              }`
-            }
-          >
-            Salud del sistema
-          </NavLink>
-        </nav>
-        <div className="mt-auto flex flex-col gap-2">
-          <span className="text-xs text-muted">{user?.username}</span>
+    <div className={`min-h-dvh lg:grid ${collapsed ? "lg:grid-cols-[64px_1fr]" : "lg:grid-cols-[240px_1fr]"}`}>
+      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-line bg-[#080d18]/95 px-4 lg:hidden">
+        <button
+          type="button"
+          className={buttonGhost}
+          aria-label="Abrir navegación"
+          onClick={() => setMobileOpen(true)}
+        >
+          <NavIcon name="menu" />
+        </button>
+        <span className="text-2xl text-accent">◆</span>
+        <strong className="text-sm text-slate-100">Agentic Platform</strong>
+      </header>
+
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-[#020617]/65 backdrop-blur-sm lg:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      <aside
+        className={`nav-drawer fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col gap-6 border-r border-line bg-[#080d18]/95 p-4 lg:static lg:z-auto lg:h-dvh lg:translate-x-0 ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        } ${collapsed ? "lg:w-16 lg:gap-4 lg:p-3" : "lg:w-60 lg:p-5"}`}
+        aria-label="Navegación lateral"
+      >
+        <div className={`flex items-center gap-3 ${collapsed ? "lg:flex-col lg:gap-2" : ""}`}>
+          <span className="text-3xl text-accent" aria-hidden>
+            ◆
+          </span>
+          {!collapsed && (
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <strong className="block whitespace-nowrap text-[13px] text-slate-100">Agentic Platform</strong>
+              <small className="block whitespace-nowrap text-[10px] text-muted">OpenCode V2 · Hexagonal</small>
+            </div>
+          )}
           <button
-            className={`${buttonGhost} justify-start`}
+            type="button"
+            className={`ml-auto hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-transparent text-slate-300 transition hover:border-line hover:bg-panel-2 lg:grid ${
+              collapsed ? "lg:ml-0" : ""
+            }`}
+            aria-label={collapsed ? "Expandir navegación" : "Contraer navegación"}
+            title={collapsed ? "Expandir navegación" : "Contraer navegación"}
+            onClick={toggleCollapsed}
+          >
+            <NavIcon name={collapsed ? "expand" : "collapse"} />
+          </button>
+          <button
+            type="button"
+            className={`${buttonGhost} ml-auto !px-2 lg:hidden`}
+            aria-label="Cerrar navegación"
+            onClick={() => setMobileOpen(false)}
+          >
+            ×
+          </button>
+        </div>
+
+        <nav className="flex flex-col gap-1.5" aria-label="Navegación principal">
+          {NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              title={collapsed ? item.label : undefined}
+              onClick={() => setMobileOpen(false)}
+              className={({ isActive }) =>
+                `flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition ${
+                  collapsed ? "lg:justify-center lg:px-2" : ""
+                } ${
+                  isActive
+                    ? "border-line bg-panel-2 text-slate-100"
+                    : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
+                }`
+              }
+            >
+              <NavIcon name={item.icon} />
+              <span className={collapsed ? "lg:sr-only" : ""}>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className={`mt-auto flex flex-col gap-2 ${collapsed ? "lg:items-center" : ""}`}>
+          {!collapsed && <span className="text-xs text-muted">{user?.username}</span>}
+          <button
+            className={`${buttonGhost} justify-start ${collapsed ? "lg:justify-center lg:!px-2" : ""}`}
+            aria-label="Salir"
+            title={collapsed ? "Salir" : undefined}
             onClick={async () => {
               await logout();
               navigate("/login");
             }}
           >
-            Salir
+            <NavIcon name="logout" />
+            <span className={collapsed ? "lg:sr-only" : ""}>Salir</span>
           </button>
         </div>
       </aside>
-      <main className="mx-auto w-full max-w-[1500px] px-5 py-6 lg:px-8 lg:py-7">
+
+      <main
+        data-testid="app-main"
+        className={
+          fluid
+            ? "h-[calc(100dvh-3.5rem)] min-w-0 overflow-hidden lg:h-dvh"
+            : "mx-auto w-full max-w-[1500px] px-5 py-6 lg:px-8 lg:py-7"
+        }
+      >
         <Outlet />
       </main>
     </div>

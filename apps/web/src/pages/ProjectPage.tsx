@@ -1,16 +1,29 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { NodeSpec, WorkflowGraph } from "@platform/shared";
-import { api, type RunRecord } from "../api.ts";
+import type { ChatProgressEvent, NodeSpec, WorkflowGraph } from "@platform/shared";
+import { api, ApiClientError, type RunRecord } from "../api.ts";
 import { qk } from "../query.ts";
 import { ChatPanel } from "../components/ChatPanel.tsx";
-import { CodeEditor } from "../components/CodeEditor.tsx";
 import { WorkflowCanvas } from "../components/WorkflowCanvas.tsx";
+import { ProjectTopBar, type ProjectTab } from "../components/ProjectTopBar.tsx";
+import { NodePaletteModal } from "../components/NodePaletteModal.tsx";
+import { NodeInspectorModal } from "../components/NodeInspectorModal.tsx";
+import {
+  changeEdgeCondition as changeEdgeConditionInGraph,
+  connectNodes as connectNodesGraph,
+  getConnectionIssue,
+  getGraphIssues,
+  mapServerIssue,
+  type GraphIssue,
+} from "../components/canvas/graph-edits.ts";
 import { RunDetailModal, previewValue } from "../components/RunDetailModal.tsx";
-import { NODE_CATALOG, NODE_META } from "../components/nodes/node-catalog.ts";
-import { NodeIcon } from "../components/nodes/node-icons.tsx";
-import { badge, button, buttonDanger, buttonGhost, buttonPrimary, card, pageTitle, statusBadge } from "../ui.ts";
+import { RunLaunchModal } from "../components/RunLaunchModal.tsx";
+import { ProjectKnowledgePanel } from "../components/ProjectKnowledgePanel.tsx";
+import { ProjectResourcesPanel } from "../components/ProjectResourcesPanel.tsx";
+import { ProjectSettingsPanel } from "../components/ProjectSettingsPanel.tsx";
+import { NODE_META } from "../components/nodes/node-catalog.ts";
+import { badge, buttonDanger, buttonGhost, buttonPrimary, card, statusBadge } from "../ui.ts";
 
 const DEFAULT_CODE = `export default async function run(input: unknown, ctx: any) {
   ctx.log("nodo ejecutado", { input });
@@ -21,8 +34,6 @@ const DEFAULT_CODE = `export default async function run(input: unknown, ctx: any
 const NODE_LABELS: Record<string, string> = Object.fromEntries(
   Object.entries(NODE_META).map(([type, meta]) => [type, meta.title]),
 );
-
-type Tab = "canvas" | "runs" | "agents";
 
 export function ProjectPage() {
   const { slug = "" } = useParams();
@@ -49,11 +60,23 @@ export function ProjectPage() {
     queryFn: () => api.chatHistory(slug).then((result) => result.data),
     enabled: Boolean(slug),
   });
+  const integrationsQuery = useQuery({
+    queryKey: qk.integrations(slug),
+    queryFn: () => api.listIntegrations(slug).then((result) => result.data),
+    enabled: Boolean(slug),
+  });
+  const settingsQuery = useQuery({
+    queryKey: qk.projectSettings(slug),
+    queryFn: () => api.getProjectSettings(slug),
+    enabled: Boolean(slug),
+  });
 
   const runs = runsQuery.data ?? [];
   const agents = agentsQuery.data ?? [];
   const models = modelsQuery.data ?? [];
   const chatHistory = chatQuery.data ?? [];
+  const integrations = integrationsQuery.data ?? [];
+  const projectSettings = settingsQuery.data;
 
   const [graph, setGraph] = useState<WorkflowGraph>();
   const [dirty, setDirty] = useState(false);
@@ -64,13 +87,33 @@ export function ProjectPage() {
   const [detailRun, setDetailRun] = useState<RunRecord>();
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
-  const [tab, setTab] = useState<Tab>("canvas");
+  const [tab, setTab] = useState<ProjectTab>("canvas");
+  const [launchOpen, setLaunchOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorInitialTab, setInspectorInitialTab] = useState<"settings" | "connections" | "execution">("settings");
+  const [connecting, setConnecting] = useState<{ sourceId: string; condition?: "true" | "false" }>();
+  const [saveIssues, setSaveIssues] = useState<GraphIssue[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatActivity, setChatActivity] = useState<string>();
+  const [chatUnread, setChatUnread] = useState(false);
+  const [agentTouchedNodeIds, setAgentTouchedNodeIds] = useState<string[]>([]);
+  const chatOpenRef = useRef(false);
+  const chatBusyRef = useRef(false);
+  const graphRef = useRef<WorkflowGraph | undefined>(undefined);
+  const agentTouchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  chatOpenRef.current = chatOpen;
+  chatBusyRef.current = chatBusy;
+  graphRef.current = graph;
   const [agentForm, setAgentForm] = useState({
     category: "",
     role: "",
     description: "",
     body: "",
     model: "",
+    mode: "subagent" as "primary" | "subagent" | "all",
     notebooks: "",
   });
 
@@ -81,7 +124,22 @@ export function ProjectPage() {
     }
   }, [workflowQuery.data]);
 
+  useEffect(() => {
+    if (!graph || !selectedId) return;
+    if (graph.nodes.some((node) => node.id === selectedId)) return;
+    setSelectedId(undefined);
+    setInspectorOpen(false);
+    setConnecting(undefined);
+  }, [graph, selectedId]);
+
+  useEffect(() => () => clearTimeout(agentTouchTimer.current), []);
+
   const selected = useMemo(() => graph?.nodes.find((node) => node.id === selectedId), [graph, selectedId]);
+  const graphIssues = useMemo(() => (graph ? getGraphIssues(graph) : []), [graph]);
+  const lastStep = useMemo(
+    () => runs[0]?.steps.find((step) => step.nodeId === selectedId),
+    [runs, selectedId],
+  );
   const nodeFile = selected?.codeFile;
   const nodeCodeQuery = useQuery({
     queryKey: ["node", slug, nodeFile],
@@ -103,6 +161,18 @@ export function ProjectPage() {
     return statuses;
   }, [runs]);
 
+  const runProgress = useMemo(() => {
+    const latest = runs[0];
+    if (!latest || (latest.status !== "running" && latest.status !== "paused")) return undefined;
+    const current = runningNodeId ? graph?.nodes.find((node) => node.id === runningNodeId) : undefined;
+    return {
+      status: latest.status,
+      currentNodeLabel: current?.label ?? current?.id,
+      completedSteps: latest.steps.filter((step) => step.status === "succeeded").length,
+      runId: latest.id,
+    };
+  }, [runs, runningNodeId, graph]);
+
   useEffect(() => {
     if (!detailRun) return;
     const updated = runs.find((run) => run.id === detailRun.id);
@@ -115,15 +185,32 @@ export function ProjectPage() {
     source.addEventListener("workflow.updated", (event) => {
       const data = JSON.parse((event as MessageEvent).data) as { projectSlug: string; graph: WorkflowGraph };
       if (data.projectSlug === slug) {
+        if (chatBusyRef.current) markAgentChanges(data.graph);
         queryClient.setQueryData(qk.workflow(slug), data.graph);
         setGraph(data.graph);
         setDirty(false);
       }
     });
     source.addEventListener("run.updated", (event) => {
-      const data = JSON.parse((event as MessageEvent).data) as { projectSlug: string; nodeId?: string; status: string };
+      const data = JSON.parse((event as MessageEvent).data) as {
+        projectSlug: string;
+        nodeId?: string;
+        status: string;
+        stepStatus?: string;
+      };
       if (data.projectSlug !== slug) return;
-      setRunningNodeId(data.status === "running" ? data.nodeId : undefined);
+      if (data.nodeId) {
+        setRunningNodeId(data.stepStatus === "running" ? data.nodeId : undefined);
+      } else {
+        setRunningNodeId(undefined);
+      }
+      if (data.status === "succeeded") {
+        setStatus("Ejecución completada. El detalle está en Ejecuciones.");
+      } else if (["failed", "timed_out", "cancelled"].includes(data.status)) {
+        setStatus("La ejecución terminó con error. El detalle está en Ejecuciones.");
+      } else if (data.status === "paused") {
+        setStatus("Ejecución pausada. Revisa Ejecuciones para el detalle.");
+      }
       void queryClient.invalidateQueries({ queryKey: qk.runs(slug) });
     });
     return () => source.close();
@@ -135,21 +222,44 @@ export function ProjectPage() {
       queryClient.setQueryData(qk.workflow(slug), saved);
       setGraph(saved);
       setDirty(false);
+      setSaveIssues([]);
       setStatus("Flujo guardado");
       setError(undefined);
     },
     onError: (cause) => {
-      setError(cause instanceof Error ? cause.message : "No se pudo guardar");
+      if (graph && cause instanceof ApiClientError && cause.code === "INVALID_WORKFLOW") {
+        const messages =
+          cause.issues ??
+          cause.message
+            .replace(/^invalid workflow:\s*/, "")
+            .split(";")
+            .map((item) => item.trim())
+            .filter(Boolean);
+        setSaveIssues(
+          messages.map((message) => ({
+            id: message,
+            severity: "error",
+            ...mapServerIssue(graph, message),
+          })),
+        );
+        setError(undefined);
+      } else {
+        setError(cause instanceof Error ? cause.message : "No se pudo guardar");
+      }
       setStatus(undefined);
     },
   });
 
   const runWorkflow = useMutation({
-    mutationFn: () => api.runWorkflow(slug, { message: "Ejecución manual desde el canvas" }),
+    mutationFn: (payload: unknown) => api.runWorkflow(slug, payload),
     onSuccess: async (run) => {
+      setLaunchOpen(false);
       await queryClient.invalidateQueries({ queryKey: qk.runs(slug) });
-      setDetailRun(run);
-      setStatus(run.status === "paused" ? "Ejecución pausada esperando aprobación" : "Ejecución completada");
+      setStatus(
+        run.status === "paused"
+          ? "Ejecución pausada. Revisa Ejecuciones para el detalle."
+          : "Ejecución iniciada. El recorrido se muestra en el canvas.",
+      );
       setError(undefined);
     },
     onError: (cause) => {
@@ -186,7 +296,7 @@ export function ProjectPage() {
         description: agentForm.description,
         body: agentForm.body,
         model: agentForm.model || undefined,
-        mode: "subagent",
+        mode: agentForm.mode,
         notebooks: agentForm.notebooks
           .split(",")
           .map((item) => item.trim())
@@ -194,10 +304,11 @@ export function ProjectPage() {
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: qk.agents(slug) });
-      setStatus(`Sub-agente ${agentForm.category}/${agentForm.role} guardado`);
+      await queryClient.invalidateQueries({ queryKey: qk.projectSettings(slug) });
+      setStatus(`Agente ${agentForm.category}/${agentForm.role} guardado`);
       setError(undefined);
     },
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo guardar el sub-agente"),
+    onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo guardar el agente"),
   });
 
   const deleteAgent = useMutation({
@@ -208,9 +319,11 @@ export function ProjectPage() {
   });
 
   const chat = useMutation({
-    mutationFn: (message: string) => api.chat(slug, message),
+    mutationFn: ({ message, onEvent }: { message: string; onEvent?: (event: ChatProgressEvent) => void }) =>
+      api.chat(slug, message, onEvent),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: qk.chat(slug) });
+      if (!chatOpenRef.current) setChatUnread(true);
     },
   });
 
@@ -219,6 +332,33 @@ export function ProjectPage() {
   function changeGraph(next: WorkflowGraph) {
     setGraph(next);
     setDirty(true);
+  }
+
+  function markAgentChanges(next: WorkflowGraph) {
+    const previous = graphRef.current;
+    if (!previous) return;
+    const added = next.nodes.filter((node) => !previous.nodes.some((item) => item.id === node.id));
+    const changed = next.nodes.filter((node) => {
+      const old = previous.nodes.find((item) => item.id === node.id);
+      return Boolean(old && JSON.stringify(old) !== JSON.stringify(node));
+    });
+    const touched = [...added, ...changed].map((node) => node.id);
+    if (touched.length > 0) {
+      const names = [...added, ...changed]
+        .map((node) => node.label ?? node.id)
+        .slice(0, 3)
+        .join(", ");
+      setChatActivity(
+        added.length > 0
+          ? `Flujo actualizado: +${added.length} nodo${added.length === 1 ? "" : "s"}${names ? ` (${names})` : ""}`
+          : `Nodo actualizado: ${names}`,
+      );
+      setAgentTouchedNodeIds(touched);
+      clearTimeout(agentTouchTimer.current);
+      agentTouchTimer.current = setTimeout(() => setAgentTouchedNodeIds([]), 4500);
+    } else if (JSON.stringify(previous.edges) !== JSON.stringify(next.edges)) {
+      setChatActivity("Conexiones del flujo actualizadas");
+    }
   }
 
   function updateNode(patch: Partial<NodeSpec>) {
@@ -244,59 +384,174 @@ export function ProjectPage() {
     updateNode({ codeFile: file, config: { ...selected.config, mode: "code" } });
   }
 
+  function openInspector(nodeId: string, initialTab: "settings" | "connections" | "execution" = "settings") {
+    setSelectedId(nodeId);
+    setInspectorInitialTab(initialTab);
+    setInspectorOpen(true);
+  }
+
+  function closeInspector() {
+    setInspectorOpen(false);
+    setSelectedId(undefined);
+    setInspectorInitialTab("settings");
+  }
+
   async function addNode(type: NodeSpec["type"]) {
     if (!graph || !slug) return;
+    if (type === "trigger" && graph.nodes.some((node) => node.type === "trigger")) {
+      setError("Este flujo ya tiene un trigger. Cámbialo o edítalo en lugar de agregar otro.");
+      return;
+    }
     const id = `${type}-${crypto.randomUUID().slice(0, 6)}`;
     const defaults: Record<string, Record<string, unknown>> = {
-      trigger: { kind: "manual", isPublic: false },
+      trigger: { kind: "manual", inputSchema: { fields: [] } },
       http: { method: "GET", url: "https://api.example.com", headers: "{}", body: "" },
       delay: { ms: 1000 },
       transform: { template: '{"result":"{{input}}"}' },
+      validate: { rules: [{ name: "tema", type: "string", required: true, message: "Falta el campo tema." }] },
       decision: { mode: "condition", condition: { field: "status", operator: "equals", value: "ok" } },
       approval: { message: "Revisar antes de continuar", autoApprove: false },
       agent: { instruction: "" },
       code: {},
     };
+    const position = selected
+      ? { x: selected.position.x + 280, y: selected.position.y + 20 }
+      : { x: 80 + graph.nodes.length * 40, y: 80 + (graph.nodes.length % 3) * 120 };
     const node: NodeSpec = {
       id,
       type,
       label: NODE_LABELS[type],
-      position: { x: 80 + graph.nodes.length * 30, y: 80 + (graph.nodes.length % 4) * 110 },
+      position,
       config: defaults[type] ?? {},
       notebookIds: [],
       timeoutMs: 30_000,
       retryPolicy: { maxRetries: 0 },
     };
-    if (type === "code") {
-      node.codeFile = `nodes/${id}.ts`;
-      await api.writeNode(slug, node.codeFile, DEFAULT_CODE);
-      queryClient.setQueryData(["node", slug, node.codeFile], DEFAULT_CODE);
+    try {
+      if (type === "code") {
+        node.codeFile = `nodes/${id}.ts`;
+        await api.writeNode(slug, node.codeFile, DEFAULT_CODE);
+        queryClient.setQueryData(["node", slug, node.codeFile], DEFAULT_CODE);
+      }
+      if (type === "agent") {
+        const candidate = agents.find((agent) => agent.frontmatter.mode !== "primary") ?? agents[0];
+        node.agentId = candidate ? `${candidate.category}/${candidate.role}` : "principal/agente";
+      }
+      changeGraph({ ...graph, nodes: [...graph.nodes, node] });
+      setPaletteOpen(false);
+      openInspector(id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo agregar el nodo");
     }
-    if (type === "agent") {
-      node.agentId = agents[0] ? `${agents[0].category}/${agents[0].role}` : "general/agent";
-    }
-    const outgoing = new Set(graph.edges.map((edge) => edge.source));
-    const source =
-      graph.nodes.find((candidate) => candidate.id === selectedId && candidate.type !== "decision") ??
-      graph.nodes.find((candidate) => !outgoing.has(candidate.id) && candidate.type !== "decision");
-    const edges = source
-      ? [...graph.edges, { id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: source.id, target: id }]
-      : graph.edges;
-    changeGraph({ ...graph, nodes: [...graph.nodes, node], edges });
-    setSelectedId(id);
   }
 
-  async function removeSelectedNode() {
-    if (!graph || !selectedId) return;
+  async function duplicateNode(nodeId: string) {
+    if (!graph || !slug) return;
+    const source = graph.nodes.find((node) => node.id === nodeId);
+    if (!source) return;
+    if (source.type === "trigger") {
+      setError("Solo puede existir un trigger. No se puede duplicar.");
+      return;
+    }
+    const id = `${source.type}-${crypto.randomUUID().slice(0, 6)}`;
+    let codeFile = source.codeFile;
+    try {
+      if (source.codeFile) {
+        const nextFile = `nodes/${id}.ts`;
+        const { code } = await api.readNode(slug, source.codeFile);
+        await api.writeNode(slug, nextFile, code);
+        queryClient.setQueryData(["node", slug, nextFile], code);
+        codeFile = nextFile;
+      }
+      const clone: NodeSpec = {
+        ...source,
+        id,
+        label: `Copia de ${source.label ?? source.id}`,
+        position: { x: source.position.x + 36, y: source.position.y + 36 },
+        config: structuredClone(source.config),
+        notebookIds: [...source.notebookIds],
+        retryPolicy: { ...source.retryPolicy },
+        ...(codeFile ? { codeFile } : {}),
+      };
+      changeGraph({ ...graph, nodes: [...graph.nodes, clone] });
+      openInspector(clone.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo duplicar el nodo");
+    }
+  }
+
+  function removeNode(nodeId: string) {
+    if (!graph) return;
     changeGraph({
       ...graph,
-      nodes: graph.nodes.filter((node) => node.id !== selectedId),
-      edges: graph.edges.filter((edge) => edge.source !== selectedId && edge.target !== selectedId),
+      nodes: graph.nodes.filter((node) => node.id !== nodeId),
+      edges: graph.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
     });
-    setSelectedId(undefined);
+    if (selectedId === nodeId) closeInspector();
+    if (connecting?.sourceId === nodeId) setConnecting(undefined);
   }
 
-  const queryError = workflowQuery.error ?? runsQuery.error ?? agentsQuery.error ?? modelsQuery.error ?? chatQuery.error;
+  function connect(sourceId: string, targetId: string, condition?: "true" | "false") {
+    if (!graph) return;
+    const issue = getConnectionIssue(graph, sourceId, targetId, condition);
+    if (issue) {
+      setError(issue);
+      return;
+    }
+    changeGraph(connectNodesGraph(graph, sourceId, targetId, condition));
+    setConnecting(undefined);
+    setError(undefined);
+    setStatus("Conexión agregada");
+  }
+
+  function startCanvasConnect(sourceId: string, condition?: "true" | "false") {
+    if (!graph) return;
+    const source = graph.nodes.find((node) => node.id === sourceId);
+    if (!source) return;
+    if (source.type === "decision" && !condition) {
+      openInspector(sourceId, "connections");
+      return;
+    }
+    setConnecting({ sourceId, condition });
+    setInspectorOpen(false);
+    setPaletteOpen(false);
+    setError(undefined);
+  }
+
+  function handleStartConnect(nodeId: string) {
+    if (!graph) return;
+    const source = graph.nodes.find((node) => node.id === nodeId);
+    if (source?.type === "decision") {
+      openInspector(nodeId, "connections");
+      return;
+    }
+    startCanvasConnect(nodeId);
+  }
+
+  function deleteEdge(edgeId: string) {
+    if (!graph) return;
+    changeGraph({ ...graph, edges: graph.edges.filter((edge) => edge.id !== edgeId) });
+  }
+
+  function changeEdgeCondition(edgeId: string, condition: "true" | "false") {
+    if (!graph) return;
+    const result = changeEdgeConditionInGraph(graph, edgeId, condition);
+    if (result.issue) {
+      setError(result.issue);
+      return;
+    }
+    changeGraph(result.graph);
+    setError(undefined);
+  }
+
+  const queryError =
+    workflowQuery.error ??
+    runsQuery.error ??
+    agentsQuery.error ??
+    modelsQuery.error ??
+    chatQuery.error ??
+    integrationsQuery.error ??
+    settingsQuery.error;
   const displayError = error ?? (queryError instanceof Error ? queryError.message : undefined);
 
   if (!graph) {
@@ -308,129 +563,153 @@ export function ProjectPage() {
   }
 
   return (
-    <section className="flex flex-col gap-5">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs text-muted">
-            <Link className="text-accent" to="/projects">
-              ← Proyectos
-            </Link>{" "}
-            / {slug}
-          </p>
-          <h1 className={`${pageTitle} mt-1`}>{graph.name}</h1>
-          <p className="mt-1 text-sm text-muted">{graph.description || "Sin descripción"}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {dirty && <span className={statusBadge("paused")}>Cambios sin guardar</span>}
-          <select
-            aria-label="Modelo por defecto"
-            className="w-auto min-w-[220px]"
-            value={graph.defaultModel ?? ""}
-            onChange={(event) => changeGraph({ ...graph, defaultModel: event.target.value || undefined })}
-          >
-            <option value="">Modelo por defecto del sistema</option>
-            {modelOptions.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
-          <button className={button} onClick={() => saveWorkflow.mutate(graph)}>
-            Guardar flujo
-          </button>
-          <button className={buttonPrimary} onClick={() => runWorkflow.mutate()}>
-            Ejecutar
-          </button>
-        </div>
-      </header>
+    <section className="flex h-full min-h-0 flex-col">
+      <ProjectTopBar
+        slug={slug}
+        graph={graph}
+        tab={tab}
+        counts={{ runs: runs.length, agents: agents.length, integrations: integrations.length }}
+        dirty={dirty}
+        issueCount={graphIssues.length}
+        saving={saveWorkflow.isPending}
+        modelOptions={modelOptions}
+        chatBusy={chatBusy}
+        chatUnread={chatUnread}
+        onTab={(next) => {
+          setTab(next);
+          setPaletteOpen(false);
+          setConnecting(undefined);
+        }}
+        onChange={(patch) => changeGraph({ ...graph, ...patch })}
+        onSave={() => saveWorkflow.mutate(graph)}
+        onRun={() => setLaunchOpen(true)}
+        onChat={() => {
+          setChatOpen(true);
+          setChatUnread(false);
+        }}
+      />
 
-      {status && <p className="text-sm text-ok">{status}</p>}
-      {displayError && <p className="text-sm text-danger">{displayError}</p>}
-
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="flex min-w-0 flex-col gap-3">
-          <div className="flex gap-1.5 border-b border-line pb-2">
-            {(
-              [
-                ["canvas", "Canvas"],
-                ["runs", `Ejecuciones (${runs.length})`],
-                ["agents", `Sub-agentes (${agents.length})`],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                className={`rounded-lg border px-3 py-2 text-sm transition ${
-                  tab === key ? "border-line bg-panel text-slate-100" : "border-transparent text-muted hover:bg-panel"
-                }`}
-                onClick={() => setTab(key)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {tab === "canvas" && (
-            <div className="flex flex-col gap-2.5">
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                {NODE_CATALOG.map((type) => (
-                  <button
-                    key={type}
-                    className="flex min-w-0 items-center gap-2.5 rounded-lg border border-line bg-[#0b1220] p-2.5 text-left text-slate-200 transition hover:border-[var(--node-color)]"
-                    style={{ "--node-color": NODE_META[type].color } as CSSProperties}
-                    onClick={() => void addNode(type)}
-                  >
-                    <span
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
-                      style={{
-                        background: `color-mix(in srgb, ${NODE_META[type].color} 20%, #0b1220)`,
-                        color: NODE_META[type].color,
-                      }}
-                    >
-                      <NodeIcon type={type} />
-                    </span>
-                    <span>
-                      <strong className="block text-xs">{NODE_META[type].title}</strong>
-                      <small className="block text-[10px] text-muted">{NODE_META[type].description}</small>
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <WorkflowCanvas
-                graph={graph}
-                selectedId={selectedId}
-                runningNodeId={runningNodeId}
-                nodeStatuses={nodeStatuses}
-                onSelect={setSelectedId}
-                onChange={changeGraph}
-              />
-            </div>
+      {(status || displayError || (projectSettings && projectSettings.readiness.some((item) => !item.ready))) && (
+        <div className="flex flex-col gap-1 border-b border-line px-3 py-2 lg:px-4">
+          {status && <p className="text-xs text-ok">{status}</p>}
+          {displayError && <p className="text-xs text-danger">{displayError}</p>}
+          {projectSettings && projectSettings.readiness.some((item) => !item.ready) && (
+            <p className="text-xs text-warn">
+              Configuración pendiente: {projectSettings.readiness.filter((item) => !item.ready).map((item) => item.label).join(", ")}.
+            </p>
           )}
+        </div>
+      )}
 
+      {saveIssues.length > 0 && (
+        <div className="border-b border-danger/30 bg-danger/5 px-3 py-2 lg:px-4" role="alert">
+          <div className="flex items-start justify-between gap-3">
+            <ul className="flex flex-col gap-1 text-xs text-danger">
+              {saveIssues.map((issue) => {
+                const label = issue.nodeId
+                  ? graph.nodes.find((node) => node.id === issue.nodeId)?.label
+                  : issue.edgeId
+                    ? `Conexión ${issue.edgeId}`
+                    : undefined;
+                return (
+                  <li key={issue.id}>
+                    {label ? `${label}: ` : ""}
+                    {issue.message}
+                  </li>
+                );
+              })}
+            </ul>
+            <button type="button" className={buttonGhost} onClick={() => setSaveIssues([])}>
+              Descartar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {tab === "canvas" ? (
+        <div className="relative min-h-0 flex-1">
+          <WorkflowCanvas
+            graph={graph}
+            selectedId={selectedId}
+            runningNodeId={runningNodeId}
+            nodeStatuses={nodeStatuses}
+            runProgress={runProgress}
+            agentStatus={chatBusy ? { busy: true, activity: chatActivity } : undefined}
+            agentTouchedNodeIds={agentTouchedNodeIds}
+            issues={graphIssues}
+            connecting={connecting}
+            className="h-full"
+            onSelect={(nodeId) => openInspector(nodeId)}
+            onChange={changeGraph}
+            onConnect={connect}
+            onConnectRejected={setError}
+            onStartConnect={handleStartConnect}
+            onCancelConnect={() => setConnecting(undefined)}
+            onDuplicateNode={(nodeId) => void duplicateNode(nodeId)}
+            onDeleteNode={removeNode}
+            onDeleteEdge={deleteEdge}
+            onChangeEdgeCondition={changeEdgeCondition}
+            onOpenPalette={() => setPaletteOpen(true)}
+            onOpenRuns={() => setTab("runs")}
+            onOpenChat={() => {
+              setChatOpen(true);
+              setChatUnread(false);
+            }}
+          />
+          {paletteOpen && (
+            <NodePaletteModal graph={graph} onClose={() => setPaletteOpen(false)} onAdd={(type) => void addNode(type)} />
+          )}
+          {selected && inspectorOpen && (
+            <NodeInspectorModal
+              key={`${selected.id}-${inspectorInitialTab}`}
+              node={selected}
+              graph={graph}
+              agents={agents}
+              models={models}
+              integrations={integrations}
+              lastStep={lastStep}
+              code={nodeCode}
+              codeDirty={nodeCodeDirty}
+              issues={graphIssues}
+              initialTab={inspectorInitialTab}
+              onClose={closeInspector}
+              onPatch={updateNode}
+              onConfig={updateConfig}
+              onRemove={() => removeNode(selected.id)}
+              onDuplicate={() => void duplicateNode(selected.id)}
+              onConnect={connect}
+              onStartCanvasConnect={startCanvasConnect}
+              onChangeEdgeCondition={changeEdgeCondition}
+              onDeleteEdge={deleteEdge}
+              onCodeChange={(value) => {
+                setNodeCode(value);
+                setNodeCodeDirty(true);
+              }}
+              onSaveCode={() => selected.codeFile && saveNode.mutate({ file: selected.codeFile, code: nodeCode })}
+              onEnableDecisionCode={() => void enableDecisionCode()}
+            />
+          )}
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto">
+          <div
+            className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 px-5 py-6 lg:px-8"
+            data-testid="project-tab-content"
+          >
           {tab === "runs" && (
             <div className="flex flex-col gap-3">
               {runs.length === 0 && <p className="text-sm text-muted">Sin ejecuciones todavía.</p>}
               {runs.map((run) => (
                 <article className={`${card} gap-2`} key={run.id}>
-                  <header className="flex items-center justify-between gap-3">
+                  <header className="flex flex-wrap items-center justify-between gap-3">
                     <strong className="text-sm">{run.id.slice(0, 8)}</strong>
                     <span className={statusBadge(run.status)}>{run.status}</span>
                   </header>
-                  <small className="text-xs text-muted">{new Date(run.startedAt).toLocaleString()}</small>
+                  <small className="text-xs text-muted">
+                    {new Date(run.startedAt).toLocaleString()} · {run.launchedBy ?? "sistema"} · {run.sourceDetail ?? run.entryPoint}
+                  </small>
                   {run.error && <p className="text-sm text-danger">{run.error}</p>}
-                  {run.output !== undefined && (
-                    <p className="text-xs text-muted">Resultado: {previewValue(run.output)}</p>
-                  )}
-                  <ol className="flex list-inside list-decimal flex-col gap-1 text-xs text-muted">
-                    {run.steps.map((step) => (
-                      <li key={step.id}>
-                        <span className={`inline-block h-2 w-2 rounded-full ${step.status === "succeeded" ? "bg-ok" : step.status === "running" ? "bg-accent" : "bg-danger"}`} />{" "}
-                        {step.status} · {step.nodeId} · {step.durationMs}ms
-                        {step.model ? ` · ${step.model}` : ""}
-                        {step.agentId ? ` · ${step.agentId}` : ""}
-                        {step.error ? ` · ${step.error}` : ""}
-                      </li>
-                    ))}
-                  </ol>
+                  {run.output !== undefined && <p className="text-xs text-muted">Resultado: {previewValue(run.output)}</p>}
                   <div className="flex flex-wrap gap-1.5">
                     <button className={buttonGhost} onClick={() => setDetailRun(run)}>
                       Ver detalle
@@ -450,7 +729,8 @@ export function ProjectPage() {
                 {agents.map((agent) => (
                   <article className={card} key={`${agent.category}/${agent.role}`}>
                     <strong className="text-sm">
-                      {agent.category}/{agent.role}
+                      {agent.category}/{agent.role}{" "}
+                      <span className={badge}>{agent.frontmatter.mode ?? "subagent"}</span>
                     </strong>
                     <p className="text-sm text-muted">{agent.frontmatter.description}</p>
                     <small className="text-xs text-muted">{agent.frontmatter.model ?? "modelo heredado"}</small>
@@ -464,6 +744,7 @@ export function ProjectPage() {
                             description: agent.frontmatter.description,
                             body: agent.body,
                             model: agent.frontmatter.model ?? "",
+                            mode: agent.frontmatter.mode ?? "subagent",
                             notebooks: (agent.frontmatter.notebooks ?? []).join(", "),
                           })
                         }
@@ -486,9 +767,9 @@ export function ProjectPage() {
                   event.preventDefault();
                   upsertAgent.mutate();
                 }}
-                aria-label="Editor de sub-agente"
+                aria-label="Editor de agente"
               >
-                <h2 className="text-base font-semibold text-slate-100 md:col-span-2">Crear o editar sub-agente</h2>
+                <h2 className="text-base font-semibold text-slate-100 md:col-span-2">Crear o editar agente</h2>
                 <label>
                   Categoría
                   <input
@@ -511,6 +792,17 @@ export function ProjectPage() {
                     value={agentForm.description}
                     onChange={(event) => setAgentForm({ ...agentForm, description: event.target.value })}
                   />
+                </label>
+                <label>
+                  Modo
+                  <select
+                    value={agentForm.mode}
+                    onChange={(event) => setAgentForm({ ...agentForm, mode: event.target.value as typeof agentForm.mode })}
+                  >
+                    <option value="subagent">Sub-agente</option>
+                    <option value="primary">Principal</option>
+                    <option value="all">Principal y sub-agente</option>
+                  </select>
                 </label>
                 <label>
                   Modelo
@@ -543,329 +835,80 @@ export function ProjectPage() {
                   className={`${buttonPrimary} md:col-span-2`}
                   disabled={upsertAgent.isPending || !agentForm.category || !agentForm.role || !agentForm.description || !agentForm.body}
                 >
-                  Guardar sub-agente
+                  Guardar agente
                 </button>
               </form>
             </div>
           )}
-        </div>
 
-        <aside className="flex flex-col gap-3 xl:sticky xl:top-5 xl:max-h-[calc(100vh-40px)] xl:overflow-auto">
+          {tab === "knowledge" && <ProjectKnowledgePanel projectSlug={slug} />}
+          {tab === "resources" && <ProjectResourcesPanel projectSlug={slug} />}
+          {tab === "settings" && <ProjectSettingsPanel projectSlug={slug} />}
+          </div>
+        </div>
+      )}
+
+      <div
+        className={`fixed inset-0 z-50 ${chatOpen ? "" : "pointer-events-none"}`}
+        aria-hidden={!chatOpen}
+        inert={!chatOpen}
+      >
+        <div
+          className={`chat-backdrop absolute inset-0 bg-[#020617]/55 ${chatOpen ? "opacity-100" : "opacity-0"}`}
+          onClick={() => setChatOpen(false)}
+        />
+        <div
+          className={`chat-drawer absolute inset-y-0 right-0 flex w-full max-w-[500px] flex-col overflow-hidden border-l border-line bg-ink p-3 shadow-2xl ${
+            chatOpen ? "translate-x-0" : "translate-x-full"
+          }`}
+          onClick={(event) => event.stopPropagation()}
+        >
           <ChatPanel
-            onSend={(message) => chat.mutateAsync(message).then((result) => result.reply)}
+            fill
+            onMinimize={() => setChatOpen(false)}
+            onBusyChange={setChatBusy}
+            onActivityChange={setChatActivity}
+            onSend={(message, onProgress) =>
+              chat.mutateAsync({ message, onEvent: onProgress }).then((result) => result.reply)
+            }
             hint="El canvas se sincroniza en vivo cuando el agente edita archivos. Puede tardar varios minutos."
             initialMessages={chatHistory}
+            storageKey={slug}
           />
-          {tab === "canvas" && selected && (
-            <section className={`${card} gap-2.5`} aria-label="Inspector de nodo">
-              <header className="flex items-center justify-between gap-2">
-                <h2 className="text-base font-semibold text-slate-100">{NODE_LABELS[selected.type]}</h2>
-                <button className={buttonDanger} onClick={() => void removeSelectedNode()}>
-                  Eliminar
-                </button>
-              </header>
-              <label>
-                Etiqueta
-                <input value={selected.label ?? ""} onChange={(event) => updateNode({ label: event.target.value })} />
-              </label>
-
-              {selected.type === "trigger" && (
-                <>
-                  <label>
-                    Tipo de trigger
-                    <select value={String(selected.config.kind ?? "manual")} onChange={(event) => updateConfig({ kind: event.target.value })}>
-                      <option value="manual">Manual</option>
-                      <option value="cron">Cron / programado</option>
-                      <option value="webhook">Webhook</option>
-                      <option value="telegram">Telegram</option>
-                      <option value="whatsapp">WhatsApp</option>
-                      <option value="external_chat">Chat externo</option>
-                    </select>
-                  </label>
-                  {selected.config.kind === "cron" && (
-                    <label>
-                      Expresión cron
-                      <input
-                        value={String(selected.config.cron ?? "")}
-                        onChange={(event) => updateConfig({ cron: event.target.value })}
-                        placeholder="0 9 * * *"
-                      />
-                    </label>
-                  )}
-                  {["telegram", "whatsapp", "external_chat"].includes(String(selected.config.kind)) && (
-                    <label>
-                      Canal (slug)
-                      <input
-                        value={String(selected.config.channelSlug ?? "")}
-                        onChange={(event) => updateConfig({ channelSlug: event.target.value })}
-                        placeholder="mi-canal"
-                      />
-                    </label>
-                  )}
-                  <label className="flex-row items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="w-auto"
-                      checked={selected.config.isPublic === true}
-                      onChange={(event) => updateConfig({ isPublic: event.target.checked })}
-                    />
-                    Permitir remitentes públicos
-                  </label>
-                </>
-              )}
-
-              {selected.type === "http" && (
-                <>
-                  <label>
-                    Método
-                    <select value={String(selected.config.method ?? "GET")} onChange={(event) => updateConfig({ method: event.target.value })}>
-                      {["GET", "POST", "PUT", "PATCH", "DELETE"].map((method) => (
-                        <option key={method} value={method}>
-                          {method}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    URL
-                    <input
-                      value={String(selected.config.url ?? "")}
-                      onChange={(event) => updateConfig({ url: event.target.value })}
-                      placeholder="https://api.example.com"
-                    />
-                  </label>
-                  <label>
-                    Headers (JSON)
-                    <textarea
-                      rows={3}
-                      value={String(selected.config.headers ?? "{}")}
-                      onChange={(event) => updateConfig({ headers: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Body (JSON o texto)
-                    <textarea
-                      rows={3}
-                      value={String(selected.config.body ?? "")}
-                      onChange={(event) => updateConfig({ body: event.target.value })}
-                    />
-                  </label>
-                </>
-              )}
-
-              {selected.type === "delay" && (
-                <label>
-                  Espera (ms, máx. 60000)
-                  <input
-                    type="number"
-                    min={0}
-                    max={60000}
-                    value={Number(selected.config.ms ?? 1000)}
-                    onChange={(event) => updateConfig({ ms: Number(event.target.value) })}
-                  />
-                </label>
-              )}
-
-              {selected.type === "transform" && (
-                <>
-                  <label>
-                    Plantilla / mapeo JSON
-                    <textarea
-                      rows={5}
-                      value={String(selected.config.template ?? "")}
-                      onChange={(event) => updateConfig({ template: event.target.value })}
-                      placeholder={'{"nombre":"{{input.name}}","activo":true}'}
-                    />
-                  </label>
-                  <p className="text-xs text-muted">Usa {"{{input.campo}}"} para interpolar la entrada.</p>
-                </>
-              )}
-
-              {selected.type === "decision" && (
-                <>
-                  <label>
-                    Modo
-                    <select
-                      value={String(selected.config.mode ?? (selected.codeFile ? "code" : "condition"))}
-                      onChange={(event) => {
-                        if (event.target.value === "code") void enableDecisionCode();
-                        else updateConfig({ mode: "condition" });
-                      }}
-                    >
-                      <option value="condition">Condición visual</option>
-                      <option value="code">Código TypeScript</option>
-                    </select>
-                  </label>
-                  {selected.config.mode !== "code" && (
-                    <>
-                      <label>
-                        Campo de entrada
-                        <input
-                          value={String((selected.config.condition as { field?: string })?.field ?? "")}
-                          onChange={(event) =>
-                            updateConfig({ condition: { ...(selected.config.condition as object), field: event.target.value } })
-                          }
-                          placeholder="status"
-                        />
-                      </label>
-                      <label>
-                        Operador
-                        <select
-                          value={String((selected.config.condition as { operator?: string })?.operator ?? "equals")}
-                          onChange={(event) =>
-                            updateConfig({ condition: { ...(selected.config.condition as object), operator: event.target.value } })
-                          }
-                        >
-                          <option value="equals">igual a</option>
-                          <option value="not_equals">distinto de</option>
-                          <option value="contains">contiene</option>
-                          <option value="greater_than">mayor que</option>
-                          <option value="less_than">menor que</option>
-                          <option value="exists">existe</option>
-                          <option value="truthy">es verdadero</option>
-                        </select>
-                      </label>
-                      <label>
-                        Valor
-                        <input
-                          value={String((selected.config.condition as { value?: unknown })?.value ?? "")}
-                          onChange={(event) =>
-                            updateConfig({ condition: { ...(selected.config.condition as object), value: event.target.value } })
-                          }
-                        />
-                      </label>
-                      <p className="text-xs text-muted">Conecta las salidas sí / no a los siguientes nodos.</p>
-                    </>
-                  )}
-                </>
-              )}
-
-              {selected.type === "agent" && (
-                <>
-                  <label>
-                    Sub-agente
-                    <select value={selected.agentId ?? ""} onChange={(event) => updateNode({ agentId: event.target.value })}>
-                      <option value="">Selecciona un sub-agente</option>
-                      {agents.map((agent) => (
-                        <option key={`${agent.category}/${agent.role}`} value={`${agent.category}/${agent.role}`}>
-                          {agent.category}/{agent.role}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Modelo del nodo
-                    <select value={selected.modelOverride ?? ""} onChange={(event) => updateNode({ modelOverride: event.target.value || undefined })}>
-                      <option value="">Heredar del flujo</option>
-                      {modelOptions.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Notebooks (coma)
-                    <input
-                      value={selected.notebookIds.join(", ")}
-                      onChange={(event) =>
-                        updateNode({
-                          notebookIds: event.target.value
-                            .split(",")
-                            .map((item) => item.trim())
-                            .filter(Boolean),
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    Instrucción adicional
-                    <textarea
-                      rows={3}
-                      value={String(selected.config.instruction ?? "")}
-                      onChange={(event) => updateConfig({ instruction: event.target.value })}
-                    />
-                  </label>
-                  <label className="flex-row items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="w-auto"
-                      checked={selected.config.strictGrounding === true}
-                      onChange={(event) => updateConfig({ strictGrounding: event.target.checked })}
-                    />
-                    Respuestas fundamentadas solo en Notebooks
-                  </label>
-                </>
-              )}
-
-              {selected.type === "approval" && (
-                <>
-                  <label>
-                    Mensaje de aprobación
-                    <textarea
-                      rows={2}
-                      value={String(selected.config.message ?? "")}
-                      onChange={(event) => updateConfig({ message: event.target.value })}
-                    />
-                  </label>
-                  <label className="flex-row items-center gap-2">
-                    <input
-                      type="checkbox"
-                      className="w-auto"
-                      checked={selected.config.autoApprove === true}
-                      onChange={(event) => updateConfig({ autoApprove: event.target.checked })}
-                    />
-                    Aprobar automáticamente (solo pruebas)
-                  </label>
-                </>
-              )}
-
-              {["code", "http", "decision", "agent"].includes(selected.type) && (
-                <>
-                  <label>
-                    Timeout (ms)
-                    <input
-                      type="number"
-                      value={selected.timeoutMs}
-                      onChange={(event) => updateNode({ timeoutMs: Number(event.target.value) })}
-                    />
-                  </label>
-                  <label>
-                    Reintentos
-                    <input
-                      type="number"
-                      min={0}
-                      max={5}
-                      value={selected.retryPolicy.maxRetries}
-                      onChange={(event) => updateNode({ retryPolicy: { maxRetries: Number(event.target.value) } })}
-                    />
-                  </label>
-                </>
-              )}
-
-              {(selected.type === "code" || (selected.type === "decision" && selected.config.mode === "code")) && (
-                <div>
-                  <p className="text-xs text-muted">{selected.codeFile}</p>
-                  <CodeEditor
-                    value={nodeCode}
-                    onChange={(value) => {
-                      setNodeCode(value);
-                      setNodeCodeDirty(true);
-                    }}
-                  />
-                  <button
-                    className={button}
-                    disabled={!nodeCodeDirty || saveNode.isPending || !selected.codeFile}
-                    onClick={() => selected.codeFile && saveNode.mutate({ file: selected.codeFile, code: nodeCode })}
-                  >
-                    Guardar nodo
-                  </button>
-                </div>
-              )}
-            </section>
-          )}
-        </aside>
+        </div>
       </div>
+
+      {!chatOpen && (chatBusy || chatUnread) && (
+        <button
+          type="button"
+          className="agent-status-pill fixed bottom-28 right-4 z-40 flex max-w-[280px] items-center gap-2.5 rounded-full border border-accent/40 bg-[#0b1220]/95 px-3.5 py-2 text-left text-xs text-slate-100 shadow-2xl"
+          onClick={() => {
+            setChatOpen(true);
+            setChatUnread(false);
+          }}
+          aria-label={chatBusy ? "Abrir chat, el agente está trabajando" : "Abrir chat, hay una respuesta nueva"}
+        >
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              chatBusy ? "animate-pulse bg-accent motion-reduce:animate-none" : "bg-ok"
+            }`}
+          />
+          <span className="min-w-0">
+            <strong className="block text-[11px]">{chatBusy ? "Agente trabajando" : "Respuesta lista"}</strong>
+            <span className="block truncate text-[10px] text-muted">
+              {chatBusy ? (chatActivity ?? "Preparando respuesta…") : "Abre el chat para verla"}
+            </span>
+          </span>
+        </button>
+      )}
+
+      {launchOpen && (
+        <RunLaunchModal
+          graph={graph}
+          onClose={() => setLaunchOpen(false)}
+          onLaunch={(payload) => runWorkflow.mutate(payload)}
+        />
+      )}
 
       {detailRun && (
         <RunDetailModal

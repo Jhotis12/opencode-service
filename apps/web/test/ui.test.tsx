@@ -101,6 +101,15 @@ describe("WorkflowCanvas", () => {
         graph={graph}
         onSelect={() => undefined}
         onChange={() => undefined}
+        onConnect={() => undefined}
+        onConnectRejected={() => undefined}
+        onStartConnect={() => undefined}
+        onCancelConnect={() => undefined}
+        onDuplicateNode={() => undefined}
+        onDeleteNode={() => undefined}
+        onDeleteEdge={() => undefined}
+        onChangeEdgeCondition={() => undefined}
+        onOpenPalette={() => undefined}
       />,
     );
     expect(await screen.findByText("Inicio")).toBeInTheDocument();

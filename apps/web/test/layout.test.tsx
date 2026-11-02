@@ -32,6 +32,9 @@ describe("Layout", () => {
 
   it("collapses the navigation rail, keeps accessible labels and persists the preference", async () => {
     const first = renderLayout();
+    expect(screen.getByRole("link", { name: "Saltar al contenido" })).toHaveAttribute("href", "#main-content");
+    expect(screen.getByTestId("app-main")).toHaveAttribute("id", "main-content");
+    expect(screen.getByTestId("app-main")).toHaveAttribute("tabindex", "-1");
     expect(screen.getAllByRole("link", { name: /Agentic Platform/i }).length).toBeGreaterThan(0);
     await userEvent.click(screen.getByRole("button", { name: "Contraer navegación" }));
     expect(screen.getByRole("button", { name: "Expandir navegación" })).toBeInTheDocument();
@@ -49,6 +52,17 @@ describe("Layout", () => {
     expect(screen.getByLabelText("Navegación lateral").className).toContain("translate-x-0");
     await userEvent.click(screen.getByRole("button", { name: "Cerrar navegación" }));
     expect(screen.getByLabelText("Navegación lateral").className).toContain("-translate-x-full");
+  });
+
+  it("makes the closed mobile drawer inert", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("max-width"),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    renderLayout();
+    expect(screen.getByLabelText("Navegación lateral")).toHaveAttribute("inert");
+    vi.unstubAllGlobals();
   });
 
   it("uses a fluid main area only on project routes", () => {

@@ -61,3 +61,13 @@ overlay. Its `size` prop is the contract; do not add per-modal transition values
   when a reply is waiting.
 - `prefers-reduced-motion` keeps the status colors and removes pulsing,
   sliding and node-touch animations.
+
+## Press and focus feedback
+
+- Pressable controls use `active:scale-[0.97]` with the shared 140 ms transition;
+  inline icons scale with the button, layout does not move.
+- Keyboard focus uses a 2 px accent outline with 2 px offset. Inputs keep their
+  accent ring; buttons, links, tabs and icon-only controls use the outline.
+- `prefers-reduced-motion: reduce` removes the press transform and smooth scroll
+  while keeping opacity and colour changes.
+- The full visual standard lives in `docs/design-standard.md`.

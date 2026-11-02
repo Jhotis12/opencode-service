@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.tsx";
 import { buttonGhost } from "../ui.ts";
 import { BrandLockup } from "./Brand.tsx";
+import { useMediaQuery } from "../useMediaQuery.ts";
 import { NavIcon, type NavIconName } from "./NavIcon.tsx";
 
 const NAV_ITEMS: Array<{ to: string; label: string; icon: NavIconName }> = [
@@ -36,6 +37,8 @@ export function Layout() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const isMobileNav = useMediaQuery("(max-width: 1023px)");
+  const navInert = isMobileNav && !mobileOpen;
   const fluid = location.pathname.startsWith("/projects/");
 
   useEffect(() => {
@@ -60,6 +63,12 @@ export function Layout() {
 
   return (
     <div className={`min-h-dvh lg:grid ${collapsed ? "lg:grid-cols-[64px_1fr]" : "lg:grid-cols-[240px_1fr]"}`}>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:border focus:border-line focus:bg-panel focus:px-4 focus:py-2 focus:text-sm focus:text-slate-100"
+      >
+        Saltar al contenido
+      </a>
       <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-line bg-ink/95 px-4 lg:hidden">
         <button
           type="button"
@@ -85,6 +94,8 @@ export function Layout() {
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         } ${collapsed ? "lg:w-16 lg:gap-4 lg:p-3" : "lg:w-60 lg:p-5"}`}
         aria-label="Navegación lateral"
+        inert={navInert}
+        aria-hidden={navInert || undefined}
       >
         <div className={`flex items-center gap-3 ${collapsed ? "lg:flex-col lg:gap-2" : ""}`}>
           <BrandLockup
@@ -156,6 +167,8 @@ export function Layout() {
       </aside>
 
       <main
+        id="main-content"
+        tabIndex={-1}
         data-testid="app-main"
         className={
           fluid

@@ -4,6 +4,7 @@ import type { NodeType } from "@platform/shared";
 import { NODE_META } from "./node-catalog.ts";
 import { NodeIcon } from "./node-icons.tsx";
 import { nodeShapeStyle } from "./node-shapes.ts";
+import { statusLabel } from "../../ui.ts";
 import { useCanvasActions } from "./canvas-actions.ts";
 
 export type ConnectRole = "source" | "valid" | "invalid";
@@ -26,6 +27,43 @@ const statusColor: Record<string, string> = {
   timed_out: "var(--color-danger)",
   running: "var(--color-accent)",
 };
+
+function NodeStatusIcon({ status }: { status: string }) {
+  const color = statusColor[status] ?? "var(--color-faint)";
+  if (status === "running") {
+    return (
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+        className="animate-spin motion-reduce:animate-none"
+        style={{ color }}
+        aria-hidden
+      >
+        <circle cx="12" cy="12" r="8" strokeDasharray="32 18" />
+      </svg>
+    );
+  }
+  if (status === "failed" || status === "timed_out") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" style={{ color }} aria-hidden>
+        <path d="M12 7v7M12 17h.01" />
+      </svg>
+    );
+  }
+  if (status === "succeeded") {
+    return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ color }} aria-hidden>
+        <path d="m5 12 4.5 4.5L19 7" />
+      </svg>
+    );
+  }
+  return <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} aria-hidden />;
+}
 
 function ToolbarIcon({ kind }: { kind: "duplicate" | "connect" | "delete" }) {
   const common = {
@@ -185,11 +223,13 @@ export function PlatformNode({ id, data, selected }: NodeProps<PlatformFlowNode>
             {data.status && (
               <span
                 role="status"
-                aria-label={`Estado: ${data.status}`}
-                className={`h-2 w-2 rounded-full ${data.status === "running" ? "animate-pulse motion-reduce:animate-none" : ""}`}
-                style={{ background: statusColor[data.status] ?? "var(--color-faint)" }}
-                title={data.status}
-              />
+                aria-label={`Estado: ${statusLabel(data.status)}`}
+                title={statusLabel(data.status)}
+                data-status={data.status}
+                className="inline-flex h-3 w-3 items-center justify-center"
+              >
+                <NodeStatusIcon status={data.status} />
+              </span>
             )}
           </div>
         </div>

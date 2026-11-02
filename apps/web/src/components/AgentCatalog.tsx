@@ -167,7 +167,7 @@ export function AgentCatalog({
       {isLoading && agents.length === 0 ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Cargando agentes">
           {[0, 1, 2].map((item) => (
-            <div key={item} className={`${card} animate-pulse`} aria-hidden>
+            <div key={item} className={`${card} animate-pulse motion-reduce:animate-none`} aria-hidden>
               <div className="h-10 w-10 rounded-xl bg-panel-2" />
               <div className="h-4 w-2/3 rounded bg-panel-2" />
               <div className="h-3 w-full rounded bg-panel-2" />

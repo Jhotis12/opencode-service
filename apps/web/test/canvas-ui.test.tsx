@@ -116,7 +116,7 @@ describe("WorkflowCanvas", () => {
     const first = graph([node("start", "trigger"), node("code", "code")]);
     const { rerender, props } = renderCanvas({ graph: first, selectedId: "code" });
     expect(await screen.findByRole("button", { name: "Duplicar nodo" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Estado: succeeded")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Estado: Completado")).not.toBeInTheDocument();
 
     rerender(
       <WorkflowCanvas
@@ -126,7 +126,9 @@ describe("WorkflowCanvas", () => {
         selectedId="code"
       />,
     );
-    expect(screen.getByLabelText("Estado: succeeded")).toBeInTheDocument();
+    const status = screen.getByLabelText("Estado: Completado");
+    expect(status).toBeInTheDocument();
+    expect(status.querySelector("svg")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Duplicar nodo" })).toBeInTheDocument();
   });
 

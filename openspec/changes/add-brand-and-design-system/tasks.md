@@ -73,13 +73,13 @@ Desktop-only frontend change. Do not edit `apps/server`, `packages/shared`, data
 
 ## 8. Accessibility hardening
 
-- [ ] 8.1 Portal `Modal` to `document.body`, add a focus trap, background `inert`, body scroll lock, initial focus and focus return; verify `modal.test.tsx` tabs through the dialog, cannot reach background controls and restores the trigger.
-- [ ] 8.2 Add a skip link to `Layout.tsx`, give the main region an id and add the global `:focus-visible` ring; verify a keyboard test tabs to the skip link and lands on `#main-content`.
-- [ ] 8.3 Make the closed mobile drawer non-focusable by splitting the desktop rail from the mobile drawer or gating `inert` with a media query; verify a keyboard test cannot reach drawer links while it is closed on desktop.
-- [ ] 8.4 Add icon + color status indicators for nodes, runs and health so status is not conveyed by color alone; verify tests assert an accessible status label and a visible icon.
-- [ ] 8.5 Add pressed feedback to buttons and respect reduced motion for press, pulse and smooth scroll; verify a test or CSS assertion covers the reduced-motion branch.
-- [ ] 8.6 Update `docs/ui-motion.md` with the press/focus additions and link it from `docs/design-standard.md`; verify the documentation matches the CSS tokens.
-- [ ] 8.7 Update the modal, layout, chat and page tests for focus and inert behavior; verify `bun test --cwd apps/web` passes.
+- [x] 8.1 Portal `Modal` to `document.body`, add a focus trap, background `inert`, body scroll lock, initial focus and focus return; verify `modal.test.tsx` tabs through the dialog, cannot reach background controls and restores the trigger.
+- [x] 8.2 Add a skip link to `Layout.tsx`, give the main region an id and add the global `:focus-visible` ring; verify a keyboard test tabs to the skip link and lands on `#main-content`.
+- [x] 8.3 Make the closed mobile drawer non-focusable by splitting the desktop rail from the mobile drawer or gating `inert` with a media query; verify a keyboard test cannot reach drawer links while it is closed on desktop.
+- [x] 8.4 Add icon + color status indicators for nodes, runs and health so status is not conveyed by color alone; verify tests assert an accessible status label and a visible icon.
+- [x] 8.5 Add pressed feedback to buttons and respect reduced motion for press, pulse and smooth scroll; verify a test or CSS assertion covers the reduced-motion branch.
+- [x] 8.6 Update `docs/ui-motion.md` with the press/focus additions and link it from `docs/design-standard.md`; verify the documentation matches the CSS tokens.
+- [x] 8.7 Update the modal, layout, chat and page tests for focus and inert behavior; verify `bun test --cwd apps/web` passes.
 
 ## 9. Integration verification
 

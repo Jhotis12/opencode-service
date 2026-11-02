@@ -14,6 +14,16 @@
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
+:root {
+  --motion-duration-fast: 140ms;
+  --motion-duration-base: 200ms;
+  --motion-duration-modal: 220ms;
+  --motion-duration-drawer: 320ms;
+  --motion-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --motion-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 @layer base {
   html {
     color-scheme: dark;
@@ -97,4 +107,109 @@
 
 .react-flow__edge-text {
   fill: #94a3b8;
+}
+
+.run-node-running {
+  filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.3));
+}
+
+.chat-backdrop {
+  transition: opacity var(--motion-duration-base) var(--motion-ease-out);
+}
+
+.chat-drawer {
+  transition: transform var(--motion-duration-drawer) var(--motion-ease-drawer);
+}
+
+.agent-status-pill {
+  animation: agent-status-in 200ms var(--motion-ease-out);
+}
+
+.agent-touch-layer {
+  opacity: 0;
+  animation: agent-touch 1.8s var(--motion-ease-out) 2;
+  pointer-events: none;
+}
+
+@keyframes agent-status-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes agent-touch {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  20%,
+  60% {
+    opacity: 0.7;
+  }
+}
+
+.modal-backdrop {
+  opacity: 1;
+  transition: opacity var(--motion-duration-base) var(--motion-ease-out);
+}
+
+.modal-backdrop[data-state="closed"] {
+  opacity: 0;
+  transition-duration: var(--motion-duration-fast);
+}
+
+.modal-surface {
+  transform-origin: center;
+  transition:
+    opacity var(--motion-duration-modal) var(--motion-ease-out),
+    transform var(--motion-duration-modal) var(--motion-ease-out);
+}
+
+.modal-surface[data-state="closed"] {
+  opacity: 0;
+  transform: scale(0.96);
+  transition-duration: var(--motion-duration-fast);
+}
+
+.nav-drawer {
+  transition: transform var(--motion-duration-drawer) var(--motion-ease-drawer);
+}
+
+@media (max-width: 639px) {
+  .modal-surface[data-state="closed"] {
+    transform: translateY(14px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop {
+    transition: opacity var(--motion-duration-fast) ease;
+  }
+
+  .modal-surface {
+    transition: opacity var(--motion-duration-fast) ease;
+  }
+
+  .modal-surface[data-state="closed"] {
+    transform: none;
+  }
+
+  .nav-drawer,
+  .chat-drawer {
+    transition-duration: 1ms;
+  }
+
+  .agent-status-pill,
+  .agent-touch-layer {
+    animation: none;
+  }
+
+  .agent-touch-layer {
+    opacity: 0.4;
+  }
 }

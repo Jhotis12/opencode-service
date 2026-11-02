@@ -41,7 +41,7 @@ export function statusBadge(status: string): string {
 }
 
 export const modalBackdrop =
-  "fixed inset-0 z-50 grid place-items-center bg-[#020617]/75 p-4 backdrop-blur-sm";
+  "modal-backdrop fixed inset-0 z-50 flex items-end justify-center bg-[#020617]/75 p-0 backdrop-blur-sm sm:items-center sm:p-4";
 
 export const modalPanel =
-  "flex max-h-[88vh] w-full max-w-2xl flex-col gap-3 overflow-auto rounded-2xl border border-line bg-panel p-5 shadow-2xl";
+  "modal-surface flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-panel shadow-2xl sm:rounded-2xl";

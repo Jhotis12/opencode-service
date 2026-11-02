@@ -36,8 +36,13 @@ describe("Layout", () => {
     expect(screen.getByTestId("app-main")).toHaveAttribute("id", "main-content");
     expect(screen.getByTestId("app-main")).toHaveAttribute("tabindex", "-1");
     expect(screen.getAllByRole("link", { name: /Agentic Platform/i }).length).toBeGreaterThan(0);
-    await userEvent.click(screen.getByRole("button", { name: "Contraer navegación" }));
-    expect(screen.getByRole("button", { name: "Expandir navegación" })).toBeInTheDocument();
+    const collapse = screen.getByRole("button", { name: "Contraer navegación" });
+    expect(collapse).toHaveAttribute("aria-controls", "app-navigation");
+    expect(collapse).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(collapse);
+    const expand = screen.getByRole("button", { name: "Expandir navegación" });
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByLabelText("Navegación lateral")).toHaveAttribute("id", "app-navigation");
     expect(localStorage.getItem("platform.nav.collapsed")).toBe("1");
     expect(screen.getByRole("link", { name: "Proyectos" })).toHaveAttribute("title", "Proyectos");
     first.unmount();

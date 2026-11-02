@@ -7,10 +7,10 @@
 
 ## 2. Animate the desktop navigation rail
 
-- [ ] 2.1 Transition the shell's `grid-template-columns` between 64 px and 240 px over 200 ms, let the aside fill the track with `lg:w-auto`, add `lg:overflow-hidden`, and extend the existing `.nav-drawer` transition with padding and gap without replacing its mobile transform; verify with `bun run --cwd apps/web typecheck` and a browser collapse at 1440x900 where the main workspace reflows with the rail.
-- [ ] 2.2 Keep nav labels and the wordmark mounted: replace `lg:sr-only` with a desktop-only max-width and opacity wrapper, pass `compact={false}` and stretch/center the brand when collapsed, and transition nav icon padding from 12 px to 11 px; verify labels do not overflow and links keep accessible names and titles in `apps/web/test/layout.test.tsx`.
-- [ ] 2.3 Add `aria-controls` and `aria-expanded` to the desktop collapse control and add the shell and label transitions to the reduced-motion block in `apps/web/src/index.css`; verify `bun run --cwd apps/web test` and that `prefers-reduced-motion: reduce` switches the rail without visible movement.
-- [ ] 2.4 Add the navigation-rail exception to `docs/ui-motion.md`: 200 ms grid-track and padding/gap, 140 ms label opacity, 1 ms under reduced motion; verify the documented values match `apps/web/src/index.css`.
+- [x] 2.1 Transition the shell's `grid-template-columns` between 64 px and 240 px over 200 ms, let the aside fill the track with `lg:w-auto`, add `lg:overflow-hidden`, and extend the existing `.nav-drawer` transition with padding and gap without replacing its mobile transform; verify with `bun run --cwd apps/web typecheck` and a browser collapse at 1440x900 where the main workspace reflows with the rail.
+- [x] 2.2 Keep nav labels and the wordmark mounted: replace `lg:sr-only` with a desktop-only max-width and opacity wrapper, pass `compact={false}` and stretch/center the brand when collapsed, and transition nav icon padding from 12 px to 11 px; verify labels do not overflow and links keep accessible names and titles in `apps/web/test/layout.test.tsx`.
+- [x] 2.3 Add `aria-controls` and `aria-expanded` to the desktop collapse control and add the shell and label transitions to the reduced-motion block in `apps/web/src/index.css`; verify `bun run --cwd apps/web test` and that `prefers-reduced-motion: reduce` switches the rail without visible movement.
+- [x] 2.4 Add the navigation-rail exception to `docs/ui-motion.md`: 200 ms grid-track and padding/gap, 140 ms label opacity, 1 ms under reduced motion; verify the documented values match `apps/web/src/index.css`.
 
 ## 3. Integration verification
 

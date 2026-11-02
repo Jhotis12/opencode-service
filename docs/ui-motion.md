@@ -35,6 +35,20 @@ Defined in `apps/web/src/index.css`:
 - `--motion-duration-modal: 220ms` for modal entry.
 - `--motion-duration-drawer: 320ms` for the navigation drawer.
 
+## Navigation rail
+
+- The desktop rail collapses and expands by transitioning `grid-template-columns`
+  between 64 px and 240 px over 200 ms with `--motion-ease-in-out`. This is the
+  one deliberate exception to the transform/opacity rule: a structural rail
+  must reflow the workspace with it.
+- The aside's padding and gap use the same 200 ms curve.
+- Labels and the wordmark transition `max-width` over 200 ms and `opacity`
+  over 140 ms. The wordmark stays mounted and is clipped by the rail.
+- The narrow-viewport drawer keeps its existing 320 ms transform with
+  `--motion-ease-drawer`.
+- `prefers-reduced-motion: reduce` switches the rail and labels in 1 ms with no
+  visible movement.
+
 ## Modal behavior
 
 - Entry: opacity + `scale(0.96)` to `scale(1)`, 220ms strong ease-out.

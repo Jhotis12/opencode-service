@@ -45,6 +45,7 @@ export function BrandLockup({
   compact = false,
   asHeading = false,
   className = "",
+  wordmarkClassName = "",
 }: {
   size?: number;
   subtitle?: string | false;
@@ -52,6 +53,7 @@ export function BrandLockup({
   compact?: boolean;
   asHeading?: boolean;
   className?: string;
+  wordmarkClassName?: string;
 }) {
   const prominent = size >= 40;
   const Wordmark = asHeading ? "h1" : "strong";
@@ -59,7 +61,7 @@ export function BrandLockup({
     <>
       <BrandMark size={size} />
       {!compact && (
-        <span className="min-w-0 overflow-hidden">
+        <span className={`min-w-0 overflow-hidden ${wordmarkClassName}`}>
           <Wordmark
             className={`block whitespace-nowrap text-slate-100 ${
               prominent ? "text-xl font-semibold" : "text-[13px] font-semibold"

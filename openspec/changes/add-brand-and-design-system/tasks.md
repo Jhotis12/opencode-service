@@ -83,12 +83,12 @@ Desktop-only frontend change. Do not edit `apps/server`, `packages/shared`, data
 
 ## 9. Integration verification
 
-- [ ] 9.1 Run `bun run typecheck` and `bun run build`; verify both exit successfully.
-- [ ] 9.2 Run `bun test --cwd apps/web` and `bun run test`; verify all unit and component tests pass.
-- [ ] 9.3 Run `bun run test:e2e` at the desktop viewport; verify the login, project shell, canvas, agent editor, chat, resources, orchestrator, settings and health flows pass.
-- [ ] 9.4 Perform a manual desktop review at 1280×800 and 1440×900: brand, login, projects, canvas at the initial zoom, Agentes, Conocimiento, Recursos, Ajustes, Orquestador and Salud; verify no clipped tab labels, no unreadable node titles and no raw English statuses.
-- [ ] 9.5 Run `grep` checks for `◆`, `href="data:,"`, `Hexagonal`, `Expandir chat`, `expanded` chat persistence and the retired surface hex values; verify no user-facing occurrence remains.
-- [ ] 9.6 Confirm the diff contains no server, shared-contract, database, workflow-engine or mobile-layout changes; verify with `git diff --stat` and a path review.
+- [x] 9.1 Run `bun run typecheck` and `bun run build`; verify both exit successfully.
+- [x] 9.2 Run `bun test --cwd apps/web` and `bun run test`; verify all unit and component tests pass.
+- [x] 9.3 Run `bun run test:e2e` at the desktop viewport; verify the login, project shell, canvas, agent editor, chat, resources, orchestrator, settings and health flows pass.
+- [x] 9.4 Perform a manual desktop review at 1280×800 and 1440×900: brand, login, projects, canvas at the initial zoom, Agentes, Conocimiento, Recursos, Ajustes, Orquestador and Salud; verify no clipped tab labels, no unreadable node titles and no raw English statuses.
+- [x] 9.5 Run `grep` checks for `◆`, `href="data:,"`, `Hexagonal`, `Expandir chat`, `expanded` chat persistence and the retired surface hex values; verify no user-facing occurrence remains.
+- [x] 9.6 Confirm the diff contains no server, shared-contract, database, workflow-engine or mobile-layout changes; verify with `git diff --stat` and a path review.
 
 ## Workflow follow-up
 

@@ -13,7 +13,9 @@ import type {
   UserRecord,
   VaultSecretRecord,
   WorkflowRunRecord,
+  WorkflowVersionRecord,
 } from "../../../domain/entities.ts";
+import type { WorkflowGraph } from "@platform/shared";
 import type { Store } from "../../../application/ports/store.ts";
 import { openDatabase, type DatabaseHandle } from "./db.ts";
 import { migrate } from "./migrate.ts";
@@ -32,6 +34,7 @@ import {
   workflowApprovals,
   workflowRuns,
   workflowStepRuns,
+  workflowVersions,
 } from "./schema.ts";
 
 const json = (value: unknown): string => JSON.stringify(value ?? null);
@@ -307,6 +310,7 @@ export class SqliteStore implements Store {
           entryPoint: record.entryPoint,
           launchedBy: record.launchedBy ?? null,
           graphHash: record.graphHash ?? null,
+          versionId: record.versionId ?? null,
           integrationId: record.integrationId ?? null,
           sourceDetail: record.sourceDetail ?? null,
           startedAt: record.startedAt,
@@ -327,7 +331,7 @@ export class SqliteStore implements Store {
       patch: Partial<
         Pick<
           WorkflowRunRecord,
-          "status" | "output" | "error" | "finishedAt" | "entryPoint" | "launchedBy" | "sourceDetail"
+          "status" | "output" | "error" | "finishedAt" | "entryPoint" | "launchedBy" | "sourceDetail" | "versionId" | "graphHash"
         >
       >,
     ): void => {
@@ -341,6 +345,8 @@ export class SqliteStore implements Store {
           ...(patch.entryPoint !== undefined ? { entryPoint: patch.entryPoint } : {}),
           ...(patch.launchedBy !== undefined ? { launchedBy: patch.launchedBy ?? null } : {}),
           ...(patch.sourceDetail !== undefined ? { sourceDetail: patch.sourceDetail ?? null } : {}),
+          ...(patch.versionId !== undefined ? { versionId: patch.versionId ?? null } : {}),
+          ...(patch.graphHash !== undefined ? { graphHash: patch.graphHash ?? null } : {}),
         })
         .where(eq(workflowRuns.id, id))
         .run();
@@ -352,6 +358,14 @@ export class SqliteStore implements Store {
         .where(eq(workflowRuns.projectSlug, projectSlug))
         .orderBy(desc(workflowRuns.startedAt))
         .limit(limit)
+        .all()
+        .map((row) => this.mapRun(row)!),
+    listByStatus: (status: WorkflowRunRecord["status"]): WorkflowRunRecord[] =>
+      this.handle.db
+        .select()
+        .from(workflowRuns)
+        .where(eq(workflowRuns.status, status))
+        .orderBy(workflowRuns.startedAt)
         .all()
         .map((row) => this.mapRun(row)!),
     listRecent: (limit: number): WorkflowRunRecord[] =>
@@ -674,11 +688,98 @@ export class SqliteStore implements Store {
         .query("DELETE FROM workflow_step_runs WHERE run_id IN (SELECT id FROM workflow_runs WHERE project_slug = ?)")
         .run(projectSlug);
       this.handle.sqlite.query("DELETE FROM workflow_runs WHERE project_slug = ?").run(projectSlug);
+      this.handle.sqlite.query("DELETE FROM workflow_versions WHERE project_slug = ?").run(projectSlug);
       this.handle.sqlite.query("DELETE FROM integrations WHERE scope = 'project' AND project_slug = ?").run(projectSlug);
       this.handle.sqlite.query("DELETE FROM vault_secrets WHERE scope = 'project' AND project_slug = ?").run(projectSlug);
       this.handle.sqlite.query("DELETE FROM projects WHERE slug = ?").run(projectSlug);
     });
     remove();
+  };
+
+  versions = {
+    record: (input: {
+      projectSlug: string;
+      graphHash: string;
+      graph: WorkflowGraph;
+      codeBundle: Record<string, string>;
+      createdBy?: string;
+      forceNewVersion?: boolean;
+    }): WorkflowVersionRecord => {
+      const latest = this.versions.latest(input.projectSlug);
+      const bundleJson = JSON.stringify(input.codeBundle ?? {});
+      if (
+        !input.forceNewVersion &&
+        latest &&
+        latest.graphHash === input.graphHash &&
+        JSON.stringify(latest.codeBundle) === bundleJson
+      ) {
+        return latest;
+      }
+      const nextVersion = (latest?.version ?? 0) + 1;
+      const record: WorkflowVersionRecord = {
+        id: crypto.randomUUID(),
+        projectSlug: input.projectSlug,
+        version: nextVersion,
+        graphHash: input.graphHash,
+        graph: input.graph,
+        codeBundle: input.codeBundle ?? {},
+        createdBy: input.createdBy,
+        createdAt: new Date().toISOString(),
+      };
+      this.handle.db
+        .insert(workflowVersions)
+        .values({
+          id: record.id,
+          projectSlug: record.projectSlug,
+          version: record.version,
+          graphHash: record.graphHash,
+          graphJson: JSON.stringify(record.graph),
+          codeBundle: bundleJson,
+          createdBy: record.createdBy ?? null,
+          createdAt: record.createdAt,
+        })
+        .run();
+      return record;
+    },
+    list: (projectSlug: string, limit = 50): WorkflowVersionRecord[] =>
+      this.handle.db
+        .select()
+        .from(workflowVersions)
+        .where(eq(workflowVersions.projectSlug, projectSlug))
+        .orderBy(desc(workflowVersions.version))
+        .limit(limit)
+        .all()
+        .map((row) => this.mapVersion(row)),
+    findById: (id: string): WorkflowVersionRecord | undefined => {
+      const row = this.handle.db.select().from(workflowVersions).where(eq(workflowVersions.id, id)).get();
+      return row ? this.mapVersion(row) : undefined;
+    },
+    findByVersion: (projectSlug: string, version: number): WorkflowVersionRecord | undefined => {
+      const row = this.handle.db
+        .select()
+        .from(workflowVersions)
+        .where(and(eq(workflowVersions.projectSlug, projectSlug), eq(workflowVersions.version, version)))
+        .get();
+      return row ? this.mapVersion(row) : undefined;
+    },
+    findByGraphHash: (projectSlug: string, graphHash: string): WorkflowVersionRecord | undefined => {
+      const row = this.handle.db
+        .select()
+        .from(workflowVersions)
+        .where(and(eq(workflowVersions.projectSlug, projectSlug), eq(workflowVersions.graphHash, graphHash)))
+        .orderBy(desc(workflowVersions.version))
+        .get();
+      return row ? this.mapVersion(row) : undefined;
+    },
+    latest: (projectSlug: string): WorkflowVersionRecord | undefined => {
+      const row = this.handle.db
+        .select()
+        .from(workflowVersions)
+        .where(eq(workflowVersions.projectSlug, projectSlug))
+        .orderBy(desc(workflowVersions.version))
+        .get();
+      return row ? this.mapVersion(row) : undefined;
+    },
   };
 
   private selectRunById(id: string) {
@@ -715,10 +816,24 @@ export class SqliteStore implements Store {
       entryPoint: row.entryPoint as WorkflowRunRecord["entryPoint"],
       launchedBy: row.launchedBy ?? undefined,
       graphHash: row.graphHash ?? undefined,
+      versionId: row.versionId ?? undefined,
       integrationId: row.integrationId ?? undefined,
       sourceDetail: row.sourceDetail ?? undefined,
       startedAt: row.startedAt,
       finishedAt: row.finishedAt ?? undefined,
+    };
+  }
+
+  private mapVersion(row: typeof workflowVersions.$inferSelect): WorkflowVersionRecord {
+    return {
+      id: row.id,
+      projectSlug: row.projectSlug,
+      version: row.version,
+      graphHash: row.graphHash,
+      graph: JSON.parse(row.graphJson) as WorkflowGraph,
+      codeBundle: (parse<Record<string, string>>(row.codeBundle) ?? {}),
+      createdBy: row.createdBy ?? undefined,
+      createdAt: row.createdAt,
     };
   }
 

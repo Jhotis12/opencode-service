@@ -1,13 +1,19 @@
 import { describe, expect, it } from "bun:test";
 import {
+  AgentExecutionContextSchema,
+  AgentNodeConfigSchema,
   ApiErrorSchema,
   ChatMessageRequestSchema,
+  CreateProjectRequestSchema,
   EntryPointTypeSchema,
   NodeSpecSchema,
   PaginationMetaSchema,
+  ProjectTemplateSchema,
   SseEventSchema,
   SubagentFrontmatterSchema,
+  TriggerConfigSchema,
   WorkflowGraphSchema,
+  WorkflowVersionSchema,
   apiError,
   modelRefToString,
   parseModelRef,
@@ -83,8 +89,30 @@ describe("api and event contracts", () => {
   });
 
   it("accepts every declared entry point", () => {
-    for (const point of ["web_ui", "scheduler", "telegram", "external_chat", "replay"] as const) {
+    for (const point of ["web_ui", "scheduler", "schedule", "webhook", "telegram", "external_chat", "replay"] as const) {
       expect(EntryPointTypeSchema.parse(point)).toBe(point);
     }
+  });
+
+  it("validates workflow versions, agent output schema, webhook secret alias, and project templates", () => {
+    const version = WorkflowVersionSchema.parse({
+      id: "v1",
+      projectSlug: "p1",
+      version: 1,
+      graphHash: "abc123",
+      graph,
+      codeBundle: { "nodes/fetch.ts": "export default async () => ({})" },
+      createdAt: new Date().toISOString(),
+    });
+    expect(version.version).toBe(1);
+    expect(TriggerConfigSchema.parse({ kind: "webhook", secretAlias: "wh-secret" }).secretAlias).toBe("wh-secret");
+    expect(
+      AgentNodeConfigSchema.parse({
+        outputSchema: { fields: [{ name: "urgencia", type: "string", required: true }] },
+      }).outputSchema?.fields,
+    ).toHaveLength(1);
+    expect(ProjectTemplateSchema.parse("triaje-operativo")).toBe("triaje-operativo");
+    expect(CreateProjectRequestSchema.parse({ slug: "p1", name: "P1" }).template).toBe("blank");
+    expect(AgentExecutionContextSchema.parse("workflow")).toBe("workflow");
   });
 });

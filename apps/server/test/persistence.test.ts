@@ -23,6 +23,7 @@ describe("persistence migrations", () => {
       "chat_threads",
       "chat_messages",
       "workflow_runs",
+      "workflow_versions",
       "workflow_step_runs",
       "kb_chunks",
       "kb_chunks_fts",
@@ -161,6 +162,49 @@ describe("sqlite store", () => {
     store.chat.append({ id: "m1", threadId: project.id, role: "user", content: "hola", createdAt: now });
     expect(store.chat.listByThread(project.id, 10)).toHaveLength(1);
     expect(store.chat.listByThread(global.id, 10)).toHaveLength(0);
+    store.close();
+  });
+
+  it("records, deduplicates, lists, and resolves workflow version snapshots", () => {
+    const store = new SqliteStore(":memory:");
+    const graphV1 = {
+      version: 1 as const,
+      id: "ventas",
+      name: "Ventas",
+      description: "",
+      nodes: [{ id: "start", type: "trigger" as const, position: { x: 0, y: 0 }, config: { kind: "manual" }, notebookIds: [], timeoutMs: 30_000, retryPolicy: { maxRetries: 0 } }],
+      edges: [],
+      updatedAt: now,
+    };
+    const v1 = store.versions.record({
+      projectSlug: "ventas",
+      graphHash: "hash-1",
+      graph: graphV1,
+      codeBundle: { "nodes/a.ts": "export default async () => 1;" },
+      createdBy: "admin",
+    });
+    expect(v1.version).toBe(1);
+    const same = store.versions.record({
+      projectSlug: "ventas",
+      graphHash: "hash-1",
+      graph: graphV1,
+      codeBundle: { "nodes/a.ts": "export default async () => 1;" },
+    });
+    expect(same.id).toBe(v1.id);
+    expect(same.version).toBe(1);
+
+    const v2 = store.versions.record({
+      projectSlug: "ventas",
+      graphHash: "hash-2",
+      graph: { ...graphV1, name: "Ventas V2" },
+      codeBundle: { "nodes/a.ts": "export default async () => 2;" },
+      createdBy: "admin",
+    });
+    expect(v2.version).toBe(2);
+    expect(store.versions.list("ventas")).toHaveLength(2);
+    expect(store.versions.findByVersion("ventas", 1)?.graph.name).toBe("Ventas");
+    expect(store.versions.findByGraphHash("ventas", "hash-2")?.version).toBe(2);
+    expect(store.versions.latest("ventas")?.version).toBe(2);
     store.close();
   });
 });

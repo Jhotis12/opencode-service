@@ -2,8 +2,8 @@
 
 ## 1. Shared Contracts & Persistence for Workflow Snapshots
 
-- [ ] 1.1 Extend `packages/shared/src/workflow.ts`, `packages/shared/src/agents.ts`, and `packages/shared/src/api.ts` with `WorkflowVersionSchema`, `secretAlias` on `TriggerConfigSchema`, `outputSchema` on `agent` node config, project `template` option (`"blank" | "triaje-operativo"`), and tool permission context types; verify `bun run --cwd packages/shared test` and `bun run --cwd packages/shared typecheck` pass.
-- [ ] 1.2 Add `workflow_versions` table and `version_id` column on `workflow_runs` in `apps/server/src/infrastructure/out/persistence/{schema,migrate,sqlite-store}.ts` and `apps/server/src/application/ports/store.ts`; verify persistence unit tests in `apps/server/test/persistence.test.ts` pass for creating, listing, and resolving workflow version snapshots.
+- [x] 1.1 Extend `packages/shared/src/workflow.ts`, `packages/shared/src/agents.ts`, and `packages/shared/src/api.ts` with `WorkflowVersionSchema`, `secretAlias` on `TriggerConfigSchema`, `outputSchema` on `agent` node config, project `template` option (`"blank" | "triaje-operativo"`), and tool permission context types; verify `bun run --cwd packages/shared test` and `bun run --cwd packages/shared typecheck` pass.
+- [x] 1.2 Add `workflow_versions` table and `version_id` column on `workflow_runs` in `apps/server/src/infrastructure/out/persistence/{schema,migrate,sqlite-store}.ts` and `apps/server/src/application/ports/store.ts`; verify persistence unit tests in `apps/server/test/persistence.test.ts` pass for creating, listing, and resolving workflow version snapshots.
 
 ## 2. Workflow Graph Snapshots, Version History, Rollback & Startup Run Recovery
 

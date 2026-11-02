@@ -47,11 +47,22 @@ export type ValidateConfig = z.infer<typeof ValidateConfigSchema>;
 export const TriggerConfigSchema = z.object({
   kind: TriggerKindSchema.default("manual"),
   cron: z.string().optional(),
+  secretAlias: z.string().optional(),
   integrationId: z.string().optional(),
   event: z.string().optional(),
   inputSchema: InputSchemaSchema.optional(),
 });
 export type TriggerConfig = z.infer<typeof TriggerConfigSchema>;
+
+export const AgentNodeConfigSchema = z.object({
+  instruction: z.string().optional(),
+  strictGrounding: z.boolean().optional(),
+  outputSchema: InputSchemaSchema.optional(),
+});
+export type AgentNodeConfig = z.infer<typeof AgentNodeConfigSchema>;
+
+export const ProjectTemplateSchema = z.enum(["blank", "triaje-operativo"]);
+export type ProjectTemplate = z.infer<typeof ProjectTemplateSchema>;
 
 export const NodeSpecSchema = z.object({
   id: z.string().min(1).regex(/^[a-z0-9][a-z0-9-]*$/, "node id must be kebab-case"),
@@ -104,10 +115,23 @@ export type StepStatus = z.infer<typeof StepStatusSchema>;
 export const RunProvenanceSchema = z.object({
   launchedBy: z.string().optional(),
   graphHash: z.string().optional(),
+  versionId: z.string().optional(),
   integrationId: z.string().optional(),
   sourceDetail: z.string().optional(),
 });
 export type RunProvenance = z.infer<typeof RunProvenanceSchema>;
+
+export const WorkflowVersionSchema = z.object({
+  id: z.string().min(1),
+  projectSlug: z.string().min(1),
+  version: z.number().int().positive(),
+  graphHash: z.string().min(1),
+  graph: WorkflowGraphSchema,
+  codeBundle: z.record(z.string()).default({}),
+  createdBy: z.string().optional(),
+  createdAt: z.string().min(1),
+});
+export type WorkflowVersion = z.infer<typeof WorkflowVersionSchema>;
 
 export const StepCheckpointSchema = z.object({
   runId: z.string(),

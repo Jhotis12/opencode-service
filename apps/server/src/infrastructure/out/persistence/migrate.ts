@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   entry_point TEXT NOT NULL,
   launched_by TEXT,
   graph_hash TEXT,
+  version_id TEXT,
   integration_id TEXT,
   source_detail TEXT,
   started_at TEXT NOT NULL,
@@ -89,6 +90,18 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS workflow_runs_idempotency
   ON workflow_runs(project_slug, workflow_id, idempotency_key);
+CREATE TABLE IF NOT EXISTS workflow_versions (
+  id TEXT PRIMARY KEY,
+  project_slug TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  graph_hash TEXT NOT NULL,
+  graph_json TEXT NOT NULL,
+  code_bundle TEXT NOT NULL DEFAULT '{}',
+  created_by TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_versions_project_version
+  ON workflow_versions(project_slug, version);
 CREATE TABLE IF NOT EXISTS workflow_step_runs (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
@@ -229,6 +242,7 @@ export function migrate(sqlite: Database): void {
     addColumnIfMissing(sqlite, "projects", "updated_at", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "launched_by", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "graph_hash", "TEXT");
+    addColumnIfMissing(sqlite, "workflow_runs", "version_id", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "integration_id", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "source_detail", "TEXT");
     addColumnIfMissing(sqlite, "integrations", "key_hash", "TEXT");

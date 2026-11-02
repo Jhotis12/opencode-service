@@ -3,6 +3,7 @@ import { z } from "zod";
 export const EntryPointTypeSchema = z.enum([
   "web_ui",
   "scheduler",
+  "schedule",
   "webhook",
   "telegram",
   "whatsapp",

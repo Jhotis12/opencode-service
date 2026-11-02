@@ -3,6 +3,25 @@ import { z } from "zod";
 export const AgentModeSchema = z.enum(["primary", "subagent", "all"]);
 export type AgentMode = z.infer<typeof AgentModeSchema>;
 
+export const AgentExecutionContextSchema = z.enum(["chat", "workflow", "external_channel"]);
+export type AgentExecutionContext = z.infer<typeof AgentExecutionContextSchema>;
+
+export const PlatformToolNameSchema = z.enum([
+  "workflow_list",
+  "workflow_get",
+  "workflow_upsert",
+  "workflow_trigger",
+  "workflow_runs",
+  "project_overview",
+  "subagent_upsert",
+  "subagent_list",
+  "kb_search",
+  "db_query",
+  "notify",
+  "health_summary",
+]);
+export type PlatformToolName = z.infer<typeof PlatformToolNameSchema>;
+
 export const PermissionRuleSchema = z.object({
   action: z.string().min(1),
   resource: z.string().min(1),

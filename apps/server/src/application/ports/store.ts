@@ -12,8 +12,10 @@ import type {
   UserRecord,
   VaultSecretRecord,
   WorkflowRunRecord,
+  WorkflowVersionRecord,
 } from "../../domain/entities.ts";
 import type { EntityScope } from "../../domain/entities.ts";
+import type { WorkflowGraph } from "@platform/shared";
 
 export interface UserRepository {
   count(): number;
@@ -70,9 +72,15 @@ export interface WorkflowRunRepository {
   findById(id: string): WorkflowRunRecord | undefined;
   update(
     id: string,
-    patch: Partial<Pick<WorkflowRunRecord, "status" | "output" | "error" | "finishedAt" | "entryPoint" | "launchedBy" | "sourceDetail">>,
+    patch: Partial<
+      Pick<
+        WorkflowRunRecord,
+        "status" | "output" | "error" | "finishedAt" | "entryPoint" | "launchedBy" | "sourceDetail" | "versionId" | "graphHash"
+      >
+    >,
   ): void;
   listByProject(projectSlug: string, limit: number): WorkflowRunRecord[];
+  listByStatus(status: WorkflowRunRecord["status"]): WorkflowRunRecord[];
   listRecent(limit: number): WorkflowRunRecord[];
   insertStep(record: StepRunRecord): void;
   listSteps(runId: string): StepRunRecord[];
@@ -80,6 +88,22 @@ export interface WorkflowRunRepository {
   findApproval(runId: string, nodeId: string): ApprovalRecord | undefined;
   pendingApproval(runId: string): ApprovalRecord | undefined;
   decideApproval(runId: string, nodeId: string, status: "approved" | "rejected", decidedBy: string): void;
+}
+
+export interface WorkflowVersionRepository {
+  record(input: {
+    projectSlug: string;
+    graphHash: string;
+    graph: WorkflowGraph;
+    codeBundle: Record<string, string>;
+    createdBy?: string;
+    forceNewVersion?: boolean;
+  }): WorkflowVersionRecord;
+  list(projectSlug: string, limit?: number): WorkflowVersionRecord[];
+  findById(id: string): WorkflowVersionRecord | undefined;
+  findByVersion(projectSlug: string, version: number): WorkflowVersionRecord | undefined;
+  findByGraphHash(projectSlug: string, graphHash: string): WorkflowVersionRecord | undefined;
+  latest(projectSlug: string): WorkflowVersionRecord | undefined;
 }
 
 export interface ChatThreadRepository {
@@ -129,6 +153,7 @@ export interface Store {
   projects: ProjectRepository;
   integrations: IntegrationRepository;
   runs: WorkflowRunRepository;
+  versions: WorkflowVersionRepository;
   chatThreads: ChatThreadRepository;
   chat: ChatRepository;
   notebooks: NotebookRepository;

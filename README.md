@@ -144,7 +144,7 @@ El trigger declara `inputSchema` con campos, tipos, obligatoriedad, descripción
 Cada proyecto crea `AGENTS.md` y `.opencode/agents/principal/agente.md`, y selecciona `default_agent` en `opencode.jsonc`. El chat:
 
 - Renderiza Markdown/GFM con tablas, código copiable y enlaces seguros.
-- Tiene estados acoplado, expandido y minimizado/burbuja.
+- Tiene estados acoplado y minimizado/burbuja; el chat del proyecto vive en un drawer lateral y no tiene modo maximizado.
 - Persiste por proyecto y muestra tiempo transcurrido, errores y reintentos.
 - El prompt del agente principal evita rutas internas y prioriza lenguaje de negocio.
 

@@ -17,7 +17,7 @@ export interface ChatMessage {
   text: string;
 }
 
-type ChatSurface = "docked" | "expanded" | "minimized";
+type ChatSurface = "docked" | "minimized";
 
 const WELCOME =
   "Hola. Soy el agente principal de este proyecto. Puedo crear o editar nodos, sub-agentes y ejecutar el flujo. Te hablaré en términos de nodos y resultados; si necesitas el detalle técnico, lo abrimos.";
@@ -129,7 +129,6 @@ export function ChatPanel({
   const [elapsed, setElapsed] = useState(0);
   const [surface, setSurface] = useState<ChatSurface>(() => {
     const saved = localStorage.getItem(`chat-surface:${storageKey}`);
-    if (saved === "expanded") return "expanded";
     if (saved === "minimized" && !onMinimize) return "minimized";
     return "docked";
   });
@@ -155,20 +154,17 @@ export function ChatPanel({
     return () => clearInterval(timer);
   }, [busy]);
 
-  useEffect(() => {
-    if (surface === "minimized" || !atBottom) return;
-    if (typeof endRef.current?.scrollIntoView === "function") {
-      endRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-    }
-  }, [messages, busy, draft, activities, surface, atBottom]);
+  function scrollToLatest() {
+    if (typeof endRef.current?.scrollIntoView !== "function") return;
+    const reduced =
+      typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    endRef.current.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "end" });
+  }
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && surface === "expanded") setSurface("docked");
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [surface]);
+    if (surface === "minimized" || !atBottom) return;
+    scrollToLatest();
+  }, [messages, busy, draft, activities, surface, atBottom]);
 
   function upsertActivity(event: ChatProgressEvent & { type: "activity" }) {
     setActivities((current) => {
@@ -243,12 +239,9 @@ export function ChatPanel({
     );
   }
 
-  const expanded = surface === "expanded";
-  const panelClass = expanded
-    ? "fixed inset-0 z-40 flex flex-col gap-2.5 rounded-none border border-line bg-panel p-4 shadow-2xl sm:inset-4 sm:rounded-xl"
-    : fill
-      ? "flex h-full min-h-0 flex-col gap-2.5 rounded-xl border border-line bg-panel p-3.5"
-      : "flex min-h-[380px] flex-col gap-2.5 rounded-xl border border-line bg-panel p-3.5";
+  const panelClass = fill
+    ? "flex h-full min-h-0 flex-col gap-2.5 rounded-xl border border-line bg-panel p-3.5"
+    : "flex min-h-[380px] flex-col gap-2.5 rounded-xl border border-line bg-panel p-3.5";
 
   return (
     <section className={panelClass} aria-label={`Chat con ${title}`} data-testid="chat-panel">
@@ -258,14 +251,6 @@ export function ChatPanel({
           {hint && <small className="text-[11px] text-muted">{hint}</small>}
         </div>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            className={buttonGhost}
-            onClick={() => setSurface(expanded ? "docked" : "expanded")}
-            aria-label={expanded ? "Contraer chat" : "Expandir chat"}
-          >
-            {expanded ? "Contraer" : "Expandir"}
-          </button>
           <button
             type="button"
             className={buttonGhost}
@@ -281,7 +266,7 @@ export function ChatPanel({
       </header>
       <div
         ref={listRef}
-        className={`flex flex-col gap-2 overflow-auto pr-1 ${expanded || fill ? "min-h-0 flex-1" : "max-h-80"}`}
+        className={`flex flex-col gap-2 overflow-auto pr-1 ${fill ? "min-h-0 flex-1" : "max-h-80"}`}
         onScroll={handleScroll}
         aria-live="polite"
         data-testid="chat-messages"
@@ -339,23 +324,23 @@ export function ChatPanel({
         )}
         <div ref={endRef} />
       </div>
-      {!atBottom && (
-        <button
-          type="button"
-          className={buttonGhost}
-          onClick={() => {
-            if (typeof endRef.current?.scrollIntoView === "function") endRef.current.scrollIntoView({ behavior: "smooth" });
-          }}
-        >
-          Ir al último mensaje
-        </button>
-      )}
+      <div className="flex min-h-6 items-center justify-end">
+        {!atBottom && (
+          <button
+            type="button"
+            className="rounded-full border border-line bg-panel-2 px-3 py-1 text-[11px] text-slate-200 transition hover:border-accent"
+            onClick={scrollToLatest}
+          >
+            Ir al último mensaje
+          </button>
+        )}
+      </div>
       <form className="flex flex-col gap-2" onSubmit={submit}>
         <textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}
           placeholder="Pídele un flujo, una corrección o un reporte…"
-          rows={expanded ? 4 : 3}
+          rows={3}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();

@@ -55,12 +55,12 @@ Desktop-only frontend change. Do not edit `apps/server`, `packages/shared`, data
 
 ## 6. Chat simplification
 
-- [ ] 6.1 Remove `"expanded"` from `ChatSurface` and delete the expand button, expanded classes, Escape-to-dock behavior, expanded persistence and expanded textarea sizing; verify `chat.test.tsx` asserts no `Expandir chat` control exists.
-- [ ] 6.2 Keep the project chat as a lateral drawer with `Cerrar` and the orchestrator chat as a docked panel with `Minimizar`/bubble restore; verify both page-level flows render and the persisted `"expanded"` value falls back to `"docked"`.
-- [ ] 6.3 Move `Ir al último mensaje` into a reserved right-aligned pill above the composer, hide it at the bottom and respect reduced motion for the scroll; verify a test covers appearance, activation and non-overlap with the composer.
-- [ ] 6.4 Update `apps/web/test/chat.test.tsx` for the two-state surface, scroll affordance and reduced-motion branch; verify `bun test --cwd apps/web` passes.
-- [ ] 6.5 Update the README and `docs/ui-motion.md` references to the old expanded chat state; verify `grep -R "expandido" README.md docs` no longer describes a supported chat surface.
-- [ ] 6.6 Update the Playwright chat flow to open, minimize/close and restore the drawer without an expand step; verify the test covers the project chat and the orchestrator bubble.
+- [x] 6.1 Remove `"expanded"` from `ChatSurface` and delete the expand button, expanded classes, Escape-to-dock behavior, expanded persistence and expanded textarea sizing; verify `chat.test.tsx` asserts no `Expandir chat` control exists.
+- [x] 6.2 Keep the project chat as a lateral drawer with `Cerrar` and the orchestrator chat as a docked panel with `Minimizar`/bubble restore; verify both page-level flows render and the persisted `"expanded"` value falls back to `"docked"`.
+- [x] 6.3 Move `Ir al último mensaje` into a reserved right-aligned pill above the composer, hide it at the bottom and respect reduced motion for the scroll; verify a test covers appearance, activation and non-overlap with the composer.
+- [x] 6.4 Update `apps/web/test/chat.test.tsx` for the two-state surface, scroll affordance and reduced-motion branch; verify `bun test --cwd apps/web` passes.
+- [x] 6.5 Update the README and `docs/ui-motion.md` references to the old expanded chat state; verify `grep -R "expandido" README.md docs` no longer describes a supported chat surface.
+- [x] 6.6 Update the Playwright chat flow to open, minimize/close and restore the drawer without an expand step; verify the test covers the project chat and the orchestrator bubble.
 
 ## 7. Status and copy localization
 

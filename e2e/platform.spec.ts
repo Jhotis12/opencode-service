@@ -266,6 +266,11 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await page.goto("/orchestrator");
   await expect(page.getByRole("heading", { name: "Orquestador global", level: 1 })).toBeVisible();
   await expect(page.getByText("E2E Bot")).toBeVisible();
+  await expect(page.getByTestId("chat-panel")).toBeVisible();
+  await page.getByRole("button", { name: "Minimizar chat" }).click();
+  await expect(page.getByRole("button", { name: "Restaurar chat del agente" })).toBeVisible();
+  await page.getByRole("button", { name: "Restaurar chat del agente" }).click();
+  await expect(page.getByTestId("chat-panel")).toBeVisible();
 
   await page.goto("/system/health");
   await expect(page.getByTestId("health-status")).toHaveText("ok");

@@ -21,9 +21,9 @@
 
 ## 4. Validación final
 
-- [ ] 4.1 Ejecutar `openspec schema validate review-gated-delivery --json` y `openspec validate add-review-gated-delivery --strict --json`; ambos deben reportar `valid: true` sin findings de error.
-- [ ] 4.2 Ejecutar `openspec doctor --json` y verificar que el root y la relación de stores reportan estado saludable (sin errores).
-- [ ] 4.3 Revisar `git diff` y `git status --short` y confirmar que solo cambiaron `openspec/config.yaml`, `openspec/schemas/review-gated-delivery/**` y los artefactos de este change; no debe haber cambios en código de producto ni archivos temporales.
+- [x] 4.1 Ejecutar `openspec schema validate review-gated-delivery --json` y `openspec validate add-review-gated-delivery --strict --json`; ambos deben reportar `valid: true` sin findings de error.
+- [x] 4.2 Ejecutar `openspec doctor --json` y verificar que el root y la relación de stores reportan estado saludable (sin errores).
+- [x] 4.3 Revisar `git diff` y `git status --short` y confirmar que solo cambiaron `openspec/config.yaml`, `openspec/schemas/review-gated-delivery/**` y los artefactos de este change; no debe haber cambios en código de producto ni archivos temporales.
 
 ## Workflow follow-up
 

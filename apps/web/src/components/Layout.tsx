@@ -62,7 +62,7 @@ export function Layout() {
   }
 
   return (
-    <div className={`min-h-dvh lg:grid ${collapsed ? "lg:grid-cols-[64px_1fr]" : "lg:grid-cols-[240px_1fr]"}`}>
+    <div className={`app-shell min-h-dvh lg:grid ${collapsed ? "lg:grid-cols-[64px_1fr]" : "lg:grid-cols-[240px_1fr]"}`}>
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:border focus:border-line focus:bg-panel focus:px-4 focus:py-2 focus:text-sm focus:text-slate-100"
@@ -90,9 +90,10 @@ export function Layout() {
       )}
 
       <aside
-        className={`nav-drawer fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col gap-6 border-r border-line bg-ink/95 p-4 lg:static lg:z-auto lg:h-dvh lg:translate-x-0 ${
+        id="app-navigation"
+        className={`nav-drawer fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col gap-6 border-r border-line bg-ink/95 p-4 lg:static lg:z-auto lg:h-dvh lg:w-auto lg:translate-x-0 lg:overflow-hidden ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
-        } ${collapsed ? "lg:w-16 lg:gap-4 lg:p-3" : "lg:w-60 lg:p-5"}`}
+        } ${collapsed ? "lg:gap-4 lg:p-3" : "lg:p-5"}`}
         aria-label="Navegación lateral"
         inert={navInert}
         aria-hidden={navInert || undefined}
@@ -100,10 +101,13 @@ export function Layout() {
         <div className={`flex items-center gap-3 ${collapsed ? "lg:flex-col lg:gap-2" : ""}`}>
           <BrandLockup
             size={32}
-            compact={collapsed}
-            subtitle={collapsed ? false : "Agentes sobre OpenCode"}
+            compact={false}
+            subtitle="Agentes sobre OpenCode"
             to="/projects"
-            className={collapsed ? "lg:justify-center" : "flex-1"}
+            className={collapsed ? "lg:self-stretch lg:justify-center lg:gap-0" : "flex-1"}
+            wordmarkClassName={
+              collapsed ? "nav-label lg:max-w-0 lg:opacity-0" : "nav-label lg:max-w-[180px] lg:opacity-100"
+            }
           />
           <button
             type="button"
@@ -111,6 +115,8 @@ export function Layout() {
               collapsed ? "lg:ml-0" : ""
             }`}
             aria-label={collapsed ? "Expandir navegación" : "Contraer navegación"}
+            aria-controls="app-navigation"
+            aria-expanded={!collapsed}
             title={collapsed ? "Expandir navegación" : "Contraer navegación"}
             onClick={toggleCollapsed}
           >
@@ -134,8 +140,8 @@ export function Layout() {
               title={collapsed ? item.label : undefined}
               onClick={() => setMobileOpen(false)}
               className={({ isActive }) =>
-                `flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition ${
-                  collapsed ? "lg:justify-center lg:px-2" : ""
+                `nav-item flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm ${
+                  collapsed ? "lg:gap-0 lg:px-[11px]" : ""
                 } ${
                   isActive
                     ? "border-line bg-panel-2 text-slate-100"
@@ -144,15 +150,27 @@ export function Layout() {
               }
             >
               <NavIcon name={item.icon} />
-              <span className={collapsed ? "lg:sr-only" : ""}>{item.label}</span>
+              <span
+                className={`nav-label min-w-0 overflow-hidden whitespace-nowrap ${
+                  collapsed ? "lg:max-w-0 lg:opacity-0" : "lg:max-w-[180px] lg:opacity-100"
+                }`}
+              >
+                {item.label}
+              </span>
             </NavLink>
           ))}
         </nav>
 
         <div className={`mt-auto flex flex-col gap-2 ${collapsed ? "lg:items-center" : ""}`}>
-          {!collapsed && <span className="text-xs text-muted">{user?.username}</span>}
+          <span
+            className={`nav-label min-w-0 overflow-hidden whitespace-nowrap text-xs text-muted ${
+              collapsed ? "lg:max-w-0 lg:opacity-0" : "lg:max-w-[180px] lg:opacity-100"
+            }`}
+          >
+            {user?.username}
+          </span>
           <button
-            className={`${buttonGhost} justify-start ${collapsed ? "lg:justify-center lg:!px-2" : ""}`}
+            className={`${buttonGhost} justify-start ${collapsed ? "lg:justify-center lg:gap-0 lg:!px-2" : ""}`}
             aria-label="Salir"
             title={collapsed ? "Salir" : undefined}
             onClick={async () => {
@@ -161,7 +179,13 @@ export function Layout() {
             }}
           >
             <NavIcon name="logout" />
-            <span className={collapsed ? "lg:sr-only" : ""}>Salir</span>
+            <span
+              className={`nav-label min-w-0 overflow-hidden whitespace-nowrap ${
+                collapsed ? "lg:max-w-0 lg:opacity-0" : "lg:max-w-[180px] lg:opacity-100"
+              }`}
+            >
+              Salir
+            </span>
           </button>
         </div>
       </aside>

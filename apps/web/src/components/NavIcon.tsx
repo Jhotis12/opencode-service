@@ -7,6 +7,7 @@ const common = {
   strokeWidth: 1.8,
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const,
+  className: "shrink-0",
   "aria-hidden": true,
 };
 

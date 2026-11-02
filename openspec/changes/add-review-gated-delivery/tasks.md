@@ -2,9 +2,9 @@
 
 ## 1. Crear el schema local
 
-- [ ] 1.1 Ejecutar `openspec schema fork spec-driven review-gated-delivery` y verificar que existen `openspec/schemas/review-gated-delivery/schema.yaml` y las cuatro plantillas en `templates/`; `openspec schema which review-gated-delivery --json` debe reportar `source: "project"`.
-- [ ] 1.2 Editar en `openspec/schemas/review-gated-delivery/schema.yaml` la instrucción del artefacto `tasks` y `templates/tasks.md` para exigir el bloque `## Workflow follow-up` con commits por grupo, rama, PR y revisión humana; verificar con `openspec schema validate review-gated-delivery --json` que el schema sigue siendo válido.
-- [ ] 1.3 Editar `apply.instruction` del mismo `schema.yaml` para exigir compuerta de árbol limpio, rama `change/<change-name>`, commit de planificación, un commit por grupo, push, `gh pr create` y prohibición de merge; verificar que `openspec schema validate review-gated-delivery --json` sigue pasando y que la instrucción menciona `gh pr create` y `git status --short`.
+- [x] 1.1 Ejecutar `openspec schema fork spec-driven review-gated-delivery` y verificar que existen `openspec/schemas/review-gated-delivery/schema.yaml` y las cuatro plantillas en `templates/`; `openspec schema which review-gated-delivery --json` debe reportar `source: "project"`.
+- [x] 1.2 Editar en `openspec/schemas/review-gated-delivery/schema.yaml` la instrucción del artefacto `tasks` y `templates/tasks.md` para exigir el bloque `## Workflow follow-up` con commits por grupo, rama, PR y revisión humana; verificar con `openspec schema validate review-gated-delivery --json` que el schema sigue siendo válido.
+- [x] 1.3 Editar `apply.instruction` del mismo `schema.yaml` para exigir compuerta de árbol limpio, rama `change/<change-name>`, commit de planificación, un commit por grupo, push, `gh pr create` y prohibición de merge; verificar que `openspec schema validate review-gated-delivery --json` sigue pasando y que la instrucción menciona `gh pr create` y `git status --short`.
 
 ## 2. Configurar los defaults del proyecto
 

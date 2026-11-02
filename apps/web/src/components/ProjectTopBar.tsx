@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import type { WorkflowGraph } from "@platform/shared";
+import type { WorkflowGraph, WorkflowVersion } from "@platform/shared";
 import { Modal } from "./Modal.tsx";
 import { NavIcon } from "./NavIcon.tsx";
-import { button, buttonGhost, buttonPrimary, statusBadge } from "../ui.ts";
+import { badge, button, buttonGhost, buttonPrimary, statusBadge } from "../ui.ts";
 
 export type ProjectTab = "canvas" | "runs" | "agents" | "knowledge" | "resources" | "settings";
 
@@ -27,11 +27,13 @@ export function ProjectTopBar({
   modelOptions,
   chatBusy,
   chatUnread,
+  versions = [],
   onTab,
   onChange,
   onSave,
   onRun,
   onChat,
+  onRollbackVersion,
 }: {
   slug: string;
   graph: WorkflowGraph;
@@ -43,13 +45,16 @@ export function ProjectTopBar({
   modelOptions: string[];
   chatBusy?: boolean;
   chatUnread?: boolean;
+  versions?: WorkflowVersion[];
   onTab(tab: ProjectTab): void;
   onChange(patch: Partial<WorkflowGraph>): void;
   onSave(): void;
   onRun(): void;
   onChat(): void;
+  onRollbackVersion?(version: number): void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
 
   return (
     <>
@@ -97,6 +102,15 @@ export function ProjectTopBar({
             </span>
           )}
           {dirty && <span className={statusBadge("paused")}>Cambios sin guardar</span>}
+          <button
+            type="button"
+            className={`${buttonGhost} !px-2`}
+            aria-label="Versiones del flujo"
+            title="Versiones del flujo"
+            onClick={() => setVersionsOpen(true)}
+          >
+            Versiones{versions.length > 0 ? ` (v${versions[0]!.version})` : ""}
+          </button>
           <button
             type="button"
             className={`${buttonGhost} !px-2`}
@@ -163,6 +177,46 @@ export function ProjectTopBar({
               Listo
             </button>
           </div>
+        </Modal>
+      )}
+
+      {versionsOpen && (
+        <Modal title="Versiones del flujo" onClose={() => setVersionsOpen(false)} size="md">
+          {versions.length === 0 ? (
+            <p className="text-xs text-muted">Todavía no hay snapshots registrados para este flujo.</p>
+          ) : (
+            <div className="flex max-h-80 flex-col gap-2 overflow-auto">
+              {versions.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-[#0a1120] p-2.5"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className={badge}>v{item.version}</span>
+                      <strong className="text-xs text-slate-200">{item.graph.name}</strong>
+                      <small className="text-[11px] text-muted">{item.graph.nodes.length} nodos</small>
+                    </div>
+                    <small className="text-[11px] text-muted">
+                      {new Date(item.createdAt).toLocaleString()} · {item.createdBy ?? "sistema"}
+                    </small>
+                  </div>
+                  {onRollbackVersion && (
+                    <button
+                      type="button"
+                      className={buttonGhost}
+                      onClick={() => {
+                        onRollbackVersion(item.version);
+                        setVersionsOpen(false);
+                      }}
+                    >
+                      Restaurar v{item.version}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </Modal>
       )}
     </>

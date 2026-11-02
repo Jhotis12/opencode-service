@@ -24,8 +24,8 @@
 
 ## 6. Reference Vertical Project Template (`triaje-operativo`) & Web UI Modals
 
-- [ ] 6.1 Add the `triaje-operativo` vertical project template to `SafeFsWorkspaceAdapter` (`apps/server/src/infrastructure/out/workspace-fs/safe-workspace.ts`) and `CreateProjectUseCase`, scaffolding the 6-node triage workflow, `nodes/resumen-accion.ts`, and `.opencode/agents/operaciones/clasificador.md`; verify in `apps/server/test/workspace.test.ts`.
-- [ ] 6.2 Update `apps/web/src/components/{NodeInspector,NodeInspectorModal,ProjectTopBar}.tsx` and `apps/web/src/pages/{ProjectsPage,ProjectPage}.tsx` to enable `schedule`/`webhook` trigger configuration, `agent` node `outputSchema` editing, agent tool permission controls, version history/rollback modal, and template selection on project creation; verify component tests in `apps/web/test/` pass.
+- [x] 6.1 Add the `triaje-operativo` vertical project template to `SafeFsWorkspaceAdapter` (`apps/server/src/infrastructure/out/workspace-fs/safe-workspace.ts`) and `CreateProjectUseCase`, scaffolding the 6-node triage workflow, `nodes/resumen-accion.ts`, and `.opencode/agents/operaciones/clasificador.md`; verify in `apps/server/test/workspace.test.ts`.
+- [x] 6.2 Update `apps/web/src/components/{NodeInspector,NodeInspectorModal,ProjectTopBar}.tsx` and `apps/web/src/pages/{ProjectsPage,ProjectPage}.tsx` to enable `schedule`/`webhook` trigger configuration, `agent` node `outputSchema` editing, agent tool permission controls, version history/rollback modal, and template selection on project creation; verify component tests in `apps/web/test/` pass.
 
 ## 7. End-to-End Verification, Documentation & GitHub Actions CI
 

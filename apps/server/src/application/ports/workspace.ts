@@ -1,7 +1,7 @@
-import type { WorkflowGraph } from "@platform/shared";
+import type { ProjectTemplate, WorkflowGraph } from "@platform/shared";
 
 export interface WorkspacePort {
-  createProject(input: { slug: string; name: string; description?: string }): Promise<void>;
+  createProject(input: { slug: string; name: string; description?: string; template?: ProjectTemplate }): Promise<void>;
   ensureProjectScaffold(slug: string, projectName?: string): Promise<void>;
   listProjects(): Promise<string[]>;
   projectDirectory(slug: string): Promise<string>;

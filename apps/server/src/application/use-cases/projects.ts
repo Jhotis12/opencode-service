@@ -1,4 +1,4 @@
-import type { ChatProgressEvent, WorkflowGraph } from "@platform/shared";
+import type { ChatProgressEvent, ProjectTemplate, WorkflowGraph } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
@@ -35,7 +35,12 @@ export class CreateProjectUseCase {
     private readonly events: EventBus,
   ) {}
 
-  async execute(input: { slug: string; name: string; description?: string }): Promise<{ project: ProjectRecord; graph: WorkflowGraph }> {
+  async execute(input: {
+    slug: string;
+    name: string;
+    description?: string;
+    template?: ProjectTemplate;
+  }): Promise<{ project: ProjectRecord; graph: WorkflowGraph }> {
     if (this.store.projects.findBySlug(input.slug)) throw new Error(`project already exists: ${input.slug}`);
     await this.workspace.createProject(input);
     const now = new Date().toISOString();

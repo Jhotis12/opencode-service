@@ -31,6 +31,7 @@ export function ProjectsPage() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
+  const [template, setTemplate] = useState<"blank" | "triaje-operativo">("blank");
   const [slugTouched, setSlugTouched] = useState(false);
   const [formError, setFormError] = useState<string>();
   const [status, setStatus] = useState<string>();
@@ -48,12 +49,19 @@ export function ProjectsPage() {
     setName("");
     setSlug("");
     setDescription("");
+    setTemplate("blank");
     setSlugTouched(false);
     setFormError(undefined);
   }
 
   const create = useMutation({
-    mutationFn: () => api.createProject({ slug, name, description: description.trim() || undefined }),
+    mutationFn: () =>
+      api.createProject({
+        slug,
+        name,
+        description: description.trim() || undefined,
+        ...(template === "blank" ? {} : { template }),
+      }),
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: qk.projects });
       setStatus(`Proyecto ${result.project.name} creado`);
@@ -251,6 +259,16 @@ export function ProjectsPage() {
                 maxLength={500}
               />
               <small className="text-[11px] text-muted">Opcional. Ayuda a recordar el objetivo del caso de uso.</small>
+            </label>
+            <label>
+              Plantilla inicial
+              <select
+                value={template}
+                onChange={(event) => setTemplate(event.target.value as "blank" | "triaje-operativo")}
+              >
+                <option value="blank">En blanco (inicio manual)</option>
+                <option value="triaje-operativo">Triaje operativo (vertical de referencia)</option>
+              </select>
             </label>
             {formError && <p className="text-sm text-danger">{formError}</p>}
             <div className="flex justify-end gap-2">

@@ -58,6 +58,21 @@ describe("ProjectsPage", () => {
     expect(await screen.findByText("proyecto abierto")).toBeInTheDocument();
   });
 
+  it("creates a project from the triaje-operativo vertical template", async () => {
+    vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [] });
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Crear primer proyecto" }));
+    await userEvent.type(screen.getByLabelText(/Nombre del proyecto/), "Mesa Operativa");
+    await userEvent.selectOptions(screen.getByLabelText(/Plantilla inicial/), "triaje-operativo");
+    await userEvent.click(screen.getByRole("button", { name: "Crear proyecto" }));
+    expect(api.createProject).toHaveBeenLastCalledWith({
+      name: "Mesa Operativa",
+      slug: "mesa-operativa",
+      description: undefined,
+      template: "triaje-operativo",
+    });
+  });
+
   it("deletes a project only after typing its slug", async () => {
     vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [project] });
     renderPage();

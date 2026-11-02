@@ -771,14 +771,27 @@ export async function createApplication(config: AppConfig): Promise<Application>
   });
 
   app.post("/api/projects", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { slug?: string; name?: string; description?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      slug?: string;
+      name?: string;
+      description?: string;
+      template?: "blank" | "triaje-operativo";
+    };
     const scoped = c.req.header("x-platform-project");
     if (scoped && body.slug && body.slug !== scoped) {
       return c.json(apiError("FORBIDDEN", "a project agent cannot create another project"), 403);
     }
     if (!body.slug || !body.name) return c.json(apiError("VALIDATION_ERROR", "slug and name are required"), 422);
     try {
-      return c.json(await createProject.execute({ slug: body.slug, name: body.name, description: body.description }), 201);
+      return c.json(
+        await createProject.execute({
+          slug: body.slug,
+          name: body.name,
+          description: body.description,
+          template: body.template === "triaje-operativo" ? "triaje-operativo" : "blank",
+        }),
+        201,
+      );
     } catch (error) {
       return c.json(apiError("CONFLICT", error instanceof Error ? error.message : "could not create project"), 409);
     }

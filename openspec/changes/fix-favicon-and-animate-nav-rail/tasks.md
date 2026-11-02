@@ -14,10 +14,10 @@
 
 ## 3. Integration verification
 
-- [ ] 3.1 Run `bun run --cwd apps/server test`, `bun run --cwd apps/web test`, both package typechecks, and `bun run build`; verify all pass.
-- [ ] 3.2 Build and start the app, then request `/favicon.svg` and `/brand/agentic-mark.svg`; verify both return `200 image/svg+xml` with the SVG body, and a client route still returns `index.html`.
-- [ ] 3.3 In a browser at 1280x800 and 1440x900, collapse and expand the rail on a project canvas; verify no label or wordmark overflow, the workspace reflows, the canvas viewport is not reset, and keyboard focus stays visible. Repeat with `prefers-reduced-motion: reduce` and verify the change is immediate.
-- [ ] 3.4 Run `graphify update .` after the code changes and verify the graph refresh completes without errors.
+- [x] 3.1 Run `bun run --cwd apps/server test`, `bun run --cwd apps/web test`, both package typechecks, and `bun run build`; verify all pass.
+- [x] 3.2 Build and start the app, then request `/favicon.svg` and `/brand/agentic-mark.svg`; verify both return `200 image/svg+xml` with the SVG body, and a client route still returns `index.html`.
+- [x] 3.3 In a browser at 1280x800 and 1440x900, collapse and expand the rail on a project canvas; verify no label or wordmark overflow, the workspace reflows, the canvas viewport is not reset, and keyboard focus stays visible. Repeat with `prefers-reduced-motion: reduce` and verify the change is immediate.
+- [x] 3.4 Run `graphify update .` after the code changes and verify the graph refresh completes without errors.
 
 ## Workflow follow-up
 

@@ -1,6 +1,6 @@
 name: review-gated-delivery
 version: 1
-description: Default OpenSpec workflow - proposal → specs → design → tasks
+description: Review-gated delivery - proposal → specs → design → tasks, with commits and a reviewed PR
 artifacts:
   - id: proposal
     generates: proposal.md

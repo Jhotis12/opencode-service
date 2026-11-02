@@ -8,9 +8,9 @@
 
 ## 2. Configurar los defaults del proyecto
 
-- [ ] 2.1 Cambiar `openspec/config.yaml` a `schema: review-gated-delivery` y verificar con `openspec schemas --json` que el schema aparece con `source: "project"` y con `openspec schema which review-gated-delivery --json` que resuelve al directorio del repo.
-- [ ] 2.2 Añadir `operations.apply.guidance` en `openspec/config.yaml` con las reglas de árbol limpio, commit por grupo, push, PR y espera de revisión; verificar que el YAML parsea con `openspec config get schema` (o `openspec list --json`) sin warnings de configuración.
-- [ ] 2.3 Añadir `operations.archive.guidance` en `openspec/config.yaml` para bloquear el archive hasta que `gh pr view <rama> --json state,mergedAt` reporte `mergedAt` no nulo, con confirmación humana explícita si no hay PR; verificar que el YAML parsea sin warnings.
+- [x] 2.1 Cambiar `openspec/config.yaml` a `schema: review-gated-delivery` y verificar con `openspec schemas --json` que el schema aparece con `source: "project"` y con `openspec schema which review-gated-delivery --json` que resuelve al directorio del repo.
+- [x] 2.2 Añadir `operations.apply.guidance` en `openspec/config.yaml` con las reglas de árbol limpio, commit por grupo, push, PR y espera de revisión; verificar que el YAML parsea con `openspec config get schema` (o `openspec list --json`) sin warnings de configuración.
+- [x] 2.3 Añadir `operations.archive.guidance` en `openspec/config.yaml` para bloquear el archive hasta que `gh pr view <rama> --json state,mergedAt` reporte `mergedAt` no nulo, con confirmación humana explícita si no hay PR; verificar que el YAML parsea sin warnings.
 
 ## 3. Smoke test del flujo por defecto
 

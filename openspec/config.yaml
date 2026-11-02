@@ -1,4 +1,4 @@
-schema: spec-driven
+schema: review-gated-delivery
 
 # Project context (optional)
 # Add only constraints that should guide OpenSpec artifacts and workflows.
@@ -22,11 +22,16 @@ schema: spec-driven
 # Per-operation guidance (optional)
 # Add advisory guidance for how apply and archive work should be conducted.
 # This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+operations:
+  apply:
+    guidance:
+      - 'Start only when `git status --short` has no unrelated changes; stop and ask the user to commit or stash them.'
+      - 'Work on `change/<change-name>` created from the remote base branch, and commit the planning artifacts first with `docs(openspec): plan <change-name>`.'
+      - 'Create one atomic commit per numbered task group with `<type>(<change-name>): <summary>`; verify `git status --short` is clean before starting the next group.'
+      - 'At the end, push the branch and open a PR with `gh pr create`; report the URL and never merge.'
+      - 'If `gh` is missing, unauthenticated, or the push/PR fails, stop with manual instructions and do not report completion.'
+  archive:
+    guidance:
+      - 'Before archiving, run `gh pr view change/<change-name> --json state,mergedAt` and require `mergedAt` to be non-null; stop if the PR is open or unmerged.'
+      - 'If the change has no PR (explicit opt-out) or the remote is not GitHub, require explicit human confirmation that the work was reviewed and merged.'
+      - 'Never archive while the PR is still open or the review is pending.'

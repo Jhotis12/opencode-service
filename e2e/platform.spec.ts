@@ -193,17 +193,39 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await flowSettings.getByRole("button", { name: "Cerrar" }).click();
 
   await page.getByRole("button", { name: /Agentes/ }).click();
-  await page.getByLabel("Categoría").fill("ventas");
-  await page.getByLabel("Rol").fill("calificador");
-  await page.getByLabel("Descripción").fill("Califica leads entrantes");
-  await page.getByLabel("Instrucciones (.md)").fill("Eres el calificador de ventas. Devuelve un score de 1 a 10.");
-  await page.getByRole("button", { name: "Guardar agente" }).click();
+  await page.getByRole("button", { name: "Nuevo agente" }).click();
+  const newAgent = page.getByRole("dialog", { name: "Nuevo agente" });
+  await expect(newAgent).toBeVisible();
+  await newAgent.getByLabel("Categoría").fill("ventas");
+  await newAgent.getByLabel("Rol").fill("calificador");
+  await newAgent.getByLabel("Descripción").fill("Califica leads entrantes");
+  await newAgent.getByLabel("Instrucciones (.md)").fill("Eres el calificador de ventas. Devuelve un score de 1 a 10.");
+  await newAgent.getByRole("button", { name: "Guardar agente" }).click();
+  await expect(newAgent).toBeHidden();
   await expect(page.getByText("Agente ventas/calificador guardado")).toBeVisible();
+
+  const agentCard = page.getByTestId("agent-card-ventas-calificador");
+  await expect(agentCard).toBeVisible();
+  await agentCard.getByRole("button", { name: "Editar" }).click();
+  const editAgent = page.getByRole("dialog", { name: "Editar agente" });
+  await editAgent.getByLabel("Descripción").fill("Califica leads entrantes v2");
+  await editAgent.getByRole("button", { name: "Guardar agente" }).click();
+  await expect(editAgent).toBeHidden();
+  await expect(agentCard.getByText("Califica leads entrantes v2")).toBeVisible();
 
   const agents = await page.request.get("/api/projects/e2e-bot/agents");
   expect(agents.ok()).toBeTruthy();
-  const agentList = (await agents.json()) as { data: Array<{ category: string; role: string }> };
-  expect(agentList.data.some((agent) => agent.category === "ventas" && agent.role === "calificador")).toBe(true);
+  const agentList = (await agents.json()) as {
+    data: Array<{ category: string; role: string; frontmatter: { description: string } }>;
+  };
+  expect(
+    agentList.data.some(
+      (agent) =>
+        agent.category === "ventas" &&
+        agent.role === "calificador" &&
+        agent.frontmatter.description === "Califica leads entrantes v2",
+    ),
+  ).toBe(true);
 
   // Project-owned resources: create an external chat integration inside the project.
   const createdIntegration = await page.request.post("/api/projects/e2e-bot/integrations", {

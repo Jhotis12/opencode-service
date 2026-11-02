@@ -44,14 +44,14 @@ Desktop-only frontend change. Do not edit `apps/server`, `packages/shared`, data
 
 ## 5. Agent catalog
 
-- [ ] 5.1 Extract the Agentes tab from `ProjectPage.tsx` into `AgentCatalog.tsx` and `AgentEditorModal.tsx`, moving the existing upsert/delete mutations with it; verify `bun run typecheck` and the existing page tests pass.
-- [ ] 5.2 Implement the card grid with category/role, localized mode badge, description, model, notebook summary and denied-tool count; verify component tests render primary and sub-agent cards and assert the primary card appears first.
-- [ ] 5.3 Emphasize the primary agent with the agent accent and `Principal` label and omit its delete action; verify a test asserts the primary card has no delete button.
-- [ ] 5.4 Add the sub-agent delete confirmation modal; verify a test cancels without deleting and confirms the mutation once.
-- [ ] 5.5 Implement the focused editor modal with grouped sections, required-field validation, sticky footer, cancel/save and returned focus; verify tests cover new-agent validation, edit prefill, save and discard.
-- [ ] 5.6 Add the empty sub-agent state and long-value truncation; verify tests cover the empty state and stable card height with a long model or notebook name.
-- [ ] 5.7 Update the Playwright agent flow to create and edit an agent through the modal instead of the inline form; verify the agent still exists through the API after saving.
-- [ ] 5.8 Add the agent catalog rules to `docs/design-standard.md`; verify the primary-agent protection and mode labels are documented.
+- [x] 5.1 Extract the Agentes tab from `ProjectPage.tsx` into `AgentCatalog.tsx` and `AgentEditorModal.tsx`, moving the existing upsert/delete mutations with it; verify `bun run typecheck` and the existing page tests pass.
+- [x] 5.2 Implement the card grid with category/role, localized mode badge, description, model, notebook summary and denied-tool count; verify component tests render primary and sub-agent cards and assert the primary card appears first.
+- [x] 5.3 Emphasize the primary agent with the agent accent and `Principal` label and omit its delete action; verify a test asserts the primary card has no delete button.
+- [x] 5.4 Add the sub-agent delete confirmation modal; verify a test cancels without deleting and confirms the mutation once.
+- [x] 5.5 Implement the focused editor modal with grouped sections, required-field validation, sticky footer, cancel/save and returned focus; verify tests cover new-agent validation, edit prefill, save and discard.
+- [x] 5.6 Add the empty sub-agent state and long-value truncation; verify tests cover the empty state and stable card height with a long model or notebook name.
+- [x] 5.7 Update the Playwright agent flow to create and edit an agent through the modal instead of the inline form; verify the agent still exists through the API after saving.
+- [x] 5.8 Add the agent catalog rules to `docs/design-standard.md`; verify the primary-agent protection and mode labels are documented.
 
 ## 6. Chat simplification
 

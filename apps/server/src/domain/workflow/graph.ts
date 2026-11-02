@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Edge, NodeSpec, WorkflowGraph } from "@platform/shared";
+import { isValidCronExpression } from "./cron.ts";
 
 export class WorkflowValidationError extends Error {
   constructor(public readonly issues: string[]) {
@@ -46,11 +47,21 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
       }
       integrationTriggers.add(binding);
     }
-    if (
-      node.type === "trigger" &&
-      ["schedule", "webhook"].includes(String(node.config.kind ?? ""))
-    ) {
-      issues.push(`trigger ${node.id} uses ${String(node.config.kind)}, which has no active executor yet`);
+    if (node.type === "trigger") {
+      const kind = String(node.config.kind ?? "manual");
+      if (!["manual", "integration", "schedule", "webhook"].includes(kind)) {
+        issues.push(`trigger ${node.id} uses ${kind}, which has no active executor yet`);
+      } else if (kind === "schedule") {
+        const cron = typeof node.config.cron === "string" ? node.config.cron.trim() : "";
+        if (!cron || !isValidCronExpression(cron)) {
+          issues.push(`schedule trigger ${node.id} requires a valid 5-field config.cron expression`);
+        }
+      } else if (kind === "webhook") {
+        const secretAlias = typeof node.config.secretAlias === "string" ? node.config.secretAlias.trim() : "";
+        if (!secretAlias) {
+          issues.push(`webhook trigger ${node.id} requires config.secretAlias`);
+        }
+      }
     }
     if (node.type === "code" && !node.codeFile) issues.push(`code node ${node.id} requires codeFile`);
     if (node.type === "agent" && !node.agentId) issues.push(`agent node ${node.id} requires agentId`);

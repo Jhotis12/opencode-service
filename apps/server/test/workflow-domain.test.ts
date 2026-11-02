@@ -10,6 +10,7 @@ import {
   topologicalOrder,
   validateWorkflowGraph,
 } from "../src/domain/workflow/graph.ts";
+import { isValidCronExpression, matchesCron } from "../src/domain/workflow/cron.ts";
 
 function graph(overrides: Partial<WorkflowGraph> = {}): WorkflowGraph {
   return {
@@ -47,7 +48,23 @@ describe("workflow graph validation", () => {
 
     const scheduled = graph();
     scheduled.nodes[0] = { ...scheduled.nodes[0]!, config: { kind: "schedule", cron: "0 9 * * *" } };
-    expect(() => validateWorkflowGraph(scheduled)).toThrow(/no active executor/);
+    expect(() => validateWorkflowGraph(scheduled)).not.toThrow();
+
+    const badSchedule = graph();
+    badSchedule.nodes[0] = { ...badSchedule.nodes[0]!, config: { kind: "schedule", cron: "bad cron" } };
+    expect(() => validateWorkflowGraph(badSchedule)).toThrow(/config.cron/);
+
+    const webhook = graph();
+    webhook.nodes[0] = { ...webhook.nodes[0]!, config: { kind: "webhook", secretAlias: "wh-secret" } };
+    expect(() => validateWorkflowGraph(webhook)).not.toThrow();
+
+    const badWebhook = graph();
+    badWebhook.nodes[0] = { ...badWebhook.nodes[0]!, config: { kind: "webhook" } };
+    expect(() => validateWorkflowGraph(badWebhook)).toThrow(/config.secretAlias/);
+
+    const unknownKind = graph();
+    unknownKind.nodes[0] = { ...unknownKind.nodes[0]!, config: { kind: "legacy_queue" } };
+    expect(() => validateWorkflowGraph(unknownKind)).toThrow(/no active executor/);
   });
 
   it("rejects duplicate node ids", () => {
@@ -177,5 +194,14 @@ describe("graph helpers", () => {
 
   it("exposes typed errors", () => {
     expect(new IdempotencyMismatchError().name).toBe("IdempotencyMismatchError");
+  });
+
+  it("validates and matches 5-field cron expressions", () => {
+    expect(isValidCronExpression("*/15 9-17 * * 1-5")).toBe(true);
+    expect(isValidCronExpression("60 9 * * *")).toBe(false);
+    expect(isValidCronExpression("* * *")).toBe(false);
+    const monday915 = new Date("2026-11-02T09:15:00.000Z"); // 2026-11-02 is Monday
+    expect(matchesCron("*/15 9-17 * * 1-5", monday915)).toBe(true);
+    expect(matchesCron("0 9 * * 1-5", monday915)).toBe(false);
   });
 });

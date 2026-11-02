@@ -25,6 +25,13 @@ export async function validateWorkflowResources(
         issues.push(`trigger ${node.id} references an integration from another project or the global scope`);
       }
     }
+    if (node.type === "trigger" && node.config.kind === "webhook") {
+      const alias = String(node.config.secretAlias ?? "").trim();
+      const secret = alias ? store.vault.findByAlias({ scope: "project", projectSlug, alias }) : undefined;
+      if (!secret) {
+        issues.push(`webhook trigger ${node.id} references an unknown project secret alias: ${alias || "(empty)"}`);
+      }
+    }
     if (node.type === "agent" && node.agentId) {
       const markdown = await workspace
         .readAgent(projectSlug, `.opencode/agents/${node.agentId}.md`)

@@ -16,7 +16,7 @@
 
 ## 4. Cron (`schedule`) & Webhook Triggers
 
-- [ ] 4.1 Implement the 5-field cron evaluator (`apps/server/src/domain/workflow/cron.ts`), enable `schedule` and `webhook` validation in `apps/server/src/domain/workflow/graph.ts`, add `WorkflowScheduler` for periodic cron execution with per-minute idempotency keys, and expose `POST /api/v1/webhooks/:projectSlug/:nodeId` with secret/HMAC verification in `apps/server/src/app.ts`; verify with unit and HTTP tests in `apps/server/test/workflow-domain.test.ts` and `apps/server/test/app.http.test.ts`.
+- [x] 4.1 Implement the 5-field cron evaluator (`apps/server/src/domain/workflow/cron.ts`), enable `schedule` and `webhook` validation in `apps/server/src/domain/workflow/graph.ts`, add `WorkflowScheduler` for periodic cron execution with per-minute idempotency keys, and expose `POST /api/v1/webhooks/:projectSlug/:nodeId` with secret/HMAC verification in `apps/server/src/app.ts`; verify with unit and HTTP tests in `apps/server/test/workflow-domain.test.ts` and `apps/server/test/app.http.test.ts`.
 
 ## 5. Agent Tool Permissions Enforcement (`platform_*`)
 

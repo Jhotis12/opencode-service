@@ -23,22 +23,22 @@ const pool = new BunWorkerPoolAdapter();
 describe("bun worker pool", () => {
   it("executes a code node and returns its output", async () => {
     const path = await nodeFile(`export default async function run(input: { n: number }) { return { doubled: input.n * 2 }; }`);
-    const result = await pool.execute({ nodeId: "double", codePath: path, input: { n: 21 }, timeoutMs: 5000 });
+    const result = await pool.execute({ nodeId: "double", projectSlug: "ventas", codePath: path, input: { n: 21 }, timeoutMs: 5000 });
     expect(result.output).toEqual({ doubled: 42 });
   });
 
   it("reloads edited node code between executions", async () => {
     const path = await nodeFile(`export default async () => "first"`);
-    expect((await pool.execute({ nodeId: "n", codePath: path, input: null, timeoutMs: 5000 })).output).toBe("first");
+    expect((await pool.execute({ nodeId: "n", projectSlug: "ventas", codePath: path, input: null, timeoutMs: 5000 })).output).toBe("first");
     await writeFile(path, `export default async () => "second"`);
-    expect((await pool.execute({ nodeId: "n", codePath: path, input: null, timeoutMs: 5000 })).output).toBe("second");
+    expect((await pool.execute({ nodeId: "n", projectSlug: "ventas", codePath: path, input: null, timeoutMs: 5000 })).output).toBe("second");
   });
 
   it("captures logs emitted through ctx.log", async () => {
     const path = await nodeFile(
       `export default async function run(_input: unknown, ctx: any) { ctx.log("hola", { step: 1 }); return true; }`,
     );
-    const result = await pool.execute({ nodeId: "n", codePath: path, input: null, timeoutMs: 5000 });
+    const result = await pool.execute({ nodeId: "n", projectSlug: "ventas", codePath: path, input: null, timeoutMs: 5000 });
     expect(result.logs[0]).toEqual({ message: "hola", fields: { step: 1 } });
   });
 
@@ -48,29 +48,30 @@ describe("bun worker pool", () => {
     );
     const result = await pool.execute({
       nodeId: "n",
+      projectSlug: "ventas",
       codePath: path,
       input: null,
       timeoutMs: 5000,
-      handlers: { db: async ({ alias }) => [{ alias }] },
+      handlers: { db: async ({ integrationId }) => [{ integrationId }] },
     });
-    expect(result.output).toEqual([{ alias: "crm" }]);
+    expect(result.output).toEqual([{ integrationId: "crm" }]);
   });
 
   it("rejects when the node throws", async () => {
     const path = await nodeFile(`export default async () => { throw new Error("boom"); }`);
-    await expect(pool.execute({ nodeId: "n", codePath: path, input: null, timeoutMs: 5000 })).rejects.toThrow("boom");
+    await expect(pool.execute({ nodeId: "n", projectSlug: "ventas", codePath: path, input: null, timeoutMs: 5000 })).rejects.toThrow("boom");
   });
 
   it("terminates a node that exceeds its timeout", async () => {
     const path = await nodeFile(`export default async () => { await new Promise(() => {}); return "never"; }`);
-    await expect(pool.execute({ nodeId: "n", codePath: path, input: null, timeoutMs: 150 })).rejects.toBeInstanceOf(
+    await expect(pool.execute({ nodeId: "n", projectSlug: "ventas", codePath: path, input: null, timeoutMs: 150 })).rejects.toBeInstanceOf(
       WorkerTimeoutError,
     );
   });
 
   it("rejects when the node has no default export", async () => {
     const path = await nodeFile(`export const nope = 1;`);
-    await expect(pool.execute({ nodeId: "n", codePath: path, input: null, timeoutMs: 5000 })).rejects.toThrow(
+    await expect(pool.execute({ nodeId: "n", projectSlug: "ventas", codePath: path, input: null, timeoutMs: 5000 })).rejects.toThrow(
       /default async function/,
     );
   });

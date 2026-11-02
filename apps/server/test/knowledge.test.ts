@@ -32,7 +32,7 @@ async function setup(overrides: { embeddings?: EmbeddingPort; resolver?: (host: 
   dirs.push(dir);
   const store = new SqliteStore(":memory:");
   const embeddings = overrides.embeddings ?? new HashEmbeddingAdapter();
-  const files = new KnowledgeFileStore(join(dir, "knowledge"));
+  const files = new KnowledgeFileStore(join(dir, "workspaces"));
   const ingest = new IngestKnowledgeUseCase({
     store,
     files,
@@ -43,7 +43,7 @@ async function setup(overrides: { embeddings?: EmbeddingPort; resolver?: (host: 
     maxUrlBytes: 1024,
   });
   const search = new SearchKnowledgeUseCase(store, embeddings);
-  ingest.createNotebook({ slug: "manual-facturacion", name: "Manual de facturación" });
+  ingest.createNotebook("ventas", { slug: "manual-facturacion", name: "Manual de facturación" });
   return { dir, store, files, ingest, search };
 }
 
@@ -106,36 +106,55 @@ describe("URL safety", () => {
 describe("notebook ingestion and hybrid search", () => {
   it("ingests markdown, stores chunks and returns cited search results", async () => {
     const { ingest, search, store, dir } = await setup();
-    const result = await ingest.ingestFile("manual-facturacion", {
+    const result = await ingest.ingestFile("ventas", "manual-facturacion", {
       filename: "manual.md",
       bytes: new TextEncoder().encode(manual),
     });
     expect(result.chunks).toBeGreaterThan(0);
     expect(result.embedded).toBe(true);
-    const sources = store.knowledge.listSources(store.notebooks.findBySlug("manual-facturacion")!.id);
+    const sources = store.knowledge.listSources(store.notebooks.findBySlug("ventas", "manual-facturacion")!.id);
     expect(sources[0]?.summary).toContain("facturas");
-    const hits = await search.execute("manual-facturacion", "nota de crédito", 3);
+    const hits = await search.execute("ventas", "manual-facturacion", "nota de crédito", 3);
     expect(hits.length).toBeGreaterThan(0);
     expect(hits[0]?.citation).toMatch(/^\[Fuente: manual\.md, /);
     expect(hits[0]?.documentTitle).toBe("manual.md");
     expect(dir).toContain("platform-kb-");
   });
 
+  it("keeps project knowledge isolated and exposes cross-project citations to the orchestrator", async () => {
+    const { ingest, search } = await setup();
+    ingest.createNotebook("soporte", { slug: "politicas", name: "Políticas de soporte" });
+    await ingest.ingestFile("ventas", "manual-facturacion", {
+      filename: "ventas.md",
+      bytes: new TextEncoder().encode("# Ventas\n\nEl descuento máximo es del 15%."),
+    });
+    await ingest.ingestFile("soporte", "politicas", {
+      filename: "soporte.md",
+      bytes: new TextEncoder().encode("# Soporte\n\nEl descuento máximo es del 10%."),
+    });
+    const ventas = await search.searchProject("ventas", "descuento", 5);
+    expect(ventas.every((hit) => hit.citation.includes("ventas.md"))).toBe(true);
+    const all = await search.searchAcrossProjects("descuento", 10);
+    expect(all.some((hit) => hit.projectSlug === "ventas")).toBe(true);
+    expect(all.some((hit) => hit.projectSlug === "soporte")).toBe(true);
+    expect(all.every((hit) => hit.citation.includes(" / "))).toBe(true);
+  });
+
   it("degrades to full-text search when embeddings fail", async () => {
     const failing: EmbeddingPort = { embed: async () => { throw new Error("no embeddings"); } };
     const { ingest, search } = await setup({ embeddings: failing });
-    await ingest.ingestFile("manual-facturacion", { filename: "manual.md", bytes: new TextEncoder().encode(manual) });
-    const hits = await search.execute("manual-facturacion", "facturas", 5);
+    await ingest.ingestFile("ventas", "manual-facturacion", { filename: "manual.md", bytes: new TextEncoder().encode(manual) });
+    const hits = await search.execute("ventas", "manual-facturacion", "facturas", 5);
     expect(hits.length).toBeGreaterThan(0);
   });
 
   it("rejects unsupported and oversized files", async () => {
     const { ingest } = await setup();
     await expect(
-      ingest.ingestFile("manual-facturacion", { filename: "app.exe", bytes: new Uint8Array([1, 2]) }),
+      ingest.ingestFile("ventas", "manual-facturacion", { filename: "app.exe", bytes: new Uint8Array([1, 2]) }),
     ).rejects.toBeInstanceOf(KnowledgeError);
     const big = new Uint8Array(1024 * 1024 + 1);
-    await expect(ingest.ingestFile("manual-facturacion", { filename: "big.txt", bytes: big })).rejects.toMatchObject({
+    await expect(ingest.ingestFile("ventas", "manual-facturacion", { filename: "big.txt", bytes: big })).rejects.toMatchObject({
       code: "TOO_LARGE",
     });
   });
@@ -149,7 +168,7 @@ describe("notebook ingestion and hybrid search", () => {
         return new Response("nope");
       }) as unknown as typeof fetch,
     });
-    await expect(ingest.ingestUrl("manual-facturacion", "http://evil.example/secret")).rejects.toMatchObject({
+    await expect(ingest.ingestUrl("ventas", "manual-facturacion", "http://evil.example/secret")).rejects.toMatchObject({
       code: "UNSAFE_URL",
     });
     expect(fetched).toBe(false);
@@ -164,10 +183,10 @@ describe("notebook ingestion and hybrid search", () => {
           headers: { "content-type": "text/html" },
         })) as unknown as typeof fetch,
     });
-    const result = await ingest.ingestUrl("manual-facturacion", "http://example.com/politica");
+    const result = await ingest.ingestUrl("ventas", "manual-facturacion", "http://example.com/politica");
     expect(result.source.title).toBe("Política");
     expect(result.source.uri).toContain("example.com");
-    const hits = await search.execute("manual-facturacion", "garantía", 3);
+    const hits = await search.execute("ventas", "manual-facturacion", "garantía", 3);
     expect(hits[0]?.content).toContain("12 meses");
   });
 
@@ -176,7 +195,7 @@ describe("notebook ingestion and hybrid search", () => {
       resolver: async () => ["93.184.216.34"],
       fetchImpl: (async () => new Response("", { status: 302, headers: { location: "http://127.0.0.1" } })) as unknown as typeof fetch,
     });
-    await expect(ingest.ingestUrl("manual-facturacion", "http://example.com")).rejects.toMatchObject({ code: "UNSAFE_URL" });
+    await expect(ingest.ingestUrl("ventas", "manual-facturacion", "http://example.com")).rejects.toMatchObject({ code: "UNSAFE_URL" });
   });
 
   it("strips scripts and markup from HTML", () => {

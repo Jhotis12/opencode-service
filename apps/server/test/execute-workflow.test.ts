@@ -126,6 +126,16 @@ describe("workflow execution", () => {
     expect(steps[2]?.agentId).toBe("ventas/cotizador");
     expect(agent.prompts[0]).toContain("doubled");
     expect(events.events.some((event) => event.type === "run.updated" && event.status === "succeeded")).toBe(true);
+    expect(
+      events.events.some(
+        (event) => event.type === "run.updated" && event.nodeId === "double" && event.stepStatus === "running",
+      ),
+    ).toBe(true);
+    expect(
+      events.events.some(
+        (event) => event.type === "run.updated" && event.nodeId === "double" && event.stepStatus === "succeeded",
+      ),
+    ).toBe(true);
     expect(metrics.snapshot().requests).toBe(0);
     expect(metrics.counter("workflow_runs")).toBe(1);
   });
@@ -273,7 +283,7 @@ describe("workflow execution", () => {
       graph,
       {},
       {
-        knowledgeContext: async (ids, _query, strict) => {
+        knowledgeContext: async (_projectSlug, ids, _query, strict) => {
           calls.push({ ids, strict });
           return "[Fuente: Manual, Facturas]\nLas facturas se emiten el día 1.";
         },

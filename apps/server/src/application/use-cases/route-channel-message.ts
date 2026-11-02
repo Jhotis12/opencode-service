@@ -1,138 +1,160 @@
-import { mkdir } from "node:fs/promises";
+import { ChannelRoutingSchema } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
-import type { ChannelEgressPort, IncomingChannelMessage, TriggerRef } from "../ports/channels.ts";
+import type { IncomingIntegrationMessage, IntegrationEgressPort, TriggerRef } from "../ports/channels.ts";
 import type { EventBus } from "../ports/events.ts";
 import type { Logger } from "../../domain/telemetry/index.ts";
-import { routeMessage } from "../../domain/channels/router.ts";
+import { routeGlobalMessage, routeProjectMessage } from "../../domain/channels/router.ts";
 import type { ExecuteWorkflowRunUseCase } from "./execute-workflow.ts";
+import type { IntegrationRecord } from "../../domain/entities.ts";
+import { validateWorkflowResources } from "./workflow-resources.ts";
+import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
 
 export interface ChannelRouterDeps {
   store: Store;
   workspace: WorkspacePort;
   agent: AgentRuntimePort;
   executor: Pick<ExecuteWorkflowRunUseCase, "execute" | "resumeWithApproval">;
-  egress: ChannelEgressPort;
+  egress: IntegrationEgressPort;
   events: EventBus;
   logger: Logger;
-  orchestratorDirectory: string;
 }
 
-export class RouteIncomingMessageUseCase {
+const ENTRY_POINTS = {
+  telegram: "telegram",
+  whatsapp: "whatsapp",
+  external_chat: "external_chat",
+  email: "email",
+} as const;
+
+export class RouteProjectIntegrationMessageUseCase {
   constructor(private readonly deps: ChannelRouterDeps) {}
 
-  async execute(message: IncomingChannelMessage): Promise<{ decision: string }> {
-    const channel = this.deps.store.channels.findBySlug(message.channelSlug);
-    if (!channel) {
-      this.deps.logger.warn({
-        event: "channel_message_dropped",
-        entryPoint: message.channelType,
-        channelSlug: message.channelSlug,
-        reason: "unknown_channel",
-      });
+  async execute(message: IncomingIntegrationMessage): Promise<{ decision: string }> {
+    const integration = this.deps.store.integrations.findById(message.integrationId);
+    if (!integration || integration.scope !== "project" || !integration.projectSlug) {
+      this.logDrop(message, "unknown_project_integration");
       return { decision: "dropped" };
     }
-    const triggers = await this.discoverTriggers(channel.slug, channel.type);
-    const decision = routeMessage({
+    const project = this.deps.store.projects.findBySlug(integration.projectSlug);
+    if (!project) {
+      this.logDrop(message, "unknown_project");
+      return { decision: "dropped" };
+    }
+    const graph = await this.deps.workspace.readWorkflow(integration.projectSlug).catch(() => undefined);
+    const triggers = graph
+      ? graph.nodes
+          .filter((node) => node.type === "trigger")
+          .filter((node) => node.config.integrationId === integration.id)
+          .filter((node) => String(node.config.event ?? "message.received") === (message.event ?? "message.received"))
+          .map<TriggerRef>((node) => ({
+            projectSlug: integration.projectSlug!,
+            workflowId: graph.id,
+            nodeId: node.id,
+            integrationId: integration.id,
+            event: String(node.config.event ?? "message.received"),
+          }))
+      : [];
+    const routing = ChannelRoutingSchema.parse(integration.config.routing ?? {});
+    const decision = routeProjectMessage({
       senderId: message.senderId,
       text: message.text,
-      channelSlug: channel.slug,
-      allowlist: channel.adminAllowlist,
+      mode: routing.mode,
+      allowlist: routing.allowlist,
+      publicTriggers: routing.public,
       triggers,
     });
 
-    if (decision.type === "orchestrator") {
-      await this.handleOrchestrator(message, channel.slug);
-      return { decision: "orchestrator" };
+    if (decision.type === "agent") {
+      await this.handleAgent(integration, project.primaryAgent, project.defaultModel, message);
+      return { decision: "agent" };
     }
     if (decision.type === "workflow") {
-      await this.handleWorkflow(message, decision.trigger);
+      await this.handleWorkflow(integration, decision.trigger, message);
       return { decision: "workflow" };
     }
     if (decision.type === "approval") {
-      await this.handleApproval(message, decision.command);
+      await this.handleApproval(integration, decision.command, message);
       return { decision: "approval" };
     }
-
-    this.deps.logger.warn({
-      event: "channel_message_dropped",
-      entryPoint: message.channelType,
-      channelSlug: message.channelSlug,
-      reason: decision.reason,
-    });
+    this.logDrop(message, decision.reason);
     return { decision: "dropped" };
   }
 
-  private async discoverTriggers(channelSlug: string, type: string): Promise<TriggerRef[]> {
-    const triggers: TriggerRef[] = [];
-    for (const projectSlug of await this.deps.workspace.listProjects()) {
-      const graph = await this.deps.workspace.readWorkflow(projectSlug).catch(() => undefined);
-      if (!graph) continue;
-      for (const node of graph.nodes) {
-        if (node.type !== "trigger") continue;
-        const config = node.config as { kind?: string; channelSlug?: string; isPublic?: boolean };
-        if (config.kind !== type || config.channelSlug !== channelSlug) continue;
-        triggers.push({
-          projectSlug,
-          workflowId: graph.id,
-          nodeId: node.id,
-          channelSlug,
-          isPublic: config.isPublic === true,
-        });
-      }
-    }
-    return triggers;
-  }
-
-  private async handleOrchestrator(message: IncomingChannelMessage, channelSlug: string): Promise<void> {
-    const thread = this.deps.store.threads.findOrCreate({
-      channelSlug,
-      externalThreadId: `admin:${message.senderId}`,
+  private async handleAgent(
+    integration: IntegrationRecord,
+    primaryAgent: string | undefined,
+    defaultModel: string | undefined,
+    message: IncomingIntegrationMessage,
+  ): Promise<void> {
+    const thread = this.deps.store.chatThreads.findOrCreate({
+      scope: "project",
+      projectSlug: integration.projectSlug,
+      integrationId: integration.id,
+      externalThreadId: message.senderId,
+      title: `${integration.name} · ${message.senderId}`,
     });
-    let sessionId = thread.opencodeSessionId;
-    if (!sessionId) {
-      await mkdir(this.deps.orchestratorDirectory, { recursive: true });
-      const session = await this.deps.agent.createSession({
-        directory: this.deps.orchestratorDirectory,
-        title: `Orquestador ${channelSlug}`,
+    const directory = await this.deps.workspace.projectDirectory(integration.projectSlug!);
+    const create = () =>
+      this.deps.agent.createSession({
+        directory,
+        title: thread.title,
+        agent: primaryAgent,
+        model: defaultModel,
       });
-      sessionId = session.id;
-      this.deps.store.threads.setSession(thread.id, sessionId);
-    }
-    const reply = await this.deps.agent.prompt(sessionId, message.text);
-    this.deps.store.threads.touch(thread.id);
-    await this.deps.egress.send(channelSlug, reply || "(sin respuesta)", message.senderId);
+    const sessionFactory = { create, agentId: primaryAgent, logger: this.deps.logger };
+    const sessionId = await ensureChatSession(this.deps.store, this.deps.agent, thread, sessionFactory);
+    const result = await promptWithSessionRecovery(
+      this.deps.store,
+      this.deps.agent,
+      thread,
+      sessionId,
+      message.text,
+      sessionFactory,
+    );
+    this.deps.store.chatThreads.touch(thread.id);
+    await this.deps.egress.send(integration.id, result.reply || "(sin respuesta)", message.senderId);
   }
 
-  private async handleWorkflow(message: IncomingChannelMessage, trigger: TriggerRef): Promise<void> {
+  private async handleWorkflow(
+    integration: IntegrationRecord,
+    trigger: TriggerRef,
+    message: IncomingIntegrationMessage,
+  ): Promise<void> {
     const graph = await this.deps.workspace.readWorkflow(trigger.projectSlug);
+    await validateWorkflowResources(this.deps.store, this.deps.workspace, trigger.projectSlug, graph);
     const run = await this.deps.executor.execute({
       projectSlug: trigger.projectSlug,
       graph,
       payload: {
         message: message.text,
         senderId: message.senderId,
-        channelSlug: message.channelSlug,
+        integrationId: integration.id,
+        metadata: message.metadata ?? {},
       },
-      entryPoint: message.channelType,
+      entryPoint: ENTRY_POINTS[message.kind],
+      integrationId: integration.id,
+      launchedBy: message.senderId,
+      sourceDetail: `integration:${integration.id}`,
     });
     if (run.status === "paused") {
       const approval = this.deps.store.runs.pendingApproval(run.id);
       await this.deps.egress.send(
-        message.channelSlug,
+        integration.id,
         `Ejecución pausada esperando aprobación.\n/approve ${run.id} ${approval?.nodeId ?? ""}`,
         message.senderId,
       );
       return;
     }
     const output = typeof run.output === "string" ? run.output : JSON.stringify(run.output ?? run.status);
-    await this.deps.egress.send(message.channelSlug, output, message.senderId);
+    await this.deps.egress.send(integration.id, output, message.senderId);
   }
 
   private async handleApproval(
-    message: IncomingChannelMessage,
+    integration: IntegrationRecord,
     command: { action: "approve" | "reject"; runId: string; nodeId: string },
+    message: IncomingIntegrationMessage,
   ): Promise<void> {
     const run = await this.deps.executor.resumeWithApproval(
       command.runId,
@@ -140,6 +162,73 @@ export class RouteIncomingMessageUseCase {
       command.action === "approve",
       message.senderId,
     );
-    await this.deps.egress.send(message.channelSlug, `Ejecución ${command.runId}: ${run.status}`, message.senderId);
+    await this.deps.egress.send(integration.id, `Ejecución ${command.runId}: ${run.status}`, message.senderId);
+  }
+
+  private logDrop(message: IncomingIntegrationMessage, reason: string): void {
+    this.deps.logger.warn({
+      event: "integration_message_dropped",
+      entryPoint: ENTRY_POINTS[message.kind],
+      integrationId: message.integrationId,
+      reason,
+    });
+  }
+}
+
+export class RouteGlobalIntegrationMessageUseCase {
+  constructor(
+    private readonly deps: ChannelRouterDeps & {
+      controlDirectory: string;
+      orchestratorAgent: string;
+    },
+  ) {}
+
+  async execute(message: IncomingIntegrationMessage): Promise<{ decision: string }> {
+    const integration = this.deps.store.integrations.findById(message.integrationId);
+    if (!integration || integration.scope !== "global") {
+      this.deps.logger.warn({
+        event: "global_message_dropped",
+        entryPoint: "global_orchestrator",
+        integrationId: message.integrationId,
+        reason: "unknown_global_integration",
+      });
+      return { decision: "dropped" };
+    }
+    const routing = ChannelRoutingSchema.parse(integration.config.routing ?? {});
+    const decision = routeGlobalMessage({ senderId: message.senderId, allowlist: routing.allowlist });
+    if (decision.type === "dropped") {
+      this.deps.logger.warn({
+        event: "global_message_dropped",
+        entryPoint: "global_orchestrator",
+        integrationId: integration.id,
+        reason: decision.reason,
+      });
+      return { decision: "dropped" };
+    }
+    const thread = this.deps.store.chatThreads.findOrCreate({
+      scope: "global",
+      integrationId: integration.id,
+      externalThreadId: message.senderId,
+      title: `Orquestador · ${message.senderId}`,
+    });
+    const create = () =>
+      this.deps.agent.createSession({
+        directory: this.deps.controlDirectory,
+        title: thread.title,
+        agent: this.deps.orchestratorAgent,
+      });
+    const sessionFactory = { create, agentId: this.deps.orchestratorAgent, logger: this.deps.logger };
+    const sessionId = await ensureChatSession(this.deps.store, this.deps.agent, thread, sessionFactory);
+    const result = await promptWithSessionRecovery(
+      this.deps.store,
+      this.deps.agent,
+      thread,
+      sessionId,
+      message.text,
+      sessionFactory,
+    );
+    this.deps.store.chatThreads.touch(thread.id);
+    await this.deps.egress.send(integration.id, result.reply || "(sin respuesta)", message.senderId);
+    return { decision: "orchestrator" };
   }
 }

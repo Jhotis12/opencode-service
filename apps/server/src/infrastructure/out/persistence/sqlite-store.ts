@@ -1,11 +1,10 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import type {
   ApprovalRecord,
-  ChannelRecord,
   ChatMessageRecord,
-  ConversationThreadRecord,
+  ChatThreadRecord,
   ErrorEventRecord,
-  ExternalDatabaseRecord,
+  IntegrationRecord,
   KbChunkRecord,
   KbSourceRecord,
   NotebookRecord,
@@ -19,10 +18,9 @@ import type { Store } from "../../../application/ports/store.ts";
 import { openDatabase, type DatabaseHandle } from "./db.ts";
 import { migrate } from "./migrate.ts";
 import {
-  channels,
   chatMessages,
-  conversationThreads,
-  externalDatabases,
+  chatThreads,
+  integrations,
   kbChunks,
   kbSources,
   notebooks,
@@ -38,6 +36,7 @@ import {
 
 const json = (value: unknown): string => JSON.stringify(value ?? null);
 const parse = <T>(value: string | null): T | undefined => (value ? (JSON.parse(value) as T) : undefined);
+const scopeKey = (projectSlug?: string): string => projectSlug ?? "";
 
 export class SqliteStore implements Store {
   private readonly handle: DatabaseHandle;
@@ -74,45 +73,55 @@ export class SqliteStore implements Store {
 
   vault = {
     upsert: (record: VaultSecretRecord): void => {
+      const projectSlug = scopeKey(record.projectSlug);
       this.handle.db
         .insert(vaultSecrets)
-        .values(record)
+        .values({
+          id: record.id,
+          scope: record.scope,
+          projectSlug,
+          alias: record.alias,
+          kind: record.kind,
+          ciphertext: record.ciphertext,
+          metadata: record.metadata ?? null,
+          createdAt: record.createdAt,
+        })
         .onConflictDoUpdate({
-          target: vaultSecrets.alias,
+          target: [vaultSecrets.scope, vaultSecrets.projectSlug, vaultSecrets.alias],
           set: { kind: record.kind, ciphertext: record.ciphertext, metadata: record.metadata ?? null },
         })
         .run();
     },
-    findByAlias: (alias: string): VaultSecretRecord | undefined => {
-      const row = this.handle.db.select().from(vaultSecrets).where(eq(vaultSecrets.alias, alias)).get();
-      return row ? { ...row, metadata: row.metadata ?? undefined } : undefined;
+    findByAlias: (input: { scope: VaultSecretRecord["scope"]; projectSlug?: string; alias: string }): VaultSecretRecord | undefined => {
+      const row = this.handle.db
+        .select()
+        .from(vaultSecrets)
+        .where(
+          and(
+            eq(vaultSecrets.scope, input.scope),
+            eq(vaultSecrets.projectSlug, scopeKey(input.projectSlug)),
+            eq(vaultSecrets.alias, input.alias),
+          ),
+        )
+        .get();
+      return row ? this.mapSecret(row) : undefined;
     },
-    list: (): VaultSecretRecord[] =>
+    list: (input: { scope: VaultSecretRecord["scope"]; projectSlug?: string }): VaultSecretRecord[] =>
       this.handle.db
         .select()
         .from(vaultSecrets)
+        .where(
+          and(
+            eq(vaultSecrets.scope, input.scope),
+            eq(vaultSecrets.projectSlug, scopeKey(input.projectSlug)),
+          ),
+        )
         .all()
-        .map((row) => ({ ...row, metadata: row.metadata ?? undefined })),
-    remove: (alias: string): boolean =>
-      this.handle.sqlite.query("DELETE FROM vault_secrets WHERE alias = ?").run(alias).changes > 0,
-  };
-
-  externalDatabases = {
-    upsert: (record: ExternalDatabaseRecord): void => {
-      this.handle.db
-        .insert(externalDatabases)
-        .values(record)
-        .onConflictDoUpdate({
-          target: externalDatabases.alias,
-          set: { driver: record.driver, ciphertext: record.ciphertext },
-        })
-        .run();
-    },
-    findByAlias: (alias: string): ExternalDatabaseRecord | undefined =>
-      this.handle.db.select().from(externalDatabases).where(eq(externalDatabases.alias, alias)).get(),
-    list: (): ExternalDatabaseRecord[] => this.handle.db.select().from(externalDatabases).all(),
-    remove: (alias: string): boolean =>
-      this.handle.sqlite.query("DELETE FROM external_databases WHERE alias = ?").run(alias).changes > 0,
+        .map((row) => this.mapSecret(row)),
+    remove: (input: { scope: VaultSecretRecord["scope"]; projectSlug?: string; alias: string }): boolean =>
+      this.handle.sqlite
+        .query("DELETE FROM vault_secrets WHERE scope = ? AND project_slug = ? AND alias = ?")
+        .run(input.scope, scopeKey(input.projectSlug), input.alias).changes > 0,
   };
 
   settings = {
@@ -144,7 +153,19 @@ export class SqliteStore implements Store {
 
   projects = {
     create: (record: ProjectRecord): void => {
-      this.handle.db.insert(projects).values({ ...record, chatSessionId: record.chatSessionId ?? null }).run();
+      this.handle.db
+        .insert(projects)
+        .values({
+          id: record.id,
+          slug: record.slug,
+          name: record.name,
+          description: record.description,
+          defaultModel: record.defaultModel ?? null,
+          primaryAgent: record.primaryAgent ?? null,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt ?? record.createdAt,
+        })
+        .run();
     },
     list: (): ProjectRecord[] =>
       this.handle.db
@@ -152,13 +173,120 @@ export class SqliteStore implements Store {
         .from(projects)
         .orderBy(desc(projects.createdAt))
         .all()
-        .map((row) => ({ ...row, chatSessionId: row.chatSessionId ?? undefined })),
+        .map((row) => this.mapProject(row)),
     findBySlug: (slug: string): ProjectRecord | undefined => {
       const row = this.handle.db.select().from(projects).where(eq(projects.slug, slug)).get();
-      return row ? { ...row, chatSessionId: row.chatSessionId ?? undefined } : undefined;
+      return row ? this.mapProject(row) : undefined;
     },
-    setChatSession: (slug: string, sessionId: string): void => {
-      this.handle.db.update(projects).set({ chatSessionId: sessionId }).where(eq(projects.slug, slug)).run();
+    update: (
+      slug: string,
+      patch: Partial<Pick<ProjectRecord, "name" | "description">> & {
+        defaultModel?: string | null;
+        primaryAgent?: string | null;
+      },
+    ): void => {
+      this.handle.db
+        .update(projects)
+        .set({
+          ...(patch.name !== undefined ? { name: patch.name } : {}),
+          ...(patch.description !== undefined ? { description: patch.description } : {}),
+          ...(patch.defaultModel !== undefined ? { defaultModel: patch.defaultModel ?? null } : {}),
+          ...(patch.primaryAgent !== undefined ? { primaryAgent: patch.primaryAgent ?? null } : {}),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(projects.slug, slug))
+        .run();
+    },
+  };
+
+  integrations = {
+    create: (record: IntegrationRecord): void => {
+      this.handle.db
+        .insert(integrations)
+        .values({
+          id: record.id,
+          scope: record.scope,
+          projectSlug: scopeKey(record.projectSlug),
+          kind: record.kind,
+          name: record.name,
+          slug: record.slug,
+          config: json(record.config),
+          secretRefs: json(record.secretRefs),
+          capabilities: json(record.capabilities),
+          status: record.status,
+          keyHash: record.keyHash ?? null,
+          lastError: record.lastError ?? null,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        })
+        .run();
+    },
+    update: (
+      id: string,
+      patch: Partial<Omit<IntegrationRecord, "id" | "scope" | "projectSlug" | "kind" | "createdAt">>,
+    ): void => {
+      this.handle.db
+        .update(integrations)
+        .set({
+          ...(patch.name !== undefined ? { name: patch.name } : {}),
+          ...(patch.slug !== undefined ? { slug: patch.slug } : {}),
+          ...(patch.config !== undefined ? { config: json(patch.config) } : {}),
+          ...(patch.secretRefs !== undefined ? { secretRefs: json(patch.secretRefs) } : {}),
+          ...(patch.capabilities !== undefined ? { capabilities: json(patch.capabilities) } : {}),
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+          ...(patch.keyHash !== undefined ? { keyHash: patch.keyHash ?? null } : {}),
+          ...(patch.lastError !== undefined ? { lastError: patch.lastError ?? null } : {}),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(integrations.id, id))
+        .run();
+    },
+    findById: (id: string): IntegrationRecord | undefined => {
+      const row = this.handle.db.select().from(integrations).where(eq(integrations.id, id)).get();
+      return row ? this.mapIntegration(row) : undefined;
+    },
+    findBySlug: (input: { scope: IntegrationRecord["scope"]; projectSlug?: string; slug: string }): IntegrationRecord | undefined => {
+      const row = this.handle.db
+        .select()
+        .from(integrations)
+        .where(
+          and(
+            eq(integrations.scope, input.scope),
+            eq(integrations.projectSlug, scopeKey(input.projectSlug)),
+            eq(integrations.slug, input.slug),
+          ),
+        )
+        .get();
+      return row ? this.mapIntegration(row) : undefined;
+    },
+    list: (input: { scope: IntegrationRecord["scope"]; projectSlug?: string }): IntegrationRecord[] =>
+      this.handle.db
+        .select()
+        .from(integrations)
+        .where(
+          and(
+            eq(integrations.scope, input.scope),
+            eq(integrations.projectSlug, scopeKey(input.projectSlug)),
+          ),
+        )
+        .orderBy(desc(integrations.createdAt))
+        .all()
+        .map((row) => this.mapIntegration(row)),
+    listAll: (): IntegrationRecord[] =>
+      this.handle.db
+        .select()
+        .from(integrations)
+        .orderBy(desc(integrations.createdAt))
+        .all()
+        .map((row) => this.mapIntegration(row)),
+    remove: (id: string): boolean =>
+      this.handle.sqlite.query("DELETE FROM integrations WHERE id = ?").run(id).changes > 0,
+    updateStatus: (id: string, status: IntegrationRecord["status"], lastError?: string): void => {
+      this.handle.db
+        .update(integrations)
+        .set({ status, lastError: lastError ?? null, updatedAt: new Date().toISOString() })
+        .where(eq(integrations.id, id))
+        .run();
     },
   };
 
@@ -177,6 +305,10 @@ export class SqliteStore implements Store {
           output: record.output === undefined ? null : json(record.output),
           error: record.error ?? null,
           entryPoint: record.entryPoint,
+          launchedBy: record.launchedBy ?? null,
+          graphHash: record.graphHash ?? null,
+          integrationId: record.integrationId ?? null,
+          sourceDetail: record.sourceDetail ?? null,
           startedAt: record.startedAt,
           finishedAt: record.finishedAt ?? null,
         })
@@ -192,7 +324,12 @@ export class SqliteStore implements Store {
     findById: (id: string): WorkflowRunRecord | undefined => this.mapRun(this.selectRunById(id)),
     update: (
       id: string,
-      patch: Partial<Pick<WorkflowRunRecord, "status" | "output" | "error" | "finishedAt">>,
+      patch: Partial<
+        Pick<
+          WorkflowRunRecord,
+          "status" | "output" | "error" | "finishedAt" | "entryPoint" | "launchedBy" | "sourceDetail"
+        >
+      >,
     ): void => {
       this.handle.db
         .update(workflowRuns)
@@ -201,6 +338,9 @@ export class SqliteStore implements Store {
           ...(patch.output !== undefined ? { output: json(patch.output) } : {}),
           ...(patch.error !== undefined ? { error: patch.error } : {}),
           ...(patch.finishedAt !== undefined ? { finishedAt: patch.finishedAt } : {}),
+          ...(patch.entryPoint !== undefined ? { entryPoint: patch.entryPoint } : {}),
+          ...(patch.launchedBy !== undefined ? { launchedBy: patch.launchedBy ?? null } : {}),
+          ...(patch.sourceDetail !== undefined ? { sourceDetail: patch.sourceDetail ?? null } : {}),
         })
         .where(eq(workflowRuns.id, id))
         .run();
@@ -304,111 +444,93 @@ export class SqliteStore implements Store {
     },
   };
 
-  threads = {
+  chatThreads = {
     findOrCreate: (input: {
-      channelSlug: string;
-      externalThreadId: string;
+      scope: ChatThreadRecord["scope"];
       projectSlug?: string;
-      workflowId?: string;
-    }): ConversationThreadRecord => {
+      integrationId?: string;
+      externalThreadId?: string;
+      title?: string;
+    }): ChatThreadRecord => {
+      const projectSlug = scopeKey(input.projectSlug);
+      const integrationId = input.integrationId ?? "";
+      const externalThreadId = input.externalThreadId ?? "";
       const existing = this.handle.db
         .select()
-        .from(conversationThreads)
+        .from(chatThreads)
         .where(
           and(
-            eq(conversationThreads.channelSlug, input.channelSlug),
-            eq(conversationThreads.externalThreadId, input.externalThreadId),
+            eq(chatThreads.scope, input.scope),
+            eq(chatThreads.projectSlug, projectSlug),
+            eq(chatThreads.integrationId, integrationId),
+            eq(chatThreads.externalThreadId, externalThreadId),
           ),
         )
         .get();
-      if (existing) {
-        return {
-          ...existing,
-          opencodeSessionId: existing.opencodeSessionId ?? undefined,
-          projectSlug: existing.projectSlug ?? undefined,
-          workflowId: existing.workflowId ?? undefined,
-        };
-      }
+      if (existing) return this.mapThread(existing);
       const now = new Date().toISOString();
-      const record: ConversationThreadRecord = {
+      const record: ChatThreadRecord = {
         id: crypto.randomUUID(),
-        channelSlug: input.channelSlug,
-        externalThreadId: input.externalThreadId,
+        scope: input.scope,
         projectSlug: input.projectSlug,
-        workflowId: input.workflowId,
+        integrationId: input.integrationId,
+        externalThreadId: input.externalThreadId,
+        title: input.title,
         createdAt: now,
         lastActiveAt: now,
       };
-      this.handle.db.insert(conversationThreads).values(record).onConflictDoNothing().run();
+      this.handle.db
+        .insert(chatThreads)
+        .values({
+          id: record.id,
+          scope: record.scope,
+          projectSlug,
+          integrationId,
+          externalThreadId,
+          opencodeSessionId: null,
+          title: record.title ?? null,
+          createdAt: record.createdAt,
+          lastActiveAt: record.lastActiveAt,
+        })
+        .onConflictDoNothing()
+        .run();
       const row = this.handle.db
         .select()
-        .from(conversationThreads)
+        .from(chatThreads)
         .where(
           and(
-            eq(conversationThreads.channelSlug, input.channelSlug),
-            eq(conversationThreads.externalThreadId, input.externalThreadId),
+            eq(chatThreads.scope, input.scope),
+            eq(chatThreads.projectSlug, projectSlug),
+            eq(chatThreads.integrationId, integrationId),
+            eq(chatThreads.externalThreadId, externalThreadId),
           ),
         )
         .get();
-      return row
-        ? {
-            ...row,
-            opencodeSessionId: row.opencodeSessionId ?? undefined,
-            projectSlug: row.projectSlug ?? undefined,
-            workflowId: row.workflowId ?? undefined,
-          }
-        : record;
+      return row ? this.mapThread(row) : record;
+    },
+    findById: (id: string): ChatThreadRecord | undefined => {
+      const row = this.handle.db.select().from(chatThreads).where(eq(chatThreads.id, id)).get();
+      return row ? this.mapThread(row) : undefined;
     },
     setSession: (id: string, sessionId: string): void => {
-      this.handle.db
-        .update(conversationThreads)
-        .set({ opencodeSessionId: sessionId })
-        .where(eq(conversationThreads.id, id))
-        .run();
+      this.handle.db.update(chatThreads).set({ opencodeSessionId: sessionId }).where(eq(chatThreads.id, id)).run();
     },
     touch: (id: string): void => {
       this.handle.db
-        .update(conversationThreads)
+        .update(chatThreads)
         .set({ lastActiveAt: new Date().toISOString() })
-        .where(eq(conversationThreads.id, id))
+        .where(eq(chatThreads.id, id))
         .run();
     },
-    find: (id: string): ConversationThreadRecord | undefined => {
-      const row = this.handle.db.select().from(conversationThreads).where(eq(conversationThreads.id, id)).get();
-      return row
-        ? {
-            ...row,
-            opencodeSessionId: row.opencodeSessionId ?? undefined,
-            projectSlug: row.projectSlug ?? undefined,
-            workflowId: row.workflowId ?? undefined,
-          }
-        : undefined;
-    },
-  };
-
-  channels = {
-    create: (record: ChannelRecord): void => {
+    listByProject: (projectSlug: string, limit: number): ChatThreadRecord[] =>
       this.handle.db
-        .insert(channels)
-        .values({
-          ...record,
-          configCiphertext: record.configCiphertext ?? null,
-          keyHash: record.keyHash ?? null,
-          adminAllowlist: json(record.adminAllowlist),
-          webhookUrl: record.webhookUrl ?? null,
-        })
-        .run();
-    },
-    findBySlug: (slug: string): ChannelRecord | undefined => this.mapChannel(
-      this.handle.db.select().from(channels).where(eq(channels.slug, slug)).get(),
-    ),
-    list: (): ChannelRecord[] => this.handle.db.select().from(channels).all().map((row) => this.mapChannel(row)!),
-    updateStatus: (slug: string, status: string): void => {
-      this.handle.db.update(channels).set({ status }).where(eq(channels.slug, slug)).run();
-    },
-    setWebhook: (slug: string, webhookUrl: string | undefined): void => {
-      this.handle.db.update(channels).set({ webhookUrl: webhookUrl ?? null }).where(eq(channels.slug, slug)).run();
-    },
+        .select()
+        .from(chatThreads)
+        .where(and(eq(chatThreads.scope, "project"), eq(chatThreads.projectSlug, projectSlug)))
+        .orderBy(desc(chatThreads.lastActiveAt))
+        .limit(limit)
+        .all()
+        .map((row) => this.mapThread(row)),
   };
 
   chat = {
@@ -417,33 +539,31 @@ export class SqliteStore implements Store {
         .insert(chatMessages)
         .values({
           id: record.id,
-          projectSlug: record.projectSlug,
-          sessionId: record.sessionId ?? null,
+          threadId: record.threadId,
           role: record.role,
           content: record.content,
           createdAt: record.createdAt,
         })
         .run();
     },
-    list: (projectSlug: string, limit: number): ChatMessageRecord[] =>
+    listByThread: (threadId: string, limit: number): ChatMessageRecord[] =>
       this.handle.db
         .select()
         .from(chatMessages)
-        .where(eq(chatMessages.projectSlug, projectSlug))
+        .where(eq(chatMessages.threadId, threadId))
         .orderBy(desc(chatMessages.createdAt))
         .limit(limit)
         .all()
         .reverse()
         .map((row) => ({
           id: row.id,
-          projectSlug: row.projectSlug,
-          sessionId: row.sessionId ?? undefined,
+          threadId: row.threadId,
           role: row.role as ChatMessageRecord["role"],
           content: row.content,
           createdAt: row.createdAt,
         })),
-    clear: (projectSlug: string): void => {
-      this.handle.sqlite.query("DELETE FROM chat_messages WHERE project_slug = ?").run(projectSlug);
+    clearByThread: (threadId: string): void => {
+      this.handle.sqlite.query("DELETE FROM chat_messages WHERE thread_id = ?").run(threadId);
     },
   };
 
@@ -451,11 +571,29 @@ export class SqliteStore implements Store {
     create: (record: NotebookRecord): void => {
       this.handle.db.insert(notebooks).values(record).run();
     },
-    list: (): NotebookRecord[] => this.handle.db.select().from(notebooks).orderBy(desc(notebooks.createdAt)).all(),
-    findBySlug: (slug: string): NotebookRecord | undefined =>
-      this.handle.db.select().from(notebooks).where(eq(notebooks.slug, slug)).get(),
-    remove: (slug: string): void => {
-      this.handle.db.delete(notebooks).where(eq(notebooks.slug, slug)).run();
+    list: (projectSlug: string): NotebookRecord[] =>
+      this.handle.db
+        .select()
+        .from(notebooks)
+        .where(eq(notebooks.projectSlug, projectSlug))
+        .orderBy(desc(notebooks.createdAt))
+        .all(),
+    listAll: (): NotebookRecord[] =>
+      this.handle.db.select().from(notebooks).orderBy(desc(notebooks.createdAt)).all(),
+    findBySlug: (projectSlug: string, slug: string): NotebookRecord | undefined =>
+      this.handle.db
+        .select()
+        .from(notebooks)
+        .where(and(eq(notebooks.projectSlug, projectSlug), eq(notebooks.slug, slug)))
+        .get(),
+    findById: (id: string): NotebookRecord | undefined =>
+      this.handle.db.select().from(notebooks).where(eq(notebooks.id, id)).get(),
+    remove: (projectSlug: string, slug: string): void => {
+      const notebook = this.notebooks.findBySlug(projectSlug, slug);
+      if (!notebook) return;
+      const sources = this.handle.db.select().from(kbSources).where(eq(kbSources.notebookId, notebook.id)).all();
+      for (const source of sources) this.knowledge.removeSource(source.id);
+      this.handle.db.delete(notebooks).where(eq(notebooks.id, notebook.id)).run();
     },
   };
 
@@ -511,6 +649,38 @@ export class SqliteStore implements Store {
     },
   };
 
+  deleteProjectData = (projectSlug: string): void => {
+    const remove = this.handle.sqlite.transaction(() => {
+      this.handle.sqlite
+        .query("DELETE FROM kb_chunks_fts WHERE chunk_id IN (SELECT id FROM kb_chunks WHERE notebook_id IN (SELECT id FROM notebooks WHERE project_slug = ?))")
+        .run(projectSlug);
+      this.handle.sqlite
+        .query("DELETE FROM kb_chunks WHERE notebook_id IN (SELECT id FROM notebooks WHERE project_slug = ?)")
+        .run(projectSlug);
+      this.handle.sqlite
+        .query("DELETE FROM kb_sources WHERE notebook_id IN (SELECT id FROM notebooks WHERE project_slug = ?)")
+        .run(projectSlug);
+      this.handle.sqlite.query("DELETE FROM notebooks WHERE project_slug = ?").run(projectSlug);
+      this.handle.sqlite
+        .query("DELETE FROM chat_messages WHERE thread_id IN (SELECT id FROM chat_threads WHERE scope = 'project' AND project_slug = ?)")
+        .run(projectSlug);
+      this.handle.sqlite
+        .query("DELETE FROM chat_threads WHERE scope = 'project' AND project_slug = ?")
+        .run(projectSlug);
+      this.handle.sqlite
+        .query("DELETE FROM workflow_approvals WHERE run_id IN (SELECT id FROM workflow_runs WHERE project_slug = ?)")
+        .run(projectSlug);
+      this.handle.sqlite
+        .query("DELETE FROM workflow_step_runs WHERE run_id IN (SELECT id FROM workflow_runs WHERE project_slug = ?)")
+        .run(projectSlug);
+      this.handle.sqlite.query("DELETE FROM workflow_runs WHERE project_slug = ?").run(projectSlug);
+      this.handle.sqlite.query("DELETE FROM integrations WHERE scope = 'project' AND project_slug = ?").run(projectSlug);
+      this.handle.sqlite.query("DELETE FROM vault_secrets WHERE scope = 'project' AND project_slug = ?").run(projectSlug);
+      this.handle.sqlite.query("DELETE FROM projects WHERE slug = ?").run(projectSlug);
+    });
+    remove();
+  };
+
   private selectRunById(id: string) {
     return this.handle.db.select().from(workflowRuns).where(eq(workflowRuns.id, id)).get();
   }
@@ -543,25 +713,71 @@ export class SqliteStore implements Store {
       output: parse(row.output),
       error: row.error ?? undefined,
       entryPoint: row.entryPoint as WorkflowRunRecord["entryPoint"],
+      launchedBy: row.launchedBy ?? undefined,
+      graphHash: row.graphHash ?? undefined,
+      integrationId: row.integrationId ?? undefined,
+      sourceDetail: row.sourceDetail ?? undefined,
       startedAt: row.startedAt,
       finishedAt: row.finishedAt ?? undefined,
     };
   }
 
-  private mapChannel(row: typeof channels.$inferSelect | undefined): ChannelRecord | undefined {
-    if (!row) return undefined;
+  private mapProject(row: typeof projects.$inferSelect): ProjectRecord {
     return {
       id: row.id,
       slug: row.slug,
-      type: row.type as ChannelRecord["type"],
       name: row.name,
-      configCiphertext: row.configCiphertext ?? undefined,
-      keyHash: row.keyHash ?? undefined,
-      adminAllowlist: JSON.parse(row.adminAllowlist) as string[],
-      isPublic: row.isPublic,
-      status: row.status,
-      webhookUrl: row.webhookUrl ?? undefined,
+      description: row.description,
+      defaultModel: row.defaultModel ?? undefined,
+      primaryAgent: row.primaryAgent ?? undefined,
       createdAt: row.createdAt,
+      updatedAt: row.updatedAt ?? undefined,
+    };
+  }
+
+  private mapSecret(row: typeof vaultSecrets.$inferSelect): VaultSecretRecord {
+    return {
+      id: row.id,
+      scope: row.scope as VaultSecretRecord["scope"],
+      projectSlug: row.projectSlug || undefined,
+      alias: row.alias,
+      kind: row.kind,
+      ciphertext: row.ciphertext,
+      metadata: row.metadata ?? undefined,
+      createdAt: row.createdAt,
+    };
+  }
+
+  private mapIntegration(row: typeof integrations.$inferSelect): IntegrationRecord {
+    return {
+      id: row.id,
+      scope: row.scope as IntegrationRecord["scope"],
+      projectSlug: row.projectSlug || undefined,
+      kind: row.kind as IntegrationRecord["kind"],
+      name: row.name,
+      slug: row.slug,
+      config: parse(row.config) ?? {},
+      secretRefs: parse(row.secretRefs) ?? {},
+      capabilities: parse(row.capabilities) ?? [],
+      status: row.status as IntegrationRecord["status"],
+      keyHash: row.keyHash ?? undefined,
+      lastError: row.lastError ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private mapThread(row: typeof chatThreads.$inferSelect): ChatThreadRecord {
+    return {
+      id: row.id,
+      scope: row.scope as ChatThreadRecord["scope"],
+      projectSlug: row.projectSlug || undefined,
+      integrationId: row.integrationId || undefined,
+      externalThreadId: row.externalThreadId || undefined,
+      opencodeSessionId: row.opencodeSessionId ?? undefined,
+      title: row.title ?? undefined,
+      createdAt: row.createdAt,
+      lastActiveAt: row.lastActiveAt,
     };
   }
 }

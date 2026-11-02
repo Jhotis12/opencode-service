@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { AgentModelInfo, AgentRuntimePort } from "../../../application/ports/runtime.ts";
 import { OpenCodeV2Adapter, ServiceClientFactory } from "./opencode-adapter.ts";
 
@@ -44,9 +45,10 @@ export class FakeAgentRuntime implements AgentRuntimePort {
   }
 
   async prompt(sessionId: string, text: string): Promise<string> {
-    this.prompts.push(text);
     const session = this.sessions.get(sessionId);
-    const model = session?.model ?? "opencode-go/fast";
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    this.prompts.push(text);
+    const model = session.model ?? "opencode-go/fast";
     const preview = text.replace(/\s+/g, " ").slice(0, 220);
     const reply = `[simulado · ${model}] Recibí: ${preview}`;
     this.emit({ type: "session.text.delta", sessionID: sessionId, text: reply });
@@ -55,13 +57,15 @@ export class FakeAgentRuntime implements AgentRuntimePort {
 
   async switchModel(sessionId: string, model: string): Promise<void> {
     const session = this.sessions.get(sessionId);
-    if (session) session.model = model;
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    session.model = model;
     this.emit({ type: "session.model.selected", sessionID: sessionId, model });
   }
 
   async switchAgent(sessionId: string, agent: string): Promise<void> {
     const session = this.sessions.get(sessionId);
-    if (session) session.agent = agent;
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    session.agent = agent;
     this.emit({ type: "session.agent.selected", sessionID: sessionId, agent });
   }
 
@@ -79,11 +83,27 @@ export class FakeAgentRuntime implements AgentRuntimePort {
   }
 }
 
-export function createAgentRuntime(env: Record<string, string | undefined> = process.env): AgentRuntimePort {
+export function createAgentRuntime(
+  env: Record<string, string | undefined> = process.env,
+  dataDir?: string,
+): AgentRuntimePort {
   if (env.OPENCODE_MODE === "fake") {
     return new FakeAgentRuntime();
   }
+  const serviceEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string") serviceEnv[key] = value;
+  }
+  if (dataDir) {
+    const opencodeDir = join(dataDir, "opencode");
+    serviceEnv.OPENCODE_DB = env.OPENCODE_DB ?? join(opencodeDir, "opencode.db");
+    serviceEnv.XDG_STATE_HOME = env.XDG_STATE_HOME ?? join(opencodeDir, "state");
+  }
   return new OpenCodeV2Adapter(
-    new ServiceClientFactory({ baseUrl: env.OPENCODE_BASE_URL, serviceFile: env.OPENCODE_SERVICE_FILE }),
+    new ServiceClientFactory({
+      baseUrl: env.OPENCODE_BASE_URL,
+      serviceFile: env.OPENCODE_SERVICE_FILE,
+      env: serviceEnv,
+    }),
   );
 }

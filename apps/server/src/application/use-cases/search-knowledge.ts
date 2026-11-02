@@ -2,6 +2,7 @@ import type { Store } from "../ports/store.ts";
 import type { EmbeddingPort, KnowledgeSearchResult } from "../ports/knowledge.ts";
 import { cosineSimilarity } from "../../infrastructure/out/knowledge/embeddings.ts";
 import { KnowledgeError } from "../../infrastructure/out/knowledge/extractors.ts";
+import type { NotebookRecord } from "../../domain/entities.ts";
 
 export class SearchKnowledgeUseCase {
   constructor(
@@ -9,11 +10,40 @@ export class SearchKnowledgeUseCase {
     private readonly embeddings: EmbeddingPort,
   ) {}
 
-  async execute(notebookSlug: string, query: string, limit = 5): Promise<KnowledgeSearchResult[]> {
-    const notebook = this.store.notebooks.findBySlug(notebookSlug);
+  async execute(projectSlug: string, notebookSlug: string, query: string, limit = 5): Promise<KnowledgeSearchResult[]> {
+    const notebook = this.store.notebooks.findBySlug(projectSlug, notebookSlug);
     if (!notebook) throw new KnowledgeError("EXTRACTION_FAILED", `unknown notebook: ${notebookSlug}`);
     if (!query.trim()) return [];
+    return this.searchNotebook(notebook, query, limit, false);
+  }
 
+  async searchProject(projectSlug: string, query: string, limit = 5): Promise<KnowledgeSearchResult[]> {
+    if (!query.trim()) return [];
+    const results: KnowledgeSearchResult[] = [];
+    for (const notebook of this.store.notebooks.list(projectSlug)) {
+      results.push(...(await this.searchNotebook(notebook, query, limit, false)));
+    }
+    return results.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
+  async searchAcrossProjects(query: string, limit = 5, projectSlug?: string): Promise<KnowledgeSearchResult[]> {
+    if (!query.trim()) return [];
+    const notebooks = projectSlug
+      ? this.store.notebooks.list(projectSlug)
+      : this.store.notebooks.listAll();
+    const results: KnowledgeSearchResult[] = [];
+    for (const notebook of notebooks) {
+      results.push(...(await this.searchNotebook(notebook, query, limit, true)));
+    }
+    return results.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
+  private async searchNotebook(
+    notebook: NotebookRecord,
+    query: string,
+    limit: number,
+    includeProject: boolean,
+  ): Promise<KnowledgeSearchResult[]> {
     const chunks = this.store.knowledge.chunksForNotebook(notebook.id);
     const sources = new Map(this.store.knowledge.listSources(notebook.id).map((source) => [source.id, source]));
     const chunkById = new Map(chunks.map((chunk) => [chunk.id, chunk]));
@@ -51,6 +81,9 @@ export class SearchKnowledgeUseCase {
       const source = sources.get(chunk.sourceId);
       const documentTitle = source?.title ?? "documento";
       const section = chunk.section || "documento";
+      const citation = includeProject
+        ? `[Fuente: ${notebook.projectSlug} / ${notebook.name} / ${documentTitle}, ${section}]`
+        : `[Fuente: ${documentTitle}, ${section}]`;
       results.push({
         chunkId,
         sourceId: chunk.sourceId,
@@ -58,7 +91,10 @@ export class SearchKnowledgeUseCase {
         section,
         content: chunk.content,
         score,
-        citation: `[Fuente: ${documentTitle}, ${section}]`,
+        citation,
+        ...(includeProject
+          ? { projectSlug: notebook.projectSlug, notebookSlug: notebook.slug, notebookName: notebook.name }
+          : {}),
       });
     }
     return results;

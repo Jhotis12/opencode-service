@@ -8,22 +8,22 @@ export const users = sqliteTable("users", {
   createdAt: text("created_at").notNull(),
 });
 
-export const vaultSecrets = sqliteTable("vault_secrets", {
-  id: text("id").primaryKey(),
-  alias: text("alias").notNull().unique(),
-  kind: text("kind").notNull(),
-  ciphertext: text("ciphertext").notNull(),
-  metadata: text("metadata"),
-  createdAt: text("created_at").notNull(),
-});
-
-export const externalDatabases = sqliteTable("external_databases", {
-  id: text("id").primaryKey(),
-  alias: text("alias").notNull().unique(),
-  driver: text("driver").notNull(),
-  ciphertext: text("ciphertext").notNull(),
-  createdAt: text("created_at").notNull(),
-});
+export const vaultSecrets = sqliteTable(
+  "vault_secrets",
+  {
+    id: text("id").primaryKey(),
+    scope: text("scope").notNull().default("project"),
+    projectSlug: text("project_slug").notNull().default(""),
+    alias: text("alias").notNull(),
+    kind: text("kind").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    metadata: text("metadata"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    scopedAlias: uniqueIndex("vault_secrets_scoped_alias").on(table.scope, table.projectSlug, table.alias),
+  }),
+);
 
 export const systemSettings = sqliteTable("system_settings", {
   key: text("key").primaryKey(),
@@ -47,9 +47,34 @@ export const projects = sqliteTable("projects", {
   slug: text("slug").notNull().unique(),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
-  chatSessionId: text("chat_session_id"),
+  defaultModel: text("default_model"),
+  primaryAgent: text("primary_agent"),
   createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at"),
 });
+
+export const integrations = sqliteTable(
+  "integrations",
+  {
+    id: text("id").primaryKey(),
+    scope: text("scope").notNull(),
+    projectSlug: text("project_slug").notNull().default(""),
+    kind: text("kind").notNull(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    config: text("config").notNull().default("{}"),
+    secretRefs: text("secret_refs").notNull().default("{}"),
+    capabilities: text("capabilities").notNull().default("[]"),
+    status: text("status").notNull().default("disconnected"),
+    keyHash: text("key_hash"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    scopedSlug: uniqueIndex("integrations_scoped_slug").on(table.scope, table.projectSlug, table.slug),
+  }),
+);
 
 export const workflowRuns = sqliteTable(
   "workflow_runs",
@@ -64,6 +89,10 @@ export const workflowRuns = sqliteTable(
     output: text("output"),
     error: text("error"),
     entryPoint: text("entry_point").notNull(),
+    launchedBy: text("launched_by"),
+    graphHash: text("graph_hash"),
+    integrationId: text("integration_id"),
+    sourceDetail: text("source_detail"),
     startedAt: text("started_at").notNull(),
     finishedAt: text("finished_at"),
   },
@@ -102,53 +131,51 @@ export const workflowApprovals = sqliteTable("workflow_approvals", {
   decidedBy: text("decided_by"),
 });
 
-export const conversationThreads = sqliteTable(
-  "conversation_threads",
+export const chatThreads = sqliteTable(
+  "chat_threads",
   {
     id: text("id").primaryKey(),
-    channelSlug: text("channel_slug").notNull(),
-    externalThreadId: text("external_thread_id").notNull(),
+    scope: text("scope").notNull(),
+    projectSlug: text("project_slug").notNull().default(""),
+    integrationId: text("integration_id").notNull().default(""),
+    externalThreadId: text("external_thread_id").notNull().default(""),
     opencodeSessionId: text("opencode_session_id"),
-    projectSlug: text("project_slug"),
-    workflowId: text("workflow_id"),
+    title: text("title"),
     createdAt: text("created_at").notNull(),
     lastActiveAt: text("last_active_at").notNull(),
   },
   (table) => ({
-    thread: uniqueIndex("conversation_threads_unique").on(table.channelSlug, table.externalThreadId),
+    thread: uniqueIndex("chat_threads_unique").on(
+      table.scope,
+      table.projectSlug,
+      table.integrationId,
+      table.externalThreadId,
+    ),
   }),
 );
 
-export const channels = sqliteTable("channels", {
-  id: text("id").primaryKey(),
-  slug: text("slug").notNull().unique(),
-  type: text("type").notNull(),
-  name: text("name").notNull(),
-  configCiphertext: text("config_ciphertext"),
-  keyHash: text("key_hash"),
-  adminAllowlist: text("admin_allowlist").notNull().default("[]"),
-  isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
-  status: text("status").notNull().default("disconnected"),
-  webhookUrl: text("webhook_url"),
-  createdAt: text("created_at").notNull(),
-});
-
 export const chatMessages = sqliteTable("chat_messages", {
   id: text("id").primaryKey(),
-  projectSlug: text("project_slug").notNull(),
-  sessionId: text("session_id"),
+  threadId: text("thread_id").notNull(),
   role: text("role").notNull(),
   content: text("content").notNull(),
   createdAt: text("created_at").notNull(),
 });
 
-export const notebooks = sqliteTable("notebooks", {
-  id: text("id").primaryKey(),
-  slug: text("slug").notNull().unique(),
-  name: text("name").notNull(),
-  description: text("description").notNull().default(""),
-  createdAt: text("created_at").notNull(),
-});
+export const notebooks = sqliteTable(
+  "notebooks",
+  {
+    id: text("id").primaryKey(),
+    projectSlug: text("project_slug").notNull(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => ({
+    projectSlug: uniqueIndex("notebooks_project_slug").on(table.projectSlug, table.slug),
+  }),
+);
 
 export const kbSources = sqliteTable("kb_sources", {
   id: text("id").primaryKey(),
@@ -175,15 +202,14 @@ export const kbChunks = sqliteTable("kb_chunks", {
 export const schema = {
   users,
   vaultSecrets,
-  externalDatabases,
   systemSettings,
   systemErrorEvents,
   projects,
+  integrations,
   workflowRuns,
   workflowStepRuns,
   workflowApprovals,
-  conversationThreads,
-  channels,
+  chatThreads,
   chatMessages,
   notebooks,
   kbSources,

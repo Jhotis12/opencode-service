@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,6 +12,7 @@ let application: Application;
 let app: Application["app"];
 let cookie = "";
 const serviceToken = "service-token-test";
+const globalServiceToken = "global-token-test";
 
 async function json(path: string, init: RequestInit = {}, useCookie = true) {
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -25,6 +26,7 @@ beforeAll(async () => {
     dataDir: dir,
     env: { ...process.env, OPENCODE_MODE: "fake" },
     serviceToken,
+    globalServiceToken,
     logger: createLogger({ level: "silent", destination: { write() {} } }),
   });
   app = application.app;
@@ -49,8 +51,33 @@ describe("application HTTP surface", () => {
   it("blocks unauthenticated API access and accepts the service token", async () => {
     const anonymous = await app.request("/api/projects");
     expect(anonymous.status).toBe(401);
-    const service = await app.request("/api/projects", { headers: { "x-platform-token": serviceToken } });
+    const service = await app.request("/api/projects", {
+      headers: { "x-platform-token": globalServiceToken, "x-platform-scope": "global" },
+    });
     expect(service.status).toBe(200);
+  });
+
+  it("rejects service calls without an explicit scope", async () => {
+    const missing = await app.request("/api/projects", { headers: { "x-platform-token": serviceToken } });
+    expect(missing.status).toBe(403);
+    const escalated = await app.request("/api/control/overview", {
+      headers: { "x-platform-token": serviceToken, "x-platform-project": "ventas-bot" },
+    });
+    expect(escalated.status).toBe(403);
+    const globalMutation = await app.request("/api/projects/ventas-bot/workflow", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-platform-token": globalServiceToken,
+        "x-platform-scope": "global",
+      },
+      body: JSON.stringify({}),
+    });
+    expect(globalMutation.status).toBe(403);
+    const projectVault = await app.request("/api/vault/secrets", {
+      headers: { "x-platform-token": serviceToken, "x-platform-project": "ventas-bot" },
+    });
+    expect(projectVault.status).toBe(403);
   });
 
   it("creates a project and serves its workflow", async () => {
@@ -63,6 +90,31 @@ describe("application HTTP surface", () => {
     expect(workflow.status).toBe(200);
     const graph = (await workflow.json()) as WorkflowGraph;
     expect(graph.nodes[0]?.type).toBe("trigger");
+  });
+
+  it("creates project-owned integrations and keeps them scoped", async () => {
+    const created = await json("/api/projects/ventas-bot/integrations", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "telegram",
+        name: "Bot de ventas",
+        slug: "bot-ventas",
+        config: { routing: { mode: "hybrid", allowlist: ["123"], public: true } },
+        secrets: { token: "telegram-secret" },
+      }),
+    });
+    expect(created.status).toBe(201);
+    const payload = (await created.json()) as { integration: { id: string; scope: string }; };
+    expect(payload.integration.scope).toBe("project");
+    const list = await json("/api/projects/ventas-bot/integrations");
+    const body = (await list.json()) as { data: Array<{ id: string }> };
+    expect(body.data.some((integration) => integration.id === payload.integration.id)).toBe(true);
+    const sibling = await app.request(`/api/projects/otro-bot/integrations/${payload.integration.id}`, {
+      headers: { "x-platform-token": serviceToken, "x-platform-project": "otro-bot" },
+    });
+    expect(sibling.status).toBe(403);
+    const tested = await json(`/api/projects/ventas-bot/integrations/${payload.integration.id}/test`, { method: "POST" });
+    expect(tested.status).toBe(200);
   });
 
   it("saves workflows and node files, rejecting traversal", async () => {
@@ -96,15 +148,67 @@ describe("application HTTP surface", () => {
     expect(traversal.status).toBe(400);
   });
 
+  it("validates workflow resource references before saving", async () => {
+    await json("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ slug: "refs-bot", name: "Refs Bot" }),
+    });
+    const created = await json("/api/projects/refs-bot/integrations", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "external_chat",
+        name: "Refs chat",
+        slug: "refs-chat",
+        config: { routing: { mode: "workflow", allowlist: [], public: true } },
+      }),
+    });
+    const integration = (await created.json()) as { integration: { id: string } };
+    const workflow = (await (await json("/api/projects/refs-bot/workflow")).json()) as WorkflowGraph;
+    workflow.nodes[0] = {
+      ...workflow.nodes[0]!,
+      config: { kind: "integration", integrationId: integration.integration.id, event: "message.received" },
+    };
+    const valid = await json("/api/projects/refs-bot/workflow", { method: "PUT", body: JSON.stringify(workflow) });
+    expect(valid.status).toBe(200);
+
+    const missing = structuredClone(workflow);
+    missing.nodes[0] = { ...missing.nodes[0]!, config: { kind: "integration", integrationId: "missing", event: "message.received" } };
+    const invalid = await json("/api/projects/refs-bot/workflow", { method: "PUT", body: JSON.stringify(missing) });
+    expect(invalid.status).toBe(422);
+
+    const badAgent = structuredClone(workflow);
+    badAgent.nodes.push({
+      id: "agent",
+      type: "agent",
+      agentId: "nope/nope",
+      position: { x: 200, y: 0 },
+      config: {},
+      notebookIds: [],
+      timeoutMs: 30_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    badAgent.edges.push({ id: "e-agent", source: "start", target: "agent" });
+    const bad = await json("/api/projects/refs-bot/workflow", { method: "PUT", body: JSON.stringify(badAgent) });
+    expect(bad.status).toBe(422);
+  });
+
   it("runs a workflow through the HTTP API", async () => {
     const response = await json("/api/projects/ventas-bot/runs", {
       method: "POST",
       body: JSON.stringify({ payload: { message: "hola" }, idempotencyKey: "http-1" }),
     });
     expect(response.status).toBe(202);
-    const run = (await response.json()) as { status: string; steps: Array<{ nodeId: string }> };
-    expect(run.status).toBe("succeeded");
-    expect(run.steps.map((step) => step.nodeId)).toEqual(["start", "reply"]);
+    const accepted = (await response.json()) as { id: string; status: string };
+    expect(accepted.status).toBe("running");
+    let run: { status: string; steps: Array<{ nodeId: string }> } | undefined;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const detail = await json(`/api/runs/${accepted.id}`);
+      run = (await detail.json()) as { status: string; steps: Array<{ nodeId: string }> };
+      if (run.status !== "running" && run.status !== "paused") break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(run?.status).toBe("succeeded");
+    expect(run?.steps.map((step) => step.nodeId)).toEqual(["start", "reply"]);
   });
 
   it("chats with the primary agent and reuses the session", async () => {
@@ -137,24 +241,24 @@ describe("application HTTP surface", () => {
     expect(created.status).toBe(200);
     const list = await json("/api/projects/ventas-bot/agents");
     const body = (await list.json()) as { data: Array<{ category: string; role: string }> };
-    expect(body.data[0]).toMatchObject({ category: "ventas", role: "calificador" });
+    expect(body.data.some((agent) => agent.category === "ventas" && agent.role === "calificador")).toBe(true);
   });
 
   it("creates notebooks, uploads text and searches with citations", async () => {
-    const created = await json("/api/notebooks", {
+    const created = await json("/api/projects/ventas-bot/notebooks", {
       method: "POST",
       body: JSON.stringify({ slug: "manual-ventas", name: "Manual de ventas" }),
     });
     expect(created.status).toBe(201);
     const form = new FormData();
     form.set("file", new File(["# Descuentos\n\nEl descuento máximo es del 15%."], "descuentos.md", { type: "text/markdown" }));
-    const upload = await app.request("/api/notebooks/manual-ventas/sources", {
+    const upload = await app.request("/api/projects/ventas-bot/notebooks/manual-ventas/sources", {
       method: "POST",
       headers: { cookie },
       body: form,
     });
     expect(upload.status).toBe(201);
-    const search = await json("/api/notebooks/manual-ventas/search", {
+    const search = await json("/api/projects/ventas-bot/notebooks/manual-ventas/search", {
       method: "POST",
       body: JSON.stringify({ query: "descuento" }),
     });
@@ -200,10 +304,17 @@ describe("application HTTP surface", () => {
 
     const config = JSON.parse(
       await readFile(join(dir, "workspaces", "ventas-bot", "opencode.jsonc"), "utf8"),
-    ) as { permissions: Array<{ action: string; effect: string }> };
+    ) as { permissions: Array<{ action: string; effect: string }>; default_agent?: string };
+    expect(config.default_agent).toBe("principal/agente");
     expect(config.permissions).toEqual(
       expect.arrayContaining([expect.objectContaining({ action: "external_directory", effect: "deny" })]),
     );
+    const primary = await readFile(
+      join(dir, "workspaces", "ventas-bot", ".opencode", "agents", "principal", "agente.md"),
+      "utf8",
+    );
+    expect(primary).toContain("mode: primary");
+    expect(primary).toContain("No menciones rutas");
   });
 
   it("keeps a separate chat session per project", async () => {
@@ -222,6 +333,38 @@ describe("application HTTP surface", () => {
     const firstBody = (await first.json()) as { sessionId: string };
     const secondBody = (await second.json()) as { sessionId: string };
     expect(firstBody.sessionId).not.toBe(secondBody.sessionId);
+  });
+
+  it("deletes a project and all of its owned data", async () => {
+    await json("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ slug: "delete-bot", name: "Delete Bot", description: "Temporal" }),
+    });
+    const integration = await json("/api/projects/delete-bot/integrations", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "external_chat",
+        name: "Delete chat",
+        slug: "delete-chat",
+        config: { routing: { mode: "agent", allowlist: [], public: false } },
+      }),
+    });
+    expect(integration.status).toBe(201);
+
+    const forbidden = await app.request("/api/projects/delete-bot", {
+      method: "DELETE",
+      headers: { "x-platform-token": serviceToken, "x-platform-project": "delete-bot" },
+    });
+    expect(forbidden.status).toBe(403);
+
+    const deleted = await app.request("/api/projects/delete-bot", { method: "DELETE", headers: { cookie } });
+    expect(deleted.status).toBe(204);
+    const list = await json("/api/projects");
+    const body = (await list.json()) as { data: Array<{ slug: string }> };
+    expect(body.data.some((project) => project.slug === "delete-bot")).toBe(false);
+    await expect(access(join(dir, "workspaces", "delete-bot"))).rejects.toBeDefined();
+    const workflow = await json("/api/projects/delete-bot/workflow");
+    expect(workflow.status).toBe(404);
   });
 
   it("persists the global default model", async () => {

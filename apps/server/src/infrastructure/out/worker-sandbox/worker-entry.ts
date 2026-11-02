@@ -34,11 +34,11 @@ const ctx = {
     });
     return { status: response.status, headers, body: await response.text() };
   },
-  db(alias: string, sql: string, params: unknown[] = []) {
-    return rpc("db", { alias, sql, params });
+  db(integrationId: string, sql: string, params: unknown[] = []) {
+    return rpc("db", { integrationId, sql, params });
   },
-  notify(channelSlug: string, text: string) {
-    return rpc("notify", { channelSlug, text });
+  notify(integrationId: string, text: string) {
+    return rpc("notify", { integrationId, text });
   },
   env(key: string) {
     return allowlistedEnv[key];

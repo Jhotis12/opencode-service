@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 
 vi.mock("qrcode", () => ({
   default: { toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,stub") },
@@ -8,11 +9,6 @@ vi.mock("qrcode", () => ({
 
 vi.mock("../src/api.ts", () => ({
   api: {
-    listSecrets: vi.fn().mockResolvedValue({ data: [{ alias: "crm_api_key", kind: "generic" }] }),
-    listDatabases: vi.fn().mockResolvedValue({ data: [{ alias: "crm_prod", driver: "postgres" }] }),
-    listChannels: vi.fn().mockResolvedValue({
-      data: [{ slug: "mi-app", type: "external_chat", name: "Mi app", status: "connected", adminAllowlist: [], isPublic: true }],
-    }),
     getSettings: vi.fn().mockResolvedValue({
       data: {
         opencodeMode: "fake",
@@ -22,20 +18,42 @@ vi.mock("../src/api.ts", () => ({
         dataDir: "/data",
       },
     }),
+    listSecrets: vi.fn().mockResolvedValue({ data: [{ alias: "setting:sentry_dsn", kind: "sentry_dsn", createdAt: new Date().toISOString() }] }),
     listModels: vi.fn().mockResolvedValue({
       data: [{ providerID: "opencode-go", modelID: "fast", name: "Fast" }],
     }),
-    listProjects: vi.fn().mockResolvedValue({ data: [] }),
-    connectProvider: vi.fn(),
-    saveSecret: vi.fn(),
-    saveDatabase: vi.fn(),
-    createChannel: vi.fn(),
-    startChannel: vi.fn().mockResolvedValue({ ok: true }),
+    controlIntegrations: vi.fn().mockResolvedValue({
+      data: [
+        {
+          id: "i1",
+          scope: "global",
+          kind: "telegram",
+          name: "Alertas admin",
+          slug: "alertas-admin",
+          config: { routing: { mode: "agent", allowlist: [], public: false }, alerts: ["run.failed"] },
+          secretRefs: {},
+          capabilities: ["inbound_message", "outbound_message"],
+          status: "connected",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    }),
+    createControlIntegration: vi.fn(),
+    updateControlIntegration: vi.fn(),
+    deleteControlIntegration: vi.fn(),
+    testControlIntegration: vi.fn().mockResolvedValue({ ok: true }),
+    connectControlIntegration: vi.fn(),
+    disconnectControlIntegration: vi.fn(),
+    controlIntegrationQr: vi.fn(),
     saveSettings: vi.fn(),
+    saveSecret: vi.fn(),
+    connectProvider: vi.fn(),
     listNotebooks: vi.fn().mockResolvedValue({
       data: [
         {
           id: "n1",
+          projectSlug: "ventas",
           slug: "manual-ventas",
           name: "Manual de ventas",
           description: "Políticas comerciales",
@@ -59,6 +77,7 @@ vi.mock("../src/api.ts", () => ({
       data: [
         {
           chunkId: "c1",
+          sourceId: "s1",
           documentTitle: "descuentos.md",
           section: "Descuentos",
           content: "El descuento máximo es del 15%.",
@@ -74,19 +93,21 @@ vi.mock("../src/api.ts", () => ({
 }));
 
 import { SettingsPage } from "../src/pages/SettingsPage.tsx";
-import { NotebooksPage } from "../src/pages/NotebooksPage.tsx";
+import { ProjectKnowledgePanel } from "../src/components/ProjectKnowledgePanel.tsx";
 import { renderWithProviders } from "./render.tsx";
 
 describe("SettingsPage", () => {
-  it("renders provider, vault, database and channel sections", async () => {
-    renderWithProviders(<SettingsPage />);
-    expect(await screen.findByRole("heading", { name: "OpenCode Go" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Bóveda de secretos" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Bases de datos externas" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Canales" })).toBeInTheDocument();
-    expect(await screen.findByText("crm_api_key")).toBeInTheDocument();
-    expect(await screen.findByText("crm_prod")).toBeInTheDocument();
-    expect(await screen.findByText("mi-app")).toBeInTheDocument();
+  it("renders platform settings and global orchestrator channels", async () => {
+    renderWithProviders(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("heading", { name: "Ajustes de plataforma" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "OpenCode Go" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Bóveda de plataforma" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Canales del orquestador global" })).toBeInTheDocument();
+    expect(await screen.findByText("Alertas admin")).toBeInTheDocument();
     expect(screen.getByText(/Datos persistentes/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Elegir modelo" }));
@@ -95,9 +116,9 @@ describe("SettingsPage", () => {
   });
 });
 
-describe("NotebooksPage", () => {
-  it("lists notebooks, sources and searches with citations", async () => {
-    renderWithProviders(<NotebooksPage />);
+describe("ProjectKnowledgePanel", () => {
+  it("lists project notebooks, sources and searches with citations", async () => {
+    renderWithProviders(<ProjectKnowledgePanel projectSlug="ventas" />);
     expect(await screen.findByText("Manual de ventas")).toBeInTheDocument();
     await userEvent.click(screen.getByText("Manual de ventas"));
     expect(await screen.findByText("descuentos.md")).toBeInTheDocument();

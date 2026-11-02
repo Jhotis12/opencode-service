@@ -74,9 +74,11 @@ describe("first boot bootstrap", () => {
     expect(user?.mustChangePassword).toBe(true);
     expect(await Bun.password.verify(DEFAULT_ADMIN_PASSWORD, user!.passwordHash)).toBe(true);
     expect((await stat(join(dataDir, "master.key"))).size).toBe(32);
-    for (const dir of ["workspaces", "knowledge", "channels", "opencode"]) {
+    for (const dir of ["workspaces", "knowledge", "channels", "opencode", "opencode/state", "control"]) {
       expect((await stat(join(dataDir, dir))).isDirectory()).toBe(true);
     }
+    expect((await stat(join(dataDir, "control", "AGENTS.md"))).isFile()).toBe(true);
+    expect((await stat(join(dataDir, "control", ".opencode", "agents", "orchestrator", "agente.md"))).isFile()).toBe(true);
     store.close();
   });
 

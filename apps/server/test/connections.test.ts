@@ -11,11 +11,11 @@ import {
 } from "../src/infrastructure/out/external-db/dynamic-adapter.ts";
 import {
   ConnectProviderUseCase,
-  QueryExternalDatabaseUseCase,
-  SaveExternalDatabaseUseCase,
-  TestExternalDatabaseUseCase,
+  QueryDatabaseIntegrationUseCase,
+  TestDatabaseIntegrationUseCase,
 } from "../src/application/use-cases/connections.ts";
 import type { AgentRuntimePort, AgentModelInfo } from "../src/application/ports/runtime.ts";
+import type { IntegrationRecord } from "../src/domain/entities.ts";
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -41,6 +41,25 @@ class FakeRuntime implements AgentRuntimePort {
   async subscribe() { return () => undefined; }
 }
 
+function integration(overrides: Partial<IntegrationRecord> = {}): IntegrationRecord {
+  const now = new Date().toISOString();
+  return {
+    id: "db1",
+    scope: "project",
+    projectSlug: "ventas",
+    kind: "sqlite",
+    name: "CRM local",
+    slug: "crm-local",
+    config: { kind: "sqlite", filename: "" },
+    secretRefs: {},
+    capabilities: ["query"],
+    status: "disconnected",
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
 describe("provider connection", () => {
   it("registers the opencode-go key and stores it encrypted", async () => {
     const store = new SqliteStore(":memory:");
@@ -49,7 +68,7 @@ describe("provider connection", () => {
     const result = await new ConnectProviderUseCase(store, vault, runtime).execute("sk-opencode-go-123456");
     expect(runtime.registered[0]).toEqual({ providerID: "opencode-go", apiKey: "sk-opencode-go-123456" });
     expect(result.models.map((m) => m.modelID)).toEqual(["fast"]);
-    const stored = store.vault.findByAlias("provider:opencode-go")!;
+    const stored = store.vault.findByAlias({ scope: "global", alias: "provider:opencode-go" })!;
     expect(stored.ciphertext).not.toContain("sk-opencode-go");
     expect(vault.decrypt(stored.ciphertext)).toBe("sk-opencode-go-123456");
     store.close();
@@ -63,8 +82,8 @@ describe("provider connection", () => {
   });
 });
 
-describe("external database pool", () => {
-  it("saves, tests and queries a sqlite database by alias", async () => {
+describe("project database integrations", () => {
+  it("tests and queries a sqlite database owned by a project", async () => {
     const dir = await mkdtemp(join(tmpdir(), "platform-db-"));
     dirs.push(dir);
     const file = join(dir, "client.sqlite");
@@ -73,30 +92,47 @@ describe("external database pool", () => {
     seed.close();
 
     const store = new SqliteStore(":memory:");
+    store.integrations.create(integration({ config: { kind: "sqlite", filename: file } }));
     const vault = new Aes256GcmVaultAdapter(Buffer.alloc(32, 2));
     const adapter = new DynamicDatabaseClientAdapter();
-    new SaveExternalDatabaseUseCase(store, vault).execute("crm_local", { driver: "sqlite", filename: file });
 
-    const test = await new TestExternalDatabaseUseCase(store, vault, adapter).execute("crm_local");
+    const test = await new TestDatabaseIntegrationUseCase(store, vault, adapter).execute("db1", {
+      scope: "project",
+      projectSlug: "ventas",
+    });
     expect(test.ok).toBe(true);
 
-    const rows = await new QueryExternalDatabaseUseCase(store, vault, adapter).execute(
-      "crm_local",
+    const rows = await new QueryDatabaseIntegrationUseCase(store, vault, adapter).execute(
+      "db1",
+      { scope: "project", projectSlug: "ventas" },
       "SELECT name FROM leads",
     );
     expect(rows).toEqual([{ name: "Ana" }]);
-    expect(store.externalDatabases.findByAlias("crm_local")!.ciphertext).not.toContain(file);
+
+    await expect(
+      new QueryDatabaseIntegrationUseCase(store, vault, adapter).execute(
+        "db1",
+        { scope: "project", projectSlug: "soporte" },
+        "SELECT 1",
+      ),
+    ).rejects.toThrow(/scope/);
     store.close();
   });
 
-  it("rejects unknown aliases and non-sql statements", async () => {
+  it("requires a secret reference for network databases", async () => {
     const store = new SqliteStore(":memory:");
+    store.integrations.create(
+      integration({
+        kind: "postgres",
+        config: { kind: "postgres", host: "localhost", port: 5432, database: "crm", user: "app" },
+        secretRefs: {},
+      }),
+    );
     const vault = new Aes256GcmVaultAdapter(Buffer.alloc(32, 2));
     const adapter = new DynamicDatabaseClientAdapter();
-    await expect(new TestExternalDatabaseUseCase(store, vault, adapter).execute("nope")).rejects.toThrow();
     await expect(
-      new QueryExternalDatabaseUseCase(store, vault, adapter).execute("nope", "DROP TABLE x"),
-    ).rejects.toThrow();
+      new TestDatabaseIntegrationUseCase(store, vault, adapter).execute("db1", { scope: "project", projectSlug: "ventas" }),
+    ).rejects.toThrow(/missing secret/);
     store.close();
   });
 

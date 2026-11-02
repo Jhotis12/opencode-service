@@ -7,49 +7,82 @@ import { SqliteStore } from "../src/infrastructure/out/persistence/sqlite-store.
 import { Aes256GcmVaultAdapter } from "../src/infrastructure/out/vault/aes-vault.ts";
 import { FakeAgentRuntime } from "../src/infrastructure/out/opencode/fake-runtime.ts";
 import { SafeFsWorkspaceAdapter } from "../src/infrastructure/out/workspace-fs/safe-workspace.ts";
-import {
-  CreateChannelUseCase,
-  SendExternalChatMessageUseCase,
-  signWebhook,
-  verifyChannelKey,
-} from "../src/application/use-cases/external-chat.ts";
+import { SendExternalChatMessageUseCase, signWebhook } from "../src/application/use-cases/external-chat.ts";
+import { ManageIntegrationsUseCase, verifyIntegrationKey } from "../src/application/use-cases/manage-integrations.ts";
 import { createExternalChatRoutes } from "../src/infrastructure/in/http/external-chat-routes.ts";
+import type { IntegrationManagerPort } from "../src/application/ports/integrations.ts";
 
 const cleanups: string[] = [];
 async function cleanup() {
   await Promise.all(cleanups.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 }
 
+const fakeManager: IntegrationManagerPort = {
+  async start() {},
+  async stop() {},
+  async stopAll() {},
+  async test() {
+    return { ok: true };
+  },
+  status() {
+    return "connected";
+  },
+  qr() {
+    return undefined;
+  },
+  async send() {},
+};
+
 async function setup() {
   const dir = await mkdtemp(join(tmpdir(), "platform-chat-"));
   cleanups.push(dir);
   const store = new SqliteStore(":memory:");
+  const now = new Date().toISOString();
+  store.projects.create({
+    id: "p1",
+    slug: "ventas",
+    name: "Ventas",
+    description: "",
+    primaryAgent: "principal/agente",
+    createdAt: now,
+    updatedAt: now,
+  });
   const vault = new Aes256GcmVaultAdapter(Buffer.alloc(32, 3));
   const agent = new FakeAgentRuntime();
   const workspace = new SafeFsWorkspaceAdapter(join(dir, "workspaces"));
   await workspace.createProject({ slug: "ventas", name: "Ventas" });
-  const created = new CreateChannelUseCase(store, vault).execute({
-    slug: "mi-app",
-    type: "external_chat",
+  const created = await new ManageIntegrationsUseCase({
+    store,
+    vault,
+    events: { publish() {} },
+    manager: fakeManager,
+    databaseAdapter: {} as never,
+  }).create({
+    scope: "project",
+    projectSlug: "ventas",
+    kind: "external_chat",
     name: "Chat de mi app",
-    config: { projectSlug: "ventas", model: "opencode-go/fast" },
+    slug: "mi-app",
+    config: { routing: { mode: "agent", allowlist: [], public: false } },
   });
   const sentWebhooks: Array<{ url: string; body: string; signature: string }> = [];
+  const fetchImpl = (async (url: string, init: RequestInit) => {
+    sentWebhooks.push({
+      url: String(url),
+      body: String(init.body),
+      signature: String((init.headers as Record<string, string>)["x-platform-signature"]),
+    });
+    return new Response("{}", { status: 200 });
+  }) as typeof fetch;
+  const executor = { execute: async () => ({ id: "r1", status: "succeeded", output: "workflow-reply" }) };
   const send = new SendExternalChatMessageUseCase({
     store,
     vault,
     agent,
     workspace,
-    executor: { execute: async () => ({ id: "r1", status: "succeeded", output: "workflow-reply" }) } as never,
-    defaultDirectory: dir,
-    fetchImpl: (async (url: string, init: RequestInit) => {
-      sentWebhooks.push({
-        url: String(url),
-        body: String(init.body),
-        signature: String((init.headers as Record<string, string>)["x-platform-signature"]),
-      });
-      return new Response("{}", { status: 200 });
-    }) as typeof fetch,
+    executor: executor as never,
+    controlDirectory: dir,
+    fetchImpl,
     webhookValidator: async () => undefined,
   });
   const app = new Hono();
@@ -60,64 +93,72 @@ async function setup() {
       vault,
       agent,
       workspace,
-      executor: { execute: async () => ({ id: "r1", status: "succeeded", output: "workflow-reply" }) } as never,
-      egress: { send: async () => undefined },
-      events: { publish() {} },
-      defaultDirectory: dir,
-      fetchImpl: (async (url: string, init: RequestInit) => {
-        sentWebhooks.push({
-          url: String(url),
-          body: String(init.body),
-          signature: String((init.headers as Record<string, string>)["x-platform-signature"]),
-        });
-        return new Response("{}", { status: 200 });
-      }) as typeof fetch,
+      executor: executor as never,
+      controlDirectory: dir,
+      fetchImpl,
       webhookValidator: async () => undefined,
     }),
   );
   return { dir, store, vault, agent, workspace, created, send, app, sentWebhooks };
 }
 
-describe("external chat channel", () => {
-  it("creates a channel with a one-time key and encrypted config", async () => {
-    const { created, store, vault } = await setup();
+describe("external chat integration", () => {
+  it("creates an integration with a one-time key and encrypted secrets", async () => {
+    const { created, store } = await setup();
     expect(created.apiKey!.startsWith("sk_chat_")).toBe(true);
     expect(created.webhookSecret).toHaveLength(48);
-    const channel = store.channels.findBySlug("mi-app")!;
-    expect(channel.keyHash).not.toContain(created.apiKey!);
-    expect(verifyChannelKey(created.apiKey!, channel.keyHash)).toBe(true);
-    expect(verifyChannelKey("wrong", channel.keyHash)).toBe(false);
-    expect(vault.decrypt(channel.configCiphertext!)).not.toContain(created.apiKey!);
-    expect(vault.decrypt(channel.configCiphertext!)).toContain("webhookSecret");
+    const integration = store.integrations.findById(created.integration.id)!;
+    expect(integration.keyHash).not.toContain(created.apiKey!);
+    expect(verifyIntegrationKey(created.apiKey!, integration.keyHash)).toBe(true);
+    expect(verifyIntegrationKey("wrong", integration.keyHash)).toBe(false);
+    expect(store.vault.findByAlias({
+      scope: "project",
+      projectSlug: "ventas",
+      alias: integration.secretRefs.webhookSecret,
+    })).toBeDefined();
     await cleanup();
   });
 
   it("keeps one agent session per external thread across turns", async () => {
     const { created, send, agent } = await setup();
-    const first = await send.execute({ channelSlug: "mi-app", apiKey: created.apiKey!, threadId: "cliente-1", message: "hola" });
-    const second = await send.execute({ channelSlug: "mi-app", apiKey: created.apiKey!, threadId: "cliente-1", message: "otra vez" });
+    const first = await send.execute({
+      integrationId: created.integration.id,
+      apiKey: created.apiKey!,
+      threadId: "cliente-1",
+      message: "hola",
+    });
+    const second = await send.execute({
+      integrationId: created.integration.id,
+      apiKey: created.apiKey!,
+      threadId: "cliente-1",
+      message: "otra vez",
+    });
     expect(first.sessionId).toBe(second.sessionId);
     expect(agent.sessionCount).toBe(1);
     expect(second.reply).toContain("[simulado");
-    const other = await send.execute({ channelSlug: "mi-app", apiKey: created.apiKey!, threadId: "cliente-2", message: "hola" });
+    const other = await send.execute({
+      integrationId: created.integration.id,
+      apiKey: created.apiKey!,
+      threadId: "cliente-2",
+      message: "hola",
+    });
     expect(other.sessionId).not.toBe(first.sessionId);
     expect(agent.sessionCount).toBe(2);
     await cleanup();
   });
 
-  it("rejects invalid channel keys", async () => {
+  it("rejects invalid integration keys", async () => {
     const { send, created } = await setup();
     await expect(
-      send.execute({ channelSlug: "mi-app", apiKey: "nope", threadId: "t", message: "hola" }),
-    ).rejects.toThrow(/invalid channel key/);
-    expect(created.apiKey).toBeDefined();
+      send.execute({ integrationId: created.integration.id, apiKey: "nope", threadId: "t", message: "hola" }),
+    ).rejects.toThrow(/invalid integration key/);
     await cleanup();
   });
 
   it("signs webhook payloads with HMAC-SHA256", async () => {
     const { send, created, sentWebhooks } = await setup();
     await send.execute({
-      channelSlug: "mi-app",
+      integrationId: created.integration.id,
       apiKey: created.apiKey!,
       threadId: "cliente-1",
       message: "hola",
@@ -132,18 +173,23 @@ describe("external chat channel", () => {
 
   it("serves JSON and SSE responses over HTTP", async () => {
     const { app, created } = await setup();
-    const json = await app.request("/api/v1/channels/mi-app/messages", {
+    const path = `/api/v1/integrations/${created.integration.id}/messages`;
+    const json = await app.request(path, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-channel-key": created.apiKey! },
+      headers: { "content-type": "application/json", "x-integration-key": created.apiKey! },
       body: JSON.stringify({ threadId: "cliente-http", message: "hola" }),
     });
     expect(json.status).toBe(200);
     const payload = (await json.json()) as { reply: string; sessionId: string };
     expect(payload.reply).toContain("[simulado");
 
-    const sse = await app.request("/api/v1/channels/mi-app/messages", {
+    const sse = await app.request(path, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "text/event-stream", "x-channel-key": created.apiKey! },
+      headers: {
+        "content-type": "application/json",
+        accept: "text/event-stream",
+        "x-integration-key": created.apiKey!,
+      },
       body: JSON.stringify({ threadId: "cliente-http", message: "stream" }),
     });
     expect(sse.status).toBe(200);
@@ -156,14 +202,15 @@ describe("external chat channel", () => {
   });
 
   it("rejects invalid keys and malformed bodies over HTTP", async () => {
-    const { app } = await setup();
-    const unauthorized = await app.request("/api/v1/channels/mi-app/messages", {
+    const { app, created } = await setup();
+    const path = `/api/v1/integrations/${created.integration.id}/messages`;
+    const unauthorized = await app.request(path, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-channel-key": "bad" },
+      headers: { "content-type": "application/json", "x-integration-key": "bad" },
       body: JSON.stringify({ threadId: "t", message: "hola" }),
     });
     expect(unauthorized.status).toBe(401);
-    const invalid = await app.request("/api/v1/channels/mi-app/messages", {
+    const invalid = await app.request(path, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ threadId: "" }),

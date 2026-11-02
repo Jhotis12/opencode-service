@@ -16,7 +16,10 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
     ids.add(node.id);
   }
   const triggers = graph.nodes.filter((node) => node.type === "trigger");
-  if (triggers.length === 0) issues.push("workflow requires at least one trigger node");
+  if (triggers.length === 0) issues.push("workflow requires a trigger node");
+  if (triggers.length > 1) {
+    issues.push("workflow supports exactly one trigger node; use an integration channel to choose how it is invoked");
+  }
 
   const edgeIds = new Set<string>();
   const outgoing = new Map<string, Edge[]>();
@@ -29,8 +32,26 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
     outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge]);
   }
 
+  const integrationTriggers = new Set<string>();
   for (const node of graph.nodes) {
     const edges = outgoing.get(node.id) ?? [];
+    if (node.type === "trigger" && node.config.kind === "integration") {
+      if (typeof node.config.integrationId !== "string" || !node.config.integrationId) {
+        issues.push(`integration trigger ${node.id} requires config.integrationId`);
+      }
+      const event = String(node.config.event ?? "message.received");
+      const binding = `${node.config.integrationId}:${event}`;
+      if (integrationTriggers.has(binding)) {
+        issues.push(`duplicate trigger for integration ${node.config.integrationId} and event ${event}`);
+      }
+      integrationTriggers.add(binding);
+    }
+    if (
+      node.type === "trigger" &&
+      ["schedule", "webhook"].includes(String(node.config.kind ?? ""))
+    ) {
+      issues.push(`trigger ${node.id} uses ${String(node.config.kind)}, which has no active executor yet`);
+    }
     if (node.type === "code" && !node.codeFile) issues.push(`code node ${node.id} requires codeFile`);
     if (node.type === "agent" && !node.agentId) issues.push(`agent node ${node.id} requires agentId`);
     if (node.type === "http" && typeof node.config.url !== "string") {
@@ -38,6 +59,12 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
     }
     if (node.type === "delay" && !(Number(node.config.ms) > 0)) {
       issues.push(`delay node ${node.id} requires a positive config.ms`);
+    }
+    if (node.type === "validate") {
+      const rules = node.config.rules;
+      if (!Array.isArray(rules) || rules.length === 0) {
+        issues.push(`validate node ${node.id} requires config.rules`);
+      }
     }
     if (
       node.type === "transform" &&
@@ -129,6 +156,11 @@ function stableStringify(value: unknown): string {
 
 export function computePayloadHash(payload: unknown): string {
   return createHash("sha256").update(stableStringify(payload)).digest("hex");
+}
+
+export function computeGraphHash(graph: WorkflowGraph): string {
+  const { updatedAt: _updatedAt, ...stable } = graph;
+  return createHash("sha256").update(stableStringify(stable)).digest("hex");
 }
 
 export class IdempotencyMismatchError extends Error {

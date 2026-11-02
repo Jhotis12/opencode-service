@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { WorkflowGraphSchema } from "./workflow.ts";
+import { StepStatusSchema, WorkflowGraphSchema } from "./workflow.ts";
 import { EntryPointTypeSchema } from "./telemetry.ts";
 
 export const SseEventSchema = z.discriminatedUnion("type", [
@@ -15,6 +15,7 @@ export const SseEventSchema = z.discriminatedUnion("type", [
     workflowId: z.string(),
     status: z.string(),
     nodeId: z.string().optional(),
+    stepStatus: StepStatusSchema.optional(),
     output: z.unknown().optional(),
     error: z.string().optional(),
   }),
@@ -24,8 +25,14 @@ export const SseEventSchema = z.discriminatedUnion("type", [
     agentId: z.string(),
   }),
   z.object({
-    type: z.literal("channel.status"),
-    channelSlug: z.string(),
+    type: z.literal("project.deleted"),
+    projectSlug: z.string(),
+  }),
+  z.object({
+    type: z.literal("integration.status"),
+    integrationId: z.string(),
+    scope: z.enum(["project", "global"]),
+    projectSlug: z.string().optional(),
     status: z.string(),
     qr: z.string().optional(),
     detail: z.string().optional(),

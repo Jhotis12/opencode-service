@@ -1,4 +1,14 @@
-import type { EntryPointType, StepStatus, WorkflowRunStatus } from "@platform/shared";
+import type {
+  EntryPointType,
+  IntegrationCapability,
+  IntegrationKind,
+  IntegrationScope,
+  IntegrationStatus,
+  StepStatus,
+  WorkflowRunStatus,
+} from "@platform/shared";
+
+export type EntityScope = "project" | "global";
 
 export interface UserRecord {
   id: string;
@@ -10,18 +20,12 @@ export interface UserRecord {
 
 export interface VaultSecretRecord {
   id: string;
+  scope: EntityScope;
+  projectSlug?: string;
   alias: string;
   kind: string;
   ciphertext: string;
   metadata?: string;
-  createdAt: string;
-}
-
-export interface ExternalDatabaseRecord {
-  id: string;
-  alias: string;
-  driver: string;
-  ciphertext: string;
   createdAt: string;
 }
 
@@ -30,8 +34,27 @@ export interface ProjectRecord {
   slug: string;
   name: string;
   description: string;
-  chatSessionId?: string;
+  defaultModel?: string;
+  primaryAgent?: string;
   createdAt: string;
+  updatedAt?: string;
+}
+
+export interface IntegrationRecord {
+  id: string;
+  scope: IntegrationScope;
+  projectSlug?: string;
+  kind: IntegrationKind;
+  name: string;
+  slug: string;
+  config: Record<string, unknown>;
+  secretRefs: Record<string, string>;
+  capabilities: IntegrationCapability[];
+  status: IntegrationStatus;
+  keyHash?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface WorkflowRunRecord {
@@ -45,6 +68,10 @@ export interface WorkflowRunRecord {
   output?: unknown;
   error?: string;
   entryPoint: EntryPointType;
+  launchedBy?: string;
+  graphHash?: string;
+  integrationId?: string;
+  sourceDetail?: string;
   startedAt: string;
   finishedAt?: string;
 }
@@ -75,35 +102,21 @@ export interface ApprovalRecord {
   decidedBy?: string;
 }
 
-export interface ConversationThreadRecord {
+export interface ChatThreadRecord {
   id: string;
-  channelSlug: string;
-  externalThreadId: string;
-  opencodeSessionId?: string;
+  scope: EntityScope;
   projectSlug?: string;
-  workflowId?: string;
+  integrationId?: string;
+  externalThreadId?: string;
+  opencodeSessionId?: string;
+  title?: string;
   createdAt: string;
   lastActiveAt: string;
 }
 
-export interface ChannelRecord {
-  id: string;
-  slug: string;
-  type: "telegram" | "whatsapp" | "external_chat";
-  name: string;
-  configCiphertext?: string;
-  keyHash?: string;
-  adminAllowlist: string[];
-  isPublic: boolean;
-  status: string;
-  webhookUrl?: string;
-  createdAt: string;
-}
-
 export interface ChatMessageRecord {
   id: string;
-  projectSlug: string;
-  sessionId?: string;
+  threadId: string;
   role: "user" | "agent" | "system";
   content: string;
   createdAt: string;
@@ -111,6 +124,7 @@ export interface ChatMessageRecord {
 
 export interface NotebookRecord {
   id: string;
+  projectSlug: string;
   slug: string;
   name: string;
   description: string;

@@ -11,6 +11,7 @@ interface RpcMessage {
 export class BunWorkerPoolAdapter implements CodeWorkerPort {
   async execute(input: {
     nodeId: string;
+    projectSlug: string;
     codePath: string;
     input: unknown;
     timeoutMs: number;
@@ -57,7 +58,10 @@ export class BunWorkerPoolAdapter implements CodeWorkerPort {
           try {
             const handler = handlers[data.method];
             if (!handler) throw new Error(`capability not available: ${data.method}`);
-            const value = await handler(data.args as never);
+            const value = await handler({
+              ...(data.args as Record<string, unknown>),
+              projectSlug: input.projectSlug,
+            } as never);
             worker.postMessage({ type: "rpc-result", id: data.id, ok: true, value });
           } catch (error) {
             worker.postMessage({

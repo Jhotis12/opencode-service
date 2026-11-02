@@ -7,8 +7,8 @@ export interface KnowledgeExtractor {
 }
 
 export interface KnowledgeFilePort {
-  writeSource(notebookSlug: string, sourceId: string, markdown: string): Promise<string>;
-  readSource(relativePath: string): Promise<string>;
+  writeSource(projectSlug: string, notebookSlug: string, sourceId: string, markdown: string): Promise<string>;
+  readSource(projectSlug: string, relativePath: string): Promise<string>;
 }
 
 export interface KnowledgeSearchResult {
@@ -19,4 +19,7 @@ export interface KnowledgeSearchResult {
   content: string;
   score: number;
   citation: string;
+  projectSlug?: string;
+  notebookSlug?: string;
+  notebookName?: string;
 }

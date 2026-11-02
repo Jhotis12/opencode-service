@@ -29,13 +29,24 @@ export function RunDetailModal({
   onReplay(fromNodeId?: string): void;
 }) {
   return (
-    <Modal title={`Ejecución ${run.id.slice(0, 8)}`} onClose={onClose}>
+    <Modal title={`Ejecución ${run.id.slice(0, 8)}`} onClose={onClose} size="lg">
       <div className="flex flex-wrap items-center gap-3">
         <span className={statusBadge(run.status)} data-testid="run-status">
           {run.status}
         </span>
         <small className="text-xs text-muted">{new Date(run.startedAt).toLocaleString()}</small>
         {run.finishedAt && <small className="text-xs text-muted">→ {new Date(run.finishedAt).toLocaleTimeString()}</small>}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+        <span>
+          Proyecto: <code>{run.projectSlug}</code>
+        </span>
+        <span>
+          Iniciado por: <strong className="text-slate-200">{run.launchedBy ?? "sistema"}</strong>
+        </span>
+        <span>Origen: {run.sourceDetail ?? run.entryPoint}</span>
+        {run.graphHash && <span>Versión: {run.graphHash.slice(0, 8)}</span>}
+        <span className="w-full break-all">ID: {run.id}</span>
       </div>
       {run.error && <p className="text-sm text-danger">{run.error}</p>}
 

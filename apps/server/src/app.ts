@@ -4,8 +4,8 @@ import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { streamSSE } from "hono/streaming";
-import { apiError, type WorkflowGraph } from "@platform/shared";
-import type { UserRecord } from "./domain/entities.ts";
+import { apiError, type ChatProgressEvent, type WorkflowGraph } from "@platform/shared";
+import type { IntegrationRecord, UserRecord } from "./domain/entities.ts";
 import { InMemoryMetrics } from "./domain/telemetry/metrics.ts";
 import type { Logger } from "./domain/telemetry/index.ts";
 import { createLogger } from "./infrastructure/out/telemetry/logger.ts";
@@ -32,28 +32,44 @@ import { IngestKnowledgeUseCase } from "./application/use-cases/ingest-knowledge
 import { SearchKnowledgeUseCase, buildGroundedContext } from "./application/use-cases/search-knowledge.ts";
 import {
   ConnectProviderUseCase,
-  QueryExternalDatabaseUseCase,
-  SaveExternalDatabaseUseCase,
-  TestExternalDatabaseUseCase,
+  QueryDatabaseIntegrationUseCase,
+  TestDatabaseIntegrationUseCase,
 } from "./application/use-cases/connections.ts";
-import { ChatWithProjectUseCase, CreateProjectUseCase, SaveWorkflowUseCase, syncProjectsFromDisk } from "./application/use-cases/projects.ts";
+import {
+  ChatWithProjectUseCase,
+  CreateProjectUseCase,
+  DeleteProjectUseCase,
+  SaveWorkflowUseCase,
+  syncProjectsFromDisk,
+} from "./application/use-cases/projects.ts";
 import { GetHealthUseCase } from "./application/use-cases/health.ts";
-import { RouteIncomingMessageUseCase } from "./application/use-cases/route-channel-message.ts";
-import { ChannelEgressRouter } from "./infrastructure/in/channels/egress-router.ts";
-import { createChannelManagementRoutes, createExternalChatRoutes } from "./infrastructure/in/http/external-chat-routes.ts";
-import { ChannelManager } from "./infrastructure/in/channels/channel-manager.ts";
+import {
+  RouteGlobalIntegrationMessageUseCase,
+  RouteProjectIntegrationMessageUseCase,
+} from "./application/use-cases/route-channel-message.ts";
+import { IntegrationEgressRouter } from "./infrastructure/in/channels/egress-router.ts";
+import { createExternalChatRoutes } from "./infrastructure/in/http/external-chat-routes.ts";
+import { IntegrationManager } from "./infrastructure/in/channels/channel-manager.ts";
 import { WorkspaceError } from "./infrastructure/out/workspace-fs/safe-workspace.ts";
 import {
   IdempotencyMismatchError,
   RunInFlightError,
   WorkflowValidationError,
 } from "./domain/workflow/graph.ts";
+import { WorkflowInputValidationError } from "./domain/workflow/input.ts";
+import { ManageIntegrationsUseCase, type IntegrationCommand, type IntegrationUpdateCommand } from "./application/use-cases/manage-integrations.ts";
+import { IntegrationValidationError } from "./domain/integrations/validation.ts";
+import { GetProjectSettingsUseCase, UpdateProjectSettingsUseCase } from "./application/use-cases/project-settings.ts";
+import { ChatWithOrchestratorUseCase } from "./application/use-cases/orchestrator.ts";
+import { AlertService } from "./application/use-cases/alerts.ts";
+import { validateWorkflowResources } from "./application/use-cases/workflow-resources.ts";
 
 export interface AppConfig {
   dataDir: string;
   databasePath?: string;
   initialAdminPassword?: string;
   serviceToken?: string;
+  globalServiceToken?: string;
   sentryDsn?: string;
   webDist?: string;
   secureCookies?: boolean;
@@ -62,19 +78,46 @@ export interface AppConfig {
 }
 
 export interface Application {
-  app: Hono<{ Variables: { requestId: string; user: UserRecord } }>;
+  app: Hono<{
+    Variables: {
+      requestId: string;
+      user: UserRecord;
+      serviceScope?: "project" | "global";
+      serviceProject?: string;
+    };
+  }>;
   store: SqliteStore;
   events: SseHub;
-  channelManager: ChannelManager;
+  agent: import("./application/ports/runtime.ts").AgentRuntimePort;
+  integrationManager: IntegrationManager;
   close(): void;
 }
 
-type AppEnv = { Variables: { requestId: string; user: UserRecord } };
+type AppEnv = {
+  Variables: {
+    requestId: string;
+    user: UserRecord;
+    serviceScope?: "project" | "global";
+    serviceProject?: string;
+  };
+};
 
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function integrationError(c: { json(body: unknown, status?: number): Response }, error: unknown): Response {
+  if (error instanceof IntegrationValidationError) {
+    const status =
+      error.code === "FORBIDDEN" ? 403 : error.code === "NOT_FOUND" ? 404 : error.code === "CONFLICT" ? 409 : 422;
+    return c.json(apiError(error.code, error.message), status);
+  }
+  if (error instanceof KnowledgeError) {
+    return c.json(apiError(error.code, error.message), error.code === "UNSAFE_URL" ? 422 : 400);
+  }
+  throw error;
 }
 
 export async function createApplication(config: AppConfig): Promise<Application> {
@@ -93,10 +136,13 @@ export async function createApplication(config: AppConfig): Promise<Application>
     logger,
   }).execute();
 
-  const workspace = new SafeFsWorkspaceAdapter(join(config.dataDir, "workspaces"));
+  const workspacesDir = join(config.dataDir, "workspaces");
+  const controlDirectory = join(config.dataDir, "control");
+  const workspace = new SafeFsWorkspaceAdapter(workspacesDir);
   await syncProjectsFromDisk(store, workspace);
-  // Backfill isolation permissions for projects created before this rule existed.
   for (const slug of await workspace.listProjects()) {
+    const project = store.projects.findBySlug(slug);
+    await workspace.ensureProjectScaffold(slug, project?.name ?? slug);
     const projectConfig = await workspace.readOpencodeConfig(slug);
     if (!Array.isArray(projectConfig.permissions)) {
       projectConfig.permissions = PROJECT_ISOLATION_PERMISSIONS;
@@ -104,17 +150,37 @@ export async function createApplication(config: AppConfig): Promise<Application>
     }
   }
 
-  const agent = createAgentRuntime(env);
+  const agent = createAgentRuntime(env, config.dataDir);
+  // OpenCode keeps provider integrations in its own state. Re-register the
+  // encrypted platform keys on every start so a service restart does not look
+  // like a missing OpenCode Go token to the user.
+  for (const secret of store.vault.list({ scope: "global" })) {
+    if (secret.kind !== "provider_key") continue;
+    const providerID = secret.alias.replace(/^provider:/, "");
+    try {
+      await agent.registerProviderKey(providerID, vault.decrypt(secret.ciphertext));
+      logger.info({ event: "provider_key_restored", providerID });
+    } catch (error) {
+      logger.warn({
+        event: "provider_key_restore_failed",
+        providerID,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   const worker = new BunWorkerPoolAdapter();
   const events = new SseHub();
   const metrics = new InMemoryMetrics();
-  const errorTracker = config.sentryDsn ? new SentryErrorTracker(config.sentryDsn, env.SENTRY_ENVIRONMENT ?? "production") : new NoopErrorTracker();
+  const errorTracker = config.sentryDsn
+    ? new SentryErrorTracker(config.sentryDsn, env.SENTRY_ENVIRONMENT ?? "production")
+    : new NoopErrorTracker();
   const codec = new SessionCodec(masterKey.toString("base64"));
-  const egress = new ChannelEgressRouter();
+  const egress = new IntegrationEgressRouter();
   const externalDb = new DynamicDatabaseClientAdapter();
-  const queryDatabase = new QueryExternalDatabaseUseCase(store, vault, externalDb);
+  const queryDatabase = new QueryDatabaseIntegrationUseCase(store, vault, externalDb);
+  const testDatabase = new TestDatabaseIntegrationUseCase(store, vault, externalDb);
   const embeddings = createEmbeddingAdapter(env);
-  const knowledgeFiles = new KnowledgeFileStore(join(config.dataDir, "knowledge"));
+  const knowledgeFiles = new KnowledgeFileStore(workspacesDir);
   const ingest = new IngestKnowledgeUseCase({
     store,
     files: knowledgeFiles,
@@ -133,36 +199,33 @@ export async function createApplication(config: AppConfig): Promise<Application>
     errors: errorTracker,
     logger,
     workerHandlers: {
-      db: ({ alias, sql, params }) => queryDatabase.execute(alias, sql, params),
-      notify: ({ channelSlug, text }) => egress.send(channelSlug, text),
+      db: ({ projectSlug, integrationId, sql, params }) =>
+        queryDatabase.execute(integrationId, { scope: "project", projectSlug }, sql, params),
+      notify: async ({ projectSlug, integrationId, text }) => {
+        const integration = store.integrations.findById(integrationId);
+        if (!integration || integration.scope !== "project" || integration.projectSlug !== projectSlug) {
+          throw new IntegrationValidationError("FORBIDDEN", "integration scope mismatch");
+        }
+        await egress.send(integrationId, text);
+      },
     },
     defaultModel: () => store.settings.get("default_model") || undefined,
-    knowledgeContext: async (notebookIds, query, strict) => {
+    projectDefaultModel: (slug) => store.projects.findBySlug(slug)?.defaultModel,
+    knowledgeContext: async (projectSlug, notebookIds, query, strict) => {
       const results = [];
       for (const notebookId of notebookIds) {
-        const hits = await search.execute(notebookId, JSON.stringify(query).slice(0, 500), 4).catch(() => []);
+        const notebook = store.notebooks.findById(notebookId);
+        if (!notebook || notebook.projectSlug !== projectSlug) continue;
+        const hits = await search
+          .execute(projectSlug, notebook.slug, JSON.stringify(query).slice(0, 500), 4)
+          .catch(() => []);
         results.push(...hits);
       }
       return buildGroundedContext(results, strict);
     },
   });
 
-  const createProject = new CreateProjectUseCase(store, workspace, events);
-  const saveWorkflow = new SaveWorkflowUseCase(workspace, events);
-  const chat = new ChatWithProjectUseCase({
-    store,
-    workspace,
-    agent,
-    events,
-    defaultModel: () => store.settings.get("default_model") || undefined,
-    timeoutMs: Number(env.AGENT_CHAT_TIMEOUT_MS ?? 900_000),
-  });
-  const agents = new ManageSubagentsUseCase(workspace, new MarkdownAgentAdapter(workspace), agent, events);
-  const connectProvider = new ConnectProviderUseCase(store, vault, agent);
-  const saveDatabase = new SaveExternalDatabaseUseCase(store, vault);
-  const testDatabase = new TestExternalDatabaseUseCase(store, vault, externalDb);
-  const health = new GetHealthUseCase({ store, agent, metrics, startedAt: Date.now() });
-  const router = new RouteIncomingMessageUseCase({
+  const projectRouter = new RouteProjectIntegrationMessageUseCase({
     store,
     workspace,
     agent,
@@ -170,19 +233,64 @@ export async function createApplication(config: AppConfig): Promise<Application>
     egress,
     events,
     logger,
-    orchestratorDirectory: config.dataDir,
   });
-  const channelManager = new ChannelManager({
+  const globalRouter = new RouteGlobalIntegrationMessageUseCase({
+    store,
+    workspace,
+    agent,
+    executor,
+    egress,
+    events,
+    logger,
+    controlDirectory,
+    orchestratorAgent: "orchestrator/agente",
+  });
+  const integrationManager = new IntegrationManager({
     store,
     vault,
     egress,
     events,
     logger,
-    router,
+    projectRouter,
+    globalRouter,
     dataDir: config.dataDir,
-    env,
     fetchImpl: fetch,
   });
+  const integrations = new ManageIntegrationsUseCase({
+    store,
+    vault,
+    events,
+    manager: integrationManager,
+    databaseAdapter: externalDb,
+  });
+
+  const createProject = new CreateProjectUseCase(store, workspace, events);
+  const deleteProject = new DeleteProjectUseCase(store, workspace, events);
+  const saveWorkflow = new SaveWorkflowUseCase(store, workspace, events);
+  const chat = new ChatWithProjectUseCase({
+    store,
+    workspace,
+    agent,
+    events,
+    defaultModel: () => store.settings.get("default_model") || undefined,
+    timeoutMs: Number(env.AGENT_CHAT_TIMEOUT_MS ?? 900_000),
+    logger,
+  });
+  const orchestrator = new ChatWithOrchestratorUseCase({
+    store,
+    agent,
+    controlDirectory,
+    orchestratorAgent: "orchestrator/agente",
+    timeoutMs: Number(env.AGENT_CHAT_TIMEOUT_MS ?? 900_000),
+    logger,
+  });
+  const agents = new ManageSubagentsUseCase(workspace, new MarkdownAgentAdapter(workspace), agent, events);
+  const connectProvider = new ConnectProviderUseCase(store, vault, agent);
+  const health = new GetHealthUseCase({ store, agent, metrics, startedAt: Date.now() });
+  const projectSettings = new GetProjectSettingsUseCase(store, workspace);
+  const updateProjectSettings = new UpdateProjectSettingsUseCase(store, events);
+  const alerts = new AlertService({ store, egress, events, logger });
+  alerts.start();
 
   const app = new Hono<AppEnv>();
 
@@ -198,15 +306,46 @@ export async function createApplication(config: AppConfig): Promise<Application>
   app.use("/api/*", async (c, next) => {
     const path = c.req.path;
     if (path === "/api/auth/login" || path === "/api/auth/logout" || path === "/api/auth/me") return next();
-    if (path.startsWith("/api/v1/channels/")) return next();
+    if (path.startsWith("/api/v1/integrations/")) return next();
     const token = c.req.header("x-platform-token");
-    if (config.serviceToken && token && safeEqual(token, config.serviceToken)) return next();
+    if (token) {
+      const scopeHeader = c.req.header("x-platform-scope");
+      const projectHeader = c.req.header("x-platform-project");
+      if (scopeHeader === "global") {
+        if (!config.globalServiceToken || !safeEqual(token, config.globalServiceToken)) {
+          return c.json(apiError("FORBIDDEN", "invalid global scope credential"), 403);
+        }
+        c.set("serviceScope", "global");
+        return next();
+      }
+      if (projectHeader) {
+        if (!config.serviceToken || !safeEqual(token, config.serviceToken)) {
+          return c.json(apiError("FORBIDDEN", "invalid project scope credential"), 403);
+        }
+        c.set("serviceScope", "project");
+        c.set("serviceProject", projectHeader);
+        return next();
+      }
+      if (config.globalServiceToken && safeEqual(token, config.globalServiceToken)) {
+        c.set("serviceScope", "global");
+        return next();
+      }
+      return c.json(apiError("FORBIDDEN", "service calls require an explicit scope"), 403);
+    }
     return authMiddleware(store, codec)(c, next);
   });
 
-  // Project-scoped service calls (the OpenCode plugin sends this header from
-  // ctx.location.directory). A project agent can never read or mutate a sibling.
   app.use("/api/projects/:slug/*", async (c, next) => {
+    const scope = c.get("serviceScope");
+    if (scope === "project") {
+      if (c.get("serviceProject") !== c.req.param("slug")) {
+        return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
+      }
+      return next();
+    }
+    if (scope === "global" && c.req.method !== "GET") {
+      return c.json(apiError("FORBIDDEN", "global orchestrator is read-only for project data"), 403);
+    }
     const scoped = c.req.header("x-platform-project");
     if (scoped && c.req.param("slug") !== scoped) {
       return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
@@ -214,7 +353,36 @@ export async function createApplication(config: AppConfig): Promise<Application>
     await next();
   });
 
-  app.route("/api/auth", createAuthRoutes({ store, hasher, codec, secureCookies: config.secureCookies ?? env.NODE_ENV === "production" }));
+  app.use("/api/control/*", async (c, next) => {
+    if (c.get("serviceScope") === "project") {
+      return c.json(apiError("FORBIDDEN", "project scope cannot access the control plane"), 403);
+    }
+    await next();
+  });
+
+  app.use("/api/vault/*", async (c, next) => {
+    if (c.get("serviceScope") === "project") {
+      return c.json(apiError("FORBIDDEN", "project scope cannot access platform secrets"), 403);
+    }
+    await next();
+  });
+  app.use("/api/settings", async (c, next) => {
+    if (c.get("serviceScope") === "project") {
+      return c.json(apiError("FORBIDDEN", "project scope cannot access platform settings"), 403);
+    }
+    await next();
+  });
+  app.use("/api/providers/*", async (c, next) => {
+    if (c.get("serviceScope") === "project") {
+      return c.json(apiError("FORBIDDEN", "project scope cannot access platform providers"), 403);
+    }
+    await next();
+  });
+
+  app.route(
+    "/api/auth",
+    createAuthRoutes({ store, hasher, codec, secureCookies: config.secureCookies ?? env.NODE_ENV === "production" }),
+  );
   app.route(
     "/api",
     createExternalChatRoutes({
@@ -223,45 +391,265 @@ export async function createApplication(config: AppConfig): Promise<Application>
       agent,
       workspace,
       executor,
-      egress,
-      events,
-      defaultDirectory: config.dataDir,
-    }),
-  );
-  app.route(
-    "/api",
-    createChannelManagementRoutes({
-      store,
-      vault,
-      events,
-      egress,
-      onCreated: (channel) => channelManager.start(channel),
+      controlDirectory,
+      fetchImpl: fetch,
+      logger,
     }),
   );
 
-  app.post("/api/channels/:slug/start", async (c) => {
-    const channel = store.channels.findBySlug(c.req.param("slug"));
-    if (!channel) return c.json(apiError("NOT_FOUND", "channel not found"), 404);
+  // Project integrations
+  app.get("/api/projects/:slug/integrations", (c) =>
+    c.json({ data: integrations.list({ scope: "project", projectSlug: c.req.param("slug") }) }),
+  );
+  app.post("/api/projects/:slug/integrations", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Partial<IntegrationCommand>;
     try {
-      await channelManager.start(channel);
-      return c.json({ ok: true, status: store.channels.findBySlug(channel.slug)?.status });
+      const result = await integrations.create({
+        ...(body as IntegrationCommand),
+        scope: "project",
+        projectSlug: c.req.param("slug"),
+      });
+      return c.json(result, 201);
     } catch (error) {
-      return c.json(apiError("CHANNEL_ERROR", error instanceof Error ? error.message : "start failed"), 503);
+      return integrationError(c, error);
+    }
+  });
+  app.get("/api/projects/:slug/integrations/:id", (c) => {
+    try {
+      return c.json(integrations.get(c.req.param("id"), { scope: "project", projectSlug: c.req.param("slug") }));
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.patch("/api/projects/:slug/integrations/:id", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as IntegrationUpdateCommand;
+    try {
+      return c.json(
+        await integrations.update(c.req.param("id"), { scope: "project", projectSlug: c.req.param("slug") }, body),
+      );
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.delete("/api/projects/:slug/integrations/:id", async (c) => {
+    try {
+      return c.json({ ok: await integrations.remove(c.req.param("id"), { scope: "project", projectSlug: c.req.param("slug") }) });
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.post("/api/projects/:slug/integrations/:id/test", async (c) => {
+    try {
+      return c.json(await integrations.test(c.req.param("id"), { scope: "project", projectSlug: c.req.param("slug") }));
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.post("/api/projects/:slug/integrations/:id/connect", async (c) => {
+    try {
+      return c.json(await integrations.connect(c.req.param("id"), { scope: "project", projectSlug: c.req.param("slug") }));
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.post("/api/projects/:slug/integrations/:id/disconnect", async (c) => {
+    try {
+      await integrations.disconnect(c.req.param("id"), { scope: "project", projectSlug: c.req.param("slug") });
+      return c.json({ ok: true });
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.get("/api/projects/:slug/integrations/:id/qr", (c) => {
+    const qr = integrationManager.qr(c.req.param("id"));
+    return qr ? c.json({ qr }) : c.json(apiError("NOT_FOUND", "no QR available"), 404);
+  });
+
+  // Global control integrations and orchestrator
+  app.get("/api/control/integrations", (c) => c.json({ data: integrations.list({ scope: "global" }) }));
+  app.post("/api/control/integrations", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Partial<IntegrationCommand>;
+    try {
+      return c.json(await integrations.create({ ...(body as IntegrationCommand), scope: "global", projectSlug: undefined }), 201);
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.get("/api/control/integrations/:id", (c) => {
+    try {
+      return c.json(integrations.get(c.req.param("id"), { scope: "global" }));
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.patch("/api/control/integrations/:id", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as IntegrationUpdateCommand;
+    try {
+      return c.json(await integrations.update(c.req.param("id"), { scope: "global" }, body));
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.delete("/api/control/integrations/:id", async (c) => {
+    try {
+      return c.json({ ok: await integrations.remove(c.req.param("id"), { scope: "global" }) });
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.post("/api/control/integrations/:id/test", async (c) => {
+    try {
+      return c.json(await integrations.test(c.req.param("id"), { scope: "global" }));
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.post("/api/control/integrations/:id/connect", async (c) => {
+    try {
+      return c.json(await integrations.connect(c.req.param("id"), { scope: "global" }));
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.post("/api/control/integrations/:id/disconnect", async (c) => {
+    try {
+      await integrations.disconnect(c.req.param("id"), { scope: "global" });
+      return c.json({ ok: true });
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.get("/api/control/integrations/:id/qr", (c) => {
+    const qr = integrationManager.qr(c.req.param("id"));
+    return qr ? c.json({ qr }) : c.json(apiError("NOT_FOUND", "no QR available"), 404);
+  });
+
+  app.get("/api/control/overview", (c) => c.json(orchestrator.overview()));
+  app.get("/api/control/chat", (c) => {
+    const limit = Math.min(Number(c.req.query("limit") ?? 200) || 200, 500);
+    return c.json({ data: orchestrator.history(limit) });
+  });
+  app.post("/api/control/chat", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { message?: string };
+    if (!body.message) return c.json(apiError("VALIDATION_ERROR", "message is required"), 422);
+    const messageText = body.message;
+    const wantsStream = (c.req.header("accept") ?? "").includes("text/event-stream");
+    if (wantsStream) {
+      return streamSSE(c, async (stream) => {
+        let finished = false;
+        const heartbeat = setInterval(() => {
+          if (!finished && !stream.aborted) void stream.writeSSE({ event: "heartbeat", data: "{}" }).catch(() => undefined);
+        }, 15_000);
+        stream.onAbort(() => {
+          finished = true;
+          clearInterval(heartbeat);
+        });
+        try {
+          const result = await orchestrator.execute(messageText);
+          await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
+        } catch (error) {
+          await stream
+            .writeSSE({ event: "error", data: JSON.stringify({ message: error instanceof Error ? error.message : String(error) }) })
+            .catch(() => undefined);
+        } finally {
+          finished = true;
+          clearInterval(heartbeat);
+        }
+      });
+    }
+    try {
+      return c.json(await orchestrator.execute(body.message));
+    } catch (error) {
+      return c.json(apiError("AGENT_ERROR", error instanceof Error ? error.message : "orchestrator failed"), 502);
+    }
+  });
+  app.post("/api/control/knowledge/search", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { query?: string; projectSlug?: string; limit?: number };
+    if (!body.query) return c.json(apiError("VALIDATION_ERROR", "query is required"), 422);
+    return c.json({ data: await search.searchAcrossProjects(body.query, body.limit ?? 5, body.projectSlug) });
+  });
+
+  // Project-scoped secrets
+  app.get("/api/projects/:slug/secrets", (c) =>
+    c.json({
+      data: store.vault.list({ scope: "project", projectSlug: c.req.param("slug") }).map(({ alias, kind, metadata, createdAt }) => ({
+        alias,
+        kind,
+        metadata,
+        createdAt,
+      })),
+    }),
+  );
+  app.post("/api/projects/:slug/secrets", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { alias?: string; value?: string; kind?: string };
+    if (!body.alias || !body.value) return c.json(apiError("VALIDATION_ERROR", "alias and value are required"), 422);
+    if (!/^[a-z][a-z0-9:_-]{1,80}$/i.test(body.alias)) return c.json(apiError("VALIDATION_ERROR", "invalid alias"), 422);
+    store.vault.upsert({
+      id: crypto.randomUUID(),
+      scope: "project",
+      projectSlug: c.req.param("slug"),
+      alias: body.alias,
+      kind: body.kind ?? "generic",
+      ciphertext: vault.encrypt(body.value),
+      createdAt: new Date().toISOString(),
+    });
+    return c.json({ ok: true }, 201);
+  });
+  app.delete("/api/projects/:slug/secrets/:alias", (c) =>
+    c.json({
+      ok: store.vault.remove({
+        scope: "project",
+        projectSlug: c.req.param("slug"),
+        alias: c.req.param("alias"),
+      }),
+    }),
+  );
+
+  // Project settings
+  app.get("/api/projects/:slug/settings", async (c) => {
+    try {
+      return c.json(await projectSettings.execute(c.req.param("slug")));
+    } catch (error) {
+      return c.json(apiError("NOT_FOUND", error instanceof Error ? error.message : "project not found"), 404);
+    }
+  });
+  app.patch("/api/projects/:slug/settings", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Partial<{
+      name: string;
+      description: string;
+      defaultModel: string | null;
+      primaryAgent: string | null;
+    }>;
+    try {
+      return c.json(
+        updateProjectSettings.execute(c.req.param("slug"), {
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(body.description !== undefined ? { description: body.description } : {}),
+          ...(body.defaultModel !== undefined ? { defaultModel: body.defaultModel } : {}),
+          ...(body.primaryAgent !== undefined ? { primaryAgent: body.primaryAgent } : {}),
+        }),
+      );
+    } catch (error) {
+      return c.json(apiError("NOT_FOUND", error instanceof Error ? error.message : "project not found"), 404);
     }
   });
 
-  app.post("/api/channels/:slug/stop", async (c) => {
-    await channelManager.stop(c.req.param("slug"));
-    return c.json({ ok: true });
-  });
-
+  // Projects
   app.get("/api/projects", (c) => {
     const scoped = c.req.header("x-platform-project");
     return c.json({
       data: store.projects
         .list()
         .filter((project) => !scoped || project.slug === scoped)
-        .map(({ id, slug, name, description, createdAt }) => ({ id, slug, name, description, createdAt })),
+        .map(({ id, slug, name, description, defaultModel, primaryAgent, createdAt }) => ({
+          id,
+          slug,
+          name,
+          description,
+          defaultModel,
+          primaryAgent,
+          createdAt,
+        })),
     });
   });
 
@@ -276,6 +664,22 @@ export async function createApplication(config: AppConfig): Promise<Application>
       return c.json(await createProject.execute({ slug: body.slug, name: body.name, description: body.description }), 201);
     } catch (error) {
       return c.json(apiError("CONFLICT", error instanceof Error ? error.message : "could not create project"), 409);
+    }
+  });
+
+  app.delete("/api/projects/:slug", async (c) => {
+    if (c.get("serviceScope")) {
+      return c.json(apiError("FORBIDDEN", "only an authenticated administrator can delete a project"), 403);
+    }
+    try {
+      const projectSlug = c.req.param("slug");
+      for (const integration of store.integrations.list({ scope: "project", projectSlug })) {
+        await integrationManager.stop(integration.id).catch(() => undefined);
+      }
+      await deleteProject.execute(projectSlug);
+      return c.body(null, 204);
+    } catch (error) {
+      return c.json(apiError("NOT_FOUND", error instanceof Error ? error.message : "project not found"), 404);
     }
   });
 
@@ -314,15 +718,21 @@ export async function createApplication(config: AppConfig): Promise<Application>
     const body = (await c.req.json().catch(() => ({}))) as { payload?: unknown; idempotencyKey?: string };
     try {
       const graph = await workspace.readWorkflow(c.req.param("slug"));
-      const run = await executor.execute({
+      await validateWorkflowResources(store, workspace, c.req.param("slug"), graph);
+      const run = await executor.start({
         projectSlug: c.req.param("slug"),
         graph,
         payload: body.payload ?? {},
         entryPoint: "web_ui",
         idempotencyKey: body.idempotencyKey,
+        launchedBy: c.get("user")?.username ?? (c.get("serviceScope") === "global" ? "orchestrator" : "service"),
+        sourceDetail: "canvas:web",
       });
       return c.json({ ...run, steps: store.runs.listSteps(run.id) }, 202);
     } catch (error) {
+      if (error instanceof WorkflowInputValidationError) {
+        return c.json(apiError("VALIDATION_ERROR", error.message, error.issues), 422);
+      }
       if (error instanceof WorkflowValidationError) return c.json(apiError("INVALID_WORKFLOW", error.message, error.issues), 422);
       if (error instanceof IdempotencyMismatchError) return c.json(apiError("IDEMPOTENCY_MISMATCH", error.message), 422);
       if (error instanceof RunInFlightError) return c.json(apiError("RUN_IN_FLIGHT", error.message, { runId: error.runId }), 409);
@@ -339,16 +749,25 @@ export async function createApplication(config: AppConfig): Promise<Application>
   });
 
   app.post("/api/runs/:id/replay", async (c) => {
+    if (c.get("serviceScope") === "global") {
+      return c.json(apiError("FORBIDDEN", "global orchestrator is read-only for project data"), 403);
+    }
     const body = (await c.req.json().catch(() => ({}))) as { fromNodeId?: string };
     const scoped = c.req.header("x-platform-project");
     const existing = store.runs.findById(c.req.param("id"));
     if (existing && scoped && existing.projectSlug !== scoped) {
       return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
     }
-    const run = await executor.replay(c.req.param("id"), body.fromNodeId);
+    const run = await executor.replay(
+      c.req.param("id"),
+      body.fromNodeId,
+      "replay",
+      c.get("user")?.username ?? "service",
+    );
     return c.json({ ...run, steps: store.runs.listSteps(run.id) });
   });
 
+  // Project chat
   app.get("/api/projects/:slug/chat", (c) => {
     const limit = Math.min(Number(c.req.query("limit") ?? 200) || 200, 500);
     return c.json({ data: chat.history(c.req.param("slug"), limit) });
@@ -363,6 +782,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     if (wantsStream) {
       return streamSSE(c, async (stream) => {
         let finished = false;
+        let writes: Promise<unknown> = Promise.resolve();
         const heartbeat = setInterval(() => {
           if (!finished && !stream.aborted) {
             void stream.writeSSE({ event: "heartbeat", data: "{}" }).catch(() => undefined);
@@ -372,12 +792,25 @@ export async function createApplication(config: AppConfig): Promise<Application>
           finished = true;
           clearInterval(heartbeat);
         });
+        const publish = (event: ChatProgressEvent) => {
+          if (finished || stream.aborted) return;
+          writes = writes
+            .then(() =>
+              stream.writeSSE({
+                event: event.type === "text" ? "delta" : "activity",
+                data: JSON.stringify(event),
+              }),
+            )
+            .catch(() => undefined);
+        };
         try {
-          const result = await chat.execute(projectSlug, message);
+          const result = await chat.execute(projectSlug, message, publish);
+          await writes;
           await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          await stream.writeSSE({ event: "error", data: JSON.stringify({ message }) }).catch(() => undefined);
+          await writes;
+          const messageText = error instanceof Error ? error.message : String(error);
+          await stream.writeSSE({ event: "error", data: JSON.stringify({ message: messageText }) }).catch(() => undefined);
         } finally {
           finished = true;
           clearInterval(heartbeat);
@@ -387,8 +820,11 @@ export async function createApplication(config: AppConfig): Promise<Application>
     try {
       return c.json(await chat.execute(projectSlug, message));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "project not found";
-      return c.json(apiError(message.startsWith("project not found") ? "NOT_FOUND" : "AGENT_ERROR", message), message.startsWith("project not found") ? 404 : 502);
+      const messageText = error instanceof Error ? error.message : "project not found";
+      return c.json(
+        apiError(messageText.startsWith("project not found") ? "NOT_FOUND" : "AGENT_ERROR", messageText),
+        messageText.startsWith("project not found") ? 404 : 502,
+      );
     }
   });
 
@@ -449,6 +885,9 @@ export async function createApplication(config: AppConfig): Promise<Application>
         },
         body: body.body,
       });
+      if (profile.frontmatter.mode === "primary") {
+        store.projects.update(c.req.param("slug"), { primaryAgent: `${profile.category}/${profile.role}` });
+      }
       return c.json(profile);
     } catch (error) {
       return c.json(apiError("VALIDATION_ERROR", error instanceof Error ? error.message : "invalid agent"), 422);
@@ -472,6 +911,66 @@ export async function createApplication(config: AppConfig): Promise<Application>
     return c.json({ ok: true });
   });
 
+  // Knowledge inside projects
+  app.get("/api/projects/:slug/notebooks", (c) =>
+    c.json({
+      data: store.notebooks.list(c.req.param("slug")).map((notebook) => ({
+        ...notebook,
+        sources: store.knowledge.listSources(notebook.id).length,
+      })),
+    }),
+  );
+  app.post("/api/projects/:slug/notebooks", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { slug?: string; name?: string; description?: string };
+    if (!body.slug || !body.name) return c.json(apiError("VALIDATION_ERROR", "slug and name are required"), 422);
+    try {
+      return c.json(ingest.createNotebook(c.req.param("slug"), { slug: body.slug, name: body.name, description: body.description }), 201);
+    } catch (error) {
+      return c.json(apiError("CONFLICT", error instanceof Error ? error.message : "could not create notebook"), 409);
+    }
+  });
+  app.get("/api/projects/:slug/notebooks/:notebookSlug/sources", (c) => {
+    const notebook = store.notebooks.findBySlug(c.req.param("slug"), c.req.param("notebookSlug"));
+    if (!notebook) return c.json(apiError("NOT_FOUND", "notebook not found"), 404);
+    return c.json({ data: store.knowledge.listSources(notebook.id) });
+  });
+  app.post("/api/projects/:slug/notebooks/:notebookSlug/sources", async (c) => {
+    const body = await c.req.parseBody().catch(() => undefined);
+    const file = body?.file;
+    if (!(file instanceof File)) return c.json(apiError("VALIDATION_ERROR", "multipart field 'file' is required"), 422);
+    try {
+      const result = await ingest.ingestFile(c.req.param("slug"), c.req.param("notebookSlug"), {
+        filename: file.name,
+        mime: file.type,
+        bytes: new Uint8Array(await file.arrayBuffer()),
+      });
+      return c.json(result, 201);
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.post("/api/projects/:slug/notebooks/:notebookSlug/url", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { url?: string };
+    if (!body.url) return c.json(apiError("VALIDATION_ERROR", "url is required"), 422);
+    try {
+      return c.json(await ingest.ingestUrl(c.req.param("slug"), c.req.param("notebookSlug"), body.url), 201);
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.post("/api/projects/:slug/notebooks/:notebookSlug/search", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { query?: string; limit?: number };
+    if (!body.query) return c.json(apiError("VALIDATION_ERROR", "query is required"), 422);
+    return c.json({
+      data: await search.execute(c.req.param("slug"), c.req.param("notebookSlug"), body.query, body.limit ?? 5),
+    });
+  });
+  app.post("/api/projects/:slug/knowledge/search", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { query?: string; limit?: number };
+    if (!body.query) return c.json(apiError("VALIDATION_ERROR", "query is required"), 422);
+    return c.json({ data: await search.searchProject(c.req.param("slug"), body.query, body.limit ?? 5) });
+  });
+
   app.get("/api/models", async (c) => c.json({ data: await agent.listModels() }));
 
   app.post("/api/providers/opencode-go", async (c) => {
@@ -484,8 +983,11 @@ export async function createApplication(config: AppConfig): Promise<Application>
     }
   });
 
+  // Platform/global secrets. Project secrets live under /api/projects/:slug/secrets.
   app.get("/api/vault/secrets", (c) =>
-    c.json({ data: store.vault.list().map(({ alias, kind, metadata, createdAt }) => ({ alias, kind, metadata, createdAt })) }),
+    c.json({
+      data: store.vault.list({ scope: "global" }).map(({ alias, kind, metadata, createdAt }) => ({ alias, kind, metadata, createdAt })),
+    }),
   );
   app.post("/api/vault/secrets", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { alias?: string; value?: string; kind?: string };
@@ -493,6 +995,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     if (!/^[a-z][a-z0-9:_-]{1,80}$/i.test(body.alias)) return c.json(apiError("VALIDATION_ERROR", "invalid alias"), 422);
     store.vault.upsert({
       id: crypto.randomUUID(),
+      scope: "global",
       alias: body.alias,
       kind: body.kind ?? "generic",
       ciphertext: vault.encrypt(body.value),
@@ -500,87 +1003,91 @@ export async function createApplication(config: AppConfig): Promise<Application>
     });
     return c.json({ ok: true }, 201);
   });
-  app.delete("/api/vault/secrets/:alias", (c) => c.json({ ok: store.vault.remove(c.req.param("alias")) }));
+  app.delete("/api/vault/secrets/:alias", (c) =>
+    c.json({ ok: store.vault.remove({ scope: "global", alias: c.req.param("alias") }) }),
+  );
 
-  app.get("/api/databases", (c) => c.json({ data: saveDatabase.list() }));
-  app.post("/api/databases", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { alias?: string; config?: never };
-    if (!body.alias || !body.config) return c.json(apiError("VALIDATION_ERROR", "alias and config are required"), 422);
-    saveDatabase.execute(body.alias, body.config);
-    return c.json({ ok: true }, 201);
+  // External database test/query through integration IDs.
+  app.post("/api/control/integrations/:id/database/test", async (c) => {
+    try {
+      return c.json(await testDatabase.execute(c.req.param("id"), { scope: "global" }));
+    } catch (error) {
+      return integrationError(c, error);
+    }
   });
-  app.delete("/api/databases/:alias", (c) => c.json({ ok: saveDatabase.remove(c.req.param("alias")) }));
-  app.post("/api/databases/:alias/test", async (c) => c.json(await testDatabase.execute(c.req.param("alias"))));
-  app.post("/api/databases/:alias/query", async (c) => {
+  app.post("/api/projects/:slug/integrations/:id/database/test", async (c) => {
+    try {
+      return c.json(await testDatabase.execute(c.req.param("id"), { scope: "project", projectSlug: c.req.param("slug") }));
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.post("/api/projects/:slug/integrations/:id/database/query", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { sql?: string; params?: unknown[] };
     if (!body.sql) return c.json(apiError("VALIDATION_ERROR", "sql is required"), 422);
     try {
-      return c.json({ data: await queryDatabase.execute(c.req.param("alias"), body.sql, body.params) });
-    } catch (error) {
-      return c.json(apiError("DATABASE_ERROR", error instanceof Error ? error.message : "query failed"), 400);
-    }
-  });
-
-  app.get("/api/notebooks", (c) =>
-    c.json({
-      data: store.notebooks.list().map((notebook) => ({
-        ...notebook,
-        sources: store.knowledge.listSources(notebook.id).length,
-      })),
-    }),
-  );
-  app.post("/api/notebooks", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { slug?: string; name?: string; description?: string };
-    if (!body.slug || !body.name) return c.json(apiError("VALIDATION_ERROR", "slug and name are required"), 422);
-    try {
-      return c.json(ingest.createNotebook({ slug: body.slug, name: body.name, description: body.description }), 201);
-    } catch (error) {
-      return c.json(apiError("CONFLICT", error instanceof Error ? error.message : "could not create notebook"), 409);
-    }
-  });
-  app.get("/api/notebooks/:slug/sources", (c) => {
-    const notebook = store.notebooks.findBySlug(c.req.param("slug"));
-    if (!notebook) return c.json(apiError("NOT_FOUND", "notebook not found"), 404);
-    return c.json({ data: store.knowledge.listSources(notebook.id) });
-  });
-  app.post("/api/notebooks/:slug/sources", async (c) => {
-    const body = await c.req.parseBody().catch(() => undefined);
-    const file = body?.file;
-    if (!(file instanceof File)) return c.json(apiError("VALIDATION_ERROR", "multipart field 'file' is required"), 422);
-    try {
-      const result = await ingest.ingestFile(c.req.param("slug"), {
-        filename: file.name,
-        mime: file.type,
-        bytes: new Uint8Array(await file.arrayBuffer()),
+      return c.json({
+        data: await queryDatabase.execute(
+          c.req.param("id"),
+          { scope: "project", projectSlug: c.req.param("slug") },
+          body.sql,
+          body.params ?? [],
+        ),
       });
-      return c.json(result, 201);
     } catch (error) {
-      if (error instanceof KnowledgeError) return c.json(apiError(error.code, error.message), error.code === "UNSAFE_URL" ? 422 : 400);
-      throw error;
+      return integrationError(c, error);
     }
   });
-  app.post("/api/notebooks/:slug/url", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { url?: string };
-    if (!body.url) return c.json(apiError("VALIDATION_ERROR", "url is required"), 422);
+  app.post("/api/control/integrations/:id/database/query", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { sql?: string; params?: unknown[] };
+    if (!body.sql) return c.json(apiError("VALIDATION_ERROR", "sql is required"), 422);
     try {
-      return c.json(await ingest.ingestUrl(c.req.param("slug"), body.url), 201);
+      return c.json({
+        data: await queryDatabase.execute(c.req.param("id"), { scope: "global" }, body.sql, body.params ?? []),
+      });
     } catch (error) {
-      if (error instanceof KnowledgeError) return c.json(apiError(error.code, error.message), error.code === "UNSAFE_URL" ? 422 : 400);
-      throw error;
+      return integrationError(c, error);
     }
   });
-  app.post("/api/notebooks/:slug/search", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { query?: string; limit?: number };
-    if (!body.query) return c.json(apiError("VALIDATION_ERROR", "query is required"), 422);
-    return c.json({ data: await search.execute(c.req.param("slug"), body.query, body.limit ?? 5) });
+  app.post("/api/projects/:slug/integrations/:id/notify", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { text?: string; recipient?: string };
+    if (!body.text) return c.json(apiError("VALIDATION_ERROR", "text is required"), 422);
+    try {
+      integrations.get(c.req.param("id"), { scope: "project", projectSlug: c.req.param("slug") });
+      await integrationManager.send(c.req.param("id"), body.text, body.recipient);
+      return c.json({ ok: true });
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.post("/api/control/integrations/:id/notify", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { text?: string; recipient?: string };
+    if (!body.text) return c.json(apiError("VALIDATION_ERROR", "text is required"), 422);
+    try {
+      integrations.get(c.req.param("id"), { scope: "global" });
+      await integrationManager.send(c.req.param("id"), body.text, body.recipient);
+      return c.json({ ok: true });
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+  app.get("/api/control/runs", (c) => {
+    const limit = Math.min(Number(c.req.query("limit") ?? 20) || 20, 100);
+    return c.json({
+      data: store.runs.listRecent(limit).map((run) => ({ ...run, steps: store.runs.listSteps(run.id) })),
+    });
+  });
+  app.get("/api/control/errors", (c) => {
+    const limit = Math.min(Number(c.req.query("limit") ?? 50) || 50, 200);
+    return c.json({ data: store.errors.recent(limit) });
   });
 
   app.get("/api/settings", (c) =>
     c.json({
       data: {
         opencodeMode: env.OPENCODE_MODE ?? "auto",
-        sentryConfigured: Boolean(store.vault.findByAlias("setting:sentry_dsn") || config.sentryDsn),
-        providerConnected: Boolean(store.vault.findByAlias("provider:opencode-go")),
+        sentryConfigured: Boolean(store.vault.findByAlias({ scope: "global", alias: "setting:sentry_dsn" }) || config.sentryDsn),
+        providerConnected: Boolean(store.vault.findByAlias({ scope: "global", alias: "provider:opencode-go" })),
         defaultModel: store.settings.get("default_model") || undefined,
         dataDir: config.dataDir,
       },
@@ -594,6 +1101,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     if (body.sentryDsn) {
       store.vault.upsert({
         id: crypto.randomUUID(),
+        scope: "global",
         alias: "setting:sentry_dsn",
         kind: "sentry_dsn",
         ciphertext: vault.encrypt(body.sentryDsn),
@@ -664,11 +1172,17 @@ export async function createApplication(config: AppConfig): Promise<Application>
     return c.json(apiError("INTERNAL_ERROR", "unexpected server error", { requestId }), 500);
   });
 
+  await integrationManager.startAll();
   return {
     app,
     store,
     events,
-    channelManager,
-    close: () => store.close(),
+    agent,
+    integrationManager,
+    close: () => {
+      alerts.stop();
+      void integrationManager.stopAll();
+      store.close();
+    },
   };
 }

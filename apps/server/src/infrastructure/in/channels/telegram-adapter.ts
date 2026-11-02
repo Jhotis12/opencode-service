@@ -1,10 +1,9 @@
 import { Bot } from "grammy";
-import type { ChannelEgressPort, ChannelTransport } from "../../../application/ports/channels.ts";
+import type { IncomingIntegrationMessage, IntegrationEgressPort, IntegrationTransport } from "../../../application/ports/channels.ts";
 import type { EventBus } from "../../../application/ports/events.ts";
 import type { Logger } from "../../../domain/telemetry/index.ts";
-import type { RouteIncomingMessageUseCase } from "../../../application/use-cases/route-channel-message.ts";
 
-export interface TelegramTransport extends ChannelTransport {
+export interface TelegramTransport extends IntegrationTransport {
   readonly type: "telegram";
 }
 
@@ -47,12 +46,14 @@ export class GrammyTransport implements TelegramTransport {
   }
 }
 
-export class TelegramChannelAdapter implements ChannelEgressPort {
+export class TelegramChannelAdapter implements IntegrationEgressPort {
   constructor(
     private readonly options: {
-      slug: string;
+      integrationId: string;
+      scope: "project" | "global";
+      projectSlug?: string;
       transport: TelegramTransport;
-      router: Pick<RouteIncomingMessageUseCase, "execute">;
+      router: { execute(message: IncomingIntegrationMessage): Promise<{ decision: string }> };
       events: EventBus;
       logger: Logger;
     },
@@ -62,8 +63,8 @@ export class TelegramChannelAdapter implements ChannelEgressPort {
     await this.options.transport.start((message) => {
       void this.options.router
         .execute({
-          channelSlug: this.options.slug,
-          channelType: "telegram",
+          integrationId: this.options.integrationId,
+          kind: "telegram",
           senderId: message.senderId,
           text: message.text,
         })
@@ -71,13 +72,16 @@ export class TelegramChannelAdapter implements ChannelEgressPort {
           this.options.logger.error({
             event: "telegram_message_failed",
             entryPoint: "telegram",
+            integrationId: this.options.integrationId,
             error: error instanceof Error ? error.message : String(error),
           }),
         );
     });
     this.options.events.publish({
-      type: "channel.status",
-      channelSlug: this.options.slug,
+      type: "integration.status",
+      integrationId: this.options.integrationId,
+      scope: this.options.scope,
+      projectSlug: this.options.projectSlug,
       status: this.options.transport.status(),
     });
   }
@@ -90,8 +94,10 @@ export class TelegramChannelAdapter implements ChannelEgressPort {
   async stop(): Promise<void> {
     await this.options.transport.stop();
     this.options.events.publish({
-      type: "channel.status",
-      channelSlug: this.options.slug,
+      type: "integration.status",
+      integrationId: this.options.integrationId,
+      scope: this.options.scope,
+      projectSlug: this.options.projectSlug,
       status: "disconnected",
     });
   }

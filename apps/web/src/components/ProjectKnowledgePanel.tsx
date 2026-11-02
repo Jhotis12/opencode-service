@@ -2,11 +2,14 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SearchHit } from "../api.ts";
 import { qk } from "../query.ts";
-import { badge, button, buttonPrimary, card, pageTitle } from "../ui.ts";
+import { badge, button, buttonPrimary, card } from "../ui.ts";
 
-export function NotebooksPage() {
+export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) {
   const queryClient = useQueryClient();
-  const notebooksQuery = useQuery({ queryKey: qk.notebooks, queryFn: () => api.listNotebooks().then((result) => result.data) });
+  const notebooksQuery = useQuery({
+    queryKey: qk.notebooks(projectSlug),
+    queryFn: () => api.listNotebooks(projectSlug).then((result) => result.data),
+  });
   const [selected, setSelected] = useState<string>();
   const [query, setQuery] = useState("");
   const [url, setUrl] = useState("");
@@ -16,42 +19,42 @@ export function NotebooksPage() {
   const [status, setStatus] = useState<string>();
 
   const sourcesQuery = useQuery({
-    queryKey: qk.sources(selected ?? ""),
-    queryFn: () => api.listSources(selected!).then((result) => result.data),
+    queryKey: qk.sources(projectSlug, selected ?? ""),
+    queryFn: () => api.listSources(projectSlug, selected!).then((result) => result.data),
     enabled: Boolean(selected),
   });
 
   const create = useMutation({
-    mutationFn: () => api.createNotebook({ slug, name }),
+    mutationFn: () => api.createNotebook(projectSlug, { slug, name }),
     onSuccess: (notebook) => {
       setSlug("");
       setName("");
       setSelected(notebook.slug);
-      void queryClient.invalidateQueries({ queryKey: qk.notebooks });
+      void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
   });
 
   const upload = useMutation({
-    mutationFn: (file: File) => api.uploadSource(selected!, file),
+    mutationFn: (file: File) => api.uploadSource(projectSlug, selected!, file),
     onSuccess: (result) => {
       setStatus(`Fuente indexada: ${result.chunks} fragmentos`);
-      void queryClient.invalidateQueries({ queryKey: qk.sources(selected!) });
-      void queryClient.invalidateQueries({ queryKey: qk.notebooks });
+      void queryClient.invalidateQueries({ queryKey: qk.sources(projectSlug, selected!) });
+      void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
   });
 
   const ingest = useMutation({
-    mutationFn: () => api.ingestUrl(selected!, url),
+    mutationFn: () => api.ingestUrl(projectSlug, selected!, url),
     onSuccess: (result) => {
       setStatus(`URL indexada: ${result.chunks} fragmentos`);
       setUrl("");
-      void queryClient.invalidateQueries({ queryKey: qk.sources(selected!) });
-      void queryClient.invalidateQueries({ queryKey: qk.notebooks });
+      void queryClient.invalidateQueries({ queryKey: qk.sources(projectSlug, selected!) });
+      void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
   });
 
   const search = useMutation({
-    mutationFn: () => api.searchNotebook(selected!, query),
+    mutationFn: () => api.searchNotebook(projectSlug, selected!, query),
     onSuccess: (result) => setHits(result.data),
   });
 
@@ -65,14 +68,7 @@ export function NotebooksPage() {
   const error = notebooksQuery.error ?? sourcesQuery.error ?? create.error ?? upload.error ?? ingest.error ?? search.error;
 
   return (
-    <section className="flex flex-col gap-5">
-      <header>
-        <h1 className={pageTitle}>Bancos de información</h1>
-        <p className="mt-1 text-sm text-muted">
-          Notebooks con búsqueda híbrida, resúmenes de fuentes y citas verificables.
-        </p>
-      </header>
-
+    <div className="flex flex-col gap-4">
       <form className={`${card} !flex-row flex-wrap items-end gap-3`} onSubmit={submitCreate} aria-label="Crear notebook">
         <label className="min-w-[200px] flex-1">
           Slug
@@ -182,6 +178,6 @@ export function NotebooksPage() {
           </section>
         </div>
       )}
-    </section>
+    </div>
   );
 }

@@ -13,12 +13,23 @@ class FakeClient implements PlatformClient {
   async upsertWorkflow(slug: string, graph: unknown) { return this.record("upsertWorkflow", [slug, graph]); }
   async triggerWorkflow(slug: string, payload: unknown, key?: string) { return this.record("triggerWorkflow", [slug, payload, key]); }
   async listRuns(slug: string, limit?: number) { return this.record("listRuns", [slug, limit]); }
+  async listAllRuns(limit?: number) { return this.record("listAllRuns", [limit]); }
   async upsertSubagent(slug: string, category: string, role: string, input: unknown) { return this.record("upsertSubagent", [slug, category, role, input]); }
   async listSubagents(slug: string) { return this.record("listSubagents", [slug]); }
-  async searchKnowledge(slug: string, query: string, limit?: number) { return this.record("searchKnowledge", [slug, query, limit]); }
-  async queryDatabase(alias: string, sql: string, params?: unknown[]) { return this.record("queryDatabase", [alias, sql, params]); }
-  async notify(slug: string, text: string) { return this.record("notify", [slug, text]); }
+  async searchKnowledge(projectSlug: string, notebookSlug: string, query: string, limit?: number) {
+    return this.record("searchKnowledge", [projectSlug, notebookSlug, query, limit]);
+  }
+  async searchKnowledgeAcrossProjects(query: string, projectSlug?: string, limit?: number) {
+    return this.record("searchKnowledgeAcrossProjects", [query, projectSlug, limit]);
+  }
+  async queryDatabase(projectSlug: string, integrationId: string, sql: string, params?: unknown[]) {
+    return this.record("queryDatabase", [projectSlug, integrationId, sql, params]);
+  }
+  async notify(projectSlug: string, integrationId: string, text: string, recipient?: string) {
+    return this.record("notify", [projectSlug, integrationId, text, recipient]);
+  }
   async health() { return this.record("health", []); }
+  async overview() { return this.record("overview", []); }
 }
 
 const graph = {
@@ -31,8 +42,8 @@ const graph = {
   updatedAt: new Date().toISOString(),
 };
 
-function tool(name: string, client: FakeClient) {
-  const found = createPlatformTools(client).find((item) => item.name === name);
+function tool(name: string, client: FakeClient, scope = {}) {
+  const found = createPlatformTools(client, scope).find((item) => item.name === name);
   if (!found) throw new Error(`missing tool ${name}`);
   return found;
 }
@@ -46,6 +57,7 @@ describe("platform tool namespace", () => {
       "workflow_upsert",
       "workflow_trigger",
       "workflow_runs",
+      "project_overview",
       "subagent_upsert",
       "subagent_list",
       "kb_search",
@@ -62,8 +74,8 @@ describe("platform tool namespace", () => {
   it("validates input before delegating", async () => {
     const client = new FakeClient();
     await expect(tool("workflow_get", client).execute({ projectSlug: "../evil" })).rejects.toThrow();
-    await expect(tool("db_query", client).execute({ alias: "x", sql: "" })).rejects.toThrow();
-    await expect(tool("notify", client).execute({ channelSlug: "ok", text: "" })).rejects.toThrow();
+    await expect(tool("db_query", client).execute({ projectSlug: "p1", integrationId: "i1", sql: "" })).rejects.toThrow();
+    await expect(tool("notify", client).execute({ projectSlug: "p1", integrationId: "i1", text: "" })).rejects.toThrow();
     expect(client.calls).toHaveLength(0);
   });
 
@@ -90,12 +102,22 @@ describe("platform tool namespace", () => {
       body: "Instrucciones",
     });
     expect(client.calls[0]?.args.slice(0, 3)).toEqual(["p1", "ventas", "calificador"]);
-    await tool("kb_search", client).execute({ notebookSlug: "manual", query: "facturas" });
+    await tool("kb_search", client).execute({ projectSlug: "p1", notebookSlug: "manual", query: "facturas" });
     expect(client.calls[1]?.method).toBe("searchKnowledge");
-    await tool("db_query", client).execute({ alias: "crm", sql: "SELECT 1" });
-    expect(client.calls[2]?.args).toEqual(["crm", "SELECT 1", undefined]);
-    await tool("notify", client).execute({ channelSlug: "telegram", text: "hola" });
-    expect(client.calls[3]?.args).toEqual(["telegram", "hola"]);
+    expect(client.calls[1]?.args).toEqual(["p1", "manual", "facturas", undefined]);
+    await tool("db_query", client).execute({ projectSlug: "p1", integrationId: "db1", sql: "SELECT 1" });
+    expect(client.calls[2]?.args).toEqual(["p1", "db1", "SELECT 1", undefined]);
+    await tool("notify", client).execute({ projectSlug: "p1", integrationId: "telegram", text: "hola" });
+    expect(client.calls[3]?.args).toEqual(["p1", "telegram", "hola", undefined]);
+  });
+
+  it("uses the current project for runs and global search when no slug is provided", async () => {
+    const client = new FakeClient();
+    await tool("workflow_runs", client, { projectSlug: "p1" }).execute({});
+    expect(client.calls[0]?.method).toBe("listRuns");
+    expect(client.calls[0]?.args).toEqual(["p1", undefined]);
+    await tool("kb_search", client, { global: true }).execute({ query: "politicas" });
+    expect(client.calls[1]?.method).toBe("searchKnowledgeAcrossProjects");
   });
 
   it("scopes HTTP requests to the current project", async () => {
@@ -106,9 +128,25 @@ describe("platform tool namespace", () => {
       return new Response("{}", { status: 200 });
     }) as typeof fetch;
     try {
-      await new HttpPlatformClient("http://platform", "token", "ventas-bot").listProjects();
+      await new HttpPlatformClient("http://platform", "token", { projectSlug: "ventas-bot" }).listProjects();
       expect(sentHeaders["x-platform-project"]).toBe("ventas-bot");
       expect(sentHeaders["x-platform-token"]).toBe("token");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("sends the explicit global scope for the control workspace", async () => {
+    const original = globalThis.fetch;
+    let sentHeaders: Record<string, string> = {};
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      sentHeaders = (init?.headers ?? {}) as Record<string, string>;
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    try {
+      await new HttpPlatformClient("http://platform", "global-token", { global: true }).overview();
+      expect(sentHeaders["x-platform-scope"]).toBe("global");
+      expect(sentHeaders["x-platform-project"]).toBeUndefined();
     } finally {
       globalThis.fetch = original;
     }

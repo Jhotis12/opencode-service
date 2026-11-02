@@ -53,13 +53,20 @@ export function extractAssistantText(messages: MessageLike[]): string {
 
 export class ServiceClientFactory implements OpenCodeClientFactory {
   constructor(
-    private readonly options: { baseUrl?: string; serviceFile?: string } = {},
+    private readonly options: {
+      baseUrl?: string;
+      serviceFile?: string;
+      env?: Record<string, string>;
+    } = {},
   ) {}
 
   async create() {
     const endpoint = this.options.baseUrl
       ? { url: this.options.baseUrl, auth: undefined }
-      : await Service.ensure(this.options.serviceFile ? { file: this.options.serviceFile } : undefined);
+      : await Service.ensure({
+          ...(this.options.serviceFile ? { file: this.options.serviceFile } : {}),
+          ...(this.options.env ? { env: this.options.env } : {}),
+        });
     const client = OpenCode.make({
       baseUrl: endpoint.url,
       headers: Service.headers(endpoint as never),

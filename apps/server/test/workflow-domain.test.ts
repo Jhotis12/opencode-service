@@ -32,6 +32,24 @@ describe("workflow graph validation", () => {
     expect(() => validateWorkflowGraph(graph())).not.toThrow();
   });
 
+  it("requires exactly one trigger and rejects trigger types without an executor", () => {
+    const multiple = graph();
+    multiple.nodes.push({
+      id: "second-trigger",
+      type: "trigger",
+      position: { x: 0, y: 1 },
+      config: { kind: "manual" },
+      notebookIds: [],
+      timeoutMs: 30_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    expect(() => validateWorkflowGraph(multiple)).toThrow(/exactly one trigger/);
+
+    const scheduled = graph();
+    scheduled.nodes[0] = { ...scheduled.nodes[0]!, config: { kind: "schedule", cron: "0 9 * * *" } };
+    expect(() => validateWorkflowGraph(scheduled)).toThrow(/no active executor/);
+  });
+
   it("rejects duplicate node ids", () => {
     const bad = graph();
     bad.nodes.push({ ...bad.nodes[1]!, position: { x: 2, y: 0 } });

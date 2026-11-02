@@ -1,19 +1,19 @@
-import type { ChannelEgressPort } from "../../../application/ports/channels.ts";
+import type { IntegrationEgressPort } from "../../../application/ports/channels.ts";
 
-export class ChannelEgressRouter implements ChannelEgressPort {
+export class IntegrationEgressRouter implements IntegrationEgressPort {
   private readonly senders = new Map<string, (text: string, recipient?: string) => Promise<void>>();
 
-  register(channelSlug: string, sender: (text: string, recipient?: string) => Promise<void>): void {
-    this.senders.set(channelSlug, sender);
+  register(integrationId: string, sender: (text: string, recipient?: string) => Promise<void>): void {
+    this.senders.set(integrationId, sender);
   }
 
-  unregister(channelSlug: string): void {
-    this.senders.delete(channelSlug);
+  unregister(integrationId: string): void {
+    this.senders.delete(integrationId);
   }
 
-  async send(channelSlug: string, text: string, recipient?: string): Promise<void> {
-    const sender = this.senders.get(channelSlug);
-    if (!sender) throw new Error(`no transport registered for channel: ${channelSlug}`);
+  async send(integrationId: string, text: string, recipient?: string): Promise<void> {
+    const sender = this.senders.get(integrationId);
+    if (!sender) throw new Error(`no transport registered for integration: ${integrationId}`);
     await sender(text, recipient);
   }
 }

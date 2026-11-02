@@ -2,6 +2,7 @@ import type { WorkflowGraph } from "@platform/shared";
 
 export interface WorkspacePort {
   createProject(input: { slug: string; name: string; description?: string }): Promise<void>;
+  ensureProjectScaffold(slug: string, projectName?: string): Promise<void>;
   listProjects(): Promise<string[]>;
   projectDirectory(slug: string): Promise<string>;
   readWorkflow(slug: string): Promise<WorkflowGraph>;

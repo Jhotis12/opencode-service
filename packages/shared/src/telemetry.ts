@@ -6,11 +6,13 @@ export const EntryPointTypeSchema = z.enum([
   "webhook",
   "telegram",
   "whatsapp",
+  "email",
   "external_chat",
   "replay",
   "bootstrap",
   "worker",
   "system",
+  "global_orchestrator",
 ]);
 export type EntryPointType = z.infer<typeof EntryPointTypeSchema>;
 

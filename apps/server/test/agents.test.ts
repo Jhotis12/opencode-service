@@ -90,6 +90,7 @@ describe("subagent catalog", () => {
       body: "Clasifica al lead.",
     });
     expect((await adapter.list("p1")).map((profile) => `${profile.category}/${profile.role}`)).toEqual([
+      "principal/agente",
       "ventas/calificador",
     ]);
     await useCase.upsert("p1", {
@@ -102,7 +103,9 @@ describe("subagent catalog", () => {
     expect(updated?.frontmatter.description).toBe("Califica leads v2");
     expect(updated?.frontmatter.mode).toBe("all");
     await useCase.remove("p1", "ventas", "calificador");
-    expect(await adapter.list("p1")).toEqual([]);
+    expect((await adapter.list("p1")).map((profile) => `${profile.category}/${profile.role}`)).toEqual([
+      "principal/agente",
+    ]);
     expect(events.filter((event) => event.type === "agent.updated")).toHaveLength(3);
   });
 

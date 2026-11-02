@@ -15,19 +15,16 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE TABLE IF NOT EXISTS vault_secrets (
   id TEXT PRIMARY KEY,
-  alias TEXT NOT NULL UNIQUE,
+  scope TEXT NOT NULL DEFAULT 'project',
+  project_slug TEXT NOT NULL DEFAULT '',
+  alias TEXT NOT NULL,
   kind TEXT NOT NULL,
   ciphertext TEXT NOT NULL,
   metadata TEXT,
   created_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS external_databases (
-  id TEXT PRIMARY KEY,
-  alias TEXT NOT NULL UNIQUE,
-  driver TEXT NOT NULL,
-  ciphertext TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
+CREATE UNIQUE INDEX IF NOT EXISTS vault_secrets_scoped_alias
+  ON vault_secrets(scope, project_slug, alias);
 CREATE TABLE IF NOT EXISTS system_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -48,9 +45,30 @@ CREATE TABLE IF NOT EXISTS projects (
   slug TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
-  chat_session_id TEXT,
-  created_at TEXT NOT NULL
+  default_model TEXT,
+  primary_agent TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT
 );
+CREATE TABLE IF NOT EXISTS integrations (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  project_slug TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  config TEXT NOT NULL DEFAULT '{}',
+  secret_refs TEXT NOT NULL DEFAULT '{}',
+  capabilities TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'disconnected',
+  key_hash TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS integrations_scoped_slug
+  ON integrations(scope, project_slug, slug);
+CREATE INDEX IF NOT EXISTS integrations_project ON integrations(scope, project_slug);
 CREATE TABLE IF NOT EXISTS workflow_runs (
   id TEXT PRIMARY KEY,
   project_slug TEXT NOT NULL,
@@ -62,6 +80,10 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   output TEXT,
   error TEXT,
   entry_point TEXT NOT NULL,
+  launched_by TEXT,
+  graph_hash TEXT,
+  integration_id TEXT,
+  source_detail TEXT,
   started_at TEXT NOT NULL,
   finished_at TEXT
 );
@@ -93,47 +115,36 @@ CREATE TABLE IF NOT EXISTS workflow_approvals (
   decided_by TEXT
 );
 CREATE INDEX IF NOT EXISTS workflow_approvals_run ON workflow_approvals(run_id);
-CREATE TABLE IF NOT EXISTS conversation_threads (
+CREATE TABLE IF NOT EXISTS chat_threads (
   id TEXT PRIMARY KEY,
-  channel_slug TEXT NOT NULL,
-  external_thread_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  project_slug TEXT NOT NULL DEFAULT '',
+  integration_id TEXT NOT NULL DEFAULT '',
+  external_thread_id TEXT NOT NULL DEFAULT '',
   opencode_session_id TEXT,
-  project_slug TEXT,
-  workflow_id TEXT,
+  title TEXT,
   created_at TEXT NOT NULL,
   last_active_at TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS conversation_threads_unique
-  ON conversation_threads(channel_slug, external_thread_id);
-CREATE TABLE IF NOT EXISTS channels (
-  id TEXT PRIMARY KEY,
-  slug TEXT NOT NULL UNIQUE,
-  type TEXT NOT NULL,
-  name TEXT NOT NULL,
-  config_ciphertext TEXT,
-  key_hash TEXT,
-  admin_allowlist TEXT NOT NULL DEFAULT '[]',
-  is_public INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'disconnected',
-  webhook_url TEXT,
-  created_at TEXT NOT NULL
-);
+CREATE UNIQUE INDEX IF NOT EXISTS chat_threads_unique
+  ON chat_threads(scope, project_slug, integration_id, external_thread_id);
 CREATE TABLE IF NOT EXISTS chat_messages (
   id TEXT PRIMARY KEY,
-  project_slug TEXT NOT NULL,
-  session_id TEXT,
+  thread_id TEXT NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS chat_messages_project ON chat_messages(project_slug, created_at);
+CREATE INDEX IF NOT EXISTS chat_messages_thread ON chat_messages(thread_id, created_at);
 CREATE TABLE IF NOT EXISTS notebooks (
   id TEXT PRIMARY KEY,
-  slug TEXT NOT NULL UNIQUE,
+  project_slug TEXT NOT NULL,
+  slug TEXT NOT NULL,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS notebooks_project_slug ON notebooks(project_slug, slug);
 CREATE TABLE IF NOT EXISTS kb_sources (
   id TEXT PRIMARY KEY,
   notebook_id TEXT NOT NULL,
@@ -163,17 +174,87 @@ CREATE VIRTUAL TABLE IF NOT EXISTS kb_chunks_fts USING fts5(
 );
 `;
 
+function tableExists(sqlite: Database, table: string): boolean {
+  return Boolean(
+    sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table),
+  );
+}
+
+function columnsOf(sqlite: Database, table: string): Set<string> {
+  return new Set(
+    (sqlite.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((column) => column.name),
+  );
+}
+
+function addColumnIfMissing(sqlite: Database, table: string, column: string, definition: string): void {
+  if (!columnsOf(sqlite, table).has(column)) {
+    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+/**
+ * Clean-cut schema migration. The previous global channel/database/notebook
+ * model is removed; resources are rebuilt from the new project-scoped model.
+ * A destructive upgrade must run `migrateLegacyResources` with an explicit
+ * mapping before this function, and must have a database backup.
+ */
 export function migrate(sqlite: Database): void {
   sqlite.exec("BEGIN");
   try {
+    // Drop the previous global-resource model when it is present. This is a
+    // deliberate clean cut: legacy data must be mapped explicitly beforehand.
+    if (tableExists(sqlite, "channels")) sqlite.exec("DROP TABLE channels");
+    if (tableExists(sqlite, "external_databases")) sqlite.exec("DROP TABLE external_databases");
+    if (tableExists(sqlite, "conversation_threads")) sqlite.exec("DROP TABLE conversation_threads");
+
+    // Rebuild tables whose column contract changed. Only rebuild when the
+    // newest required column is absent, so startup never drops current data.
+    if (tableExists(sqlite, "vault_secrets") && !columnsOf(sqlite, "vault_secrets").has("scope")) {
+      sqlite.exec("ALTER TABLE vault_secrets RENAME TO vault_secrets_old");
+    }
+    if (tableExists(sqlite, "chat_messages") && !columnsOf(sqlite, "chat_messages").has("thread_id")) {
+      sqlite.exec("ALTER TABLE chat_messages RENAME TO chat_messages_old");
+    }
+    if (tableExists(sqlite, "notebooks") && !columnsOf(sqlite, "notebooks").has("project_slug")) {
+      sqlite.exec("ALTER TABLE notebooks RENAME TO notebooks_old");
+      sqlite.exec("DROP TABLE IF EXISTS kb_chunks_fts");
+      sqlite.exec("DROP TABLE IF EXISTS kb_chunks");
+      sqlite.exec("DROP TABLE IF EXISTS kb_sources");
+    }
+
     sqlite.exec(SQLITE_DDL);
-    const columns = sqlite.query("PRAGMA table_info(workflow_step_runs)").all() as Array<{ name: string }>;
-    if (!columns.some((column) => column.name === "agent_id")) {
-      sqlite.exec("ALTER TABLE workflow_step_runs ADD COLUMN agent_id TEXT");
+
+    addColumnIfMissing(sqlite, "projects", "default_model", "TEXT");
+    addColumnIfMissing(sqlite, "projects", "primary_agent", "TEXT");
+    addColumnIfMissing(sqlite, "projects", "updated_at", "TEXT");
+    addColumnIfMissing(sqlite, "workflow_runs", "launched_by", "TEXT");
+    addColumnIfMissing(sqlite, "workflow_runs", "graph_hash", "TEXT");
+    addColumnIfMissing(sqlite, "workflow_runs", "integration_id", "TEXT");
+    addColumnIfMissing(sqlite, "workflow_runs", "source_detail", "TEXT");
+    addColumnIfMissing(sqlite, "integrations", "key_hash", "TEXT");
+    addColumnIfMissing(sqlite, "workflow_step_runs", "agent_id", "TEXT");
+    addColumnIfMissing(sqlite, "workflow_step_runs", "logs", "TEXT");
+
+    // Preserve old vault values as global secrets. Provider/Sentry keys used to
+    // be global and remain usable from the platform scope.
+    if (tableExists(sqlite, "vault_secrets_old")) {
+      sqlite.exec(`
+        INSERT INTO vault_secrets (id, scope, project_slug, alias, kind, ciphertext, metadata, created_at)
+        SELECT id, 'global', '', alias, kind, ciphertext, metadata, created_at FROM vault_secrets_old;
+        DROP TABLE vault_secrets_old;
+      `);
     }
-    if (!columns.some((column) => column.name === "logs")) {
-      sqlite.exec("ALTER TABLE workflow_step_runs ADD COLUMN logs TEXT");
+
+    // Old project chat messages cannot be assigned to a thread automatically;
+    // they are intentionally discarded during the clean cut. The old table is
+    // kept as a backup artifact for manual export.
+    if (tableExists(sqlite, "chat_messages_old")) {
+      sqlite.exec("DROP TABLE chat_messages_old");
     }
+    if (tableExists(sqlite, "notebooks_old")) {
+      sqlite.exec("DROP TABLE notebooks_old");
+    }
+
     sqlite.exec("COMMIT");
   } catch (error) {
     sqlite.exec("ROLLBACK");

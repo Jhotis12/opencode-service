@@ -9,24 +9,47 @@ export const NodeTypeSchema = z.enum([
   "http",
   "delay",
   "transform",
+  "validate",
 ]);
 export type NodeType = z.infer<typeof NodeTypeSchema>;
 
-export const TriggerKindSchema = z.enum([
-  "manual",
-  "cron",
-  "webhook",
-  "telegram",
-  "whatsapp",
-  "external_chat",
-]);
+export const TriggerKindSchema = z.enum(["manual", "schedule", "webhook", "integration"]);
 export type TriggerKind = z.infer<typeof TriggerKindSchema>;
+
+export const InputFieldTypeSchema = z.enum(["string", "number", "boolean", "json"]);
+export type InputFieldType = z.infer<typeof InputFieldTypeSchema>;
+
+export const InputFieldSchema = z.object({
+  name: z.string().min(1),
+  label: z.string().optional(),
+  type: InputFieldTypeSchema.default("string"),
+  required: z.boolean().default(false),
+  description: z.string().optional(),
+  example: z.unknown().optional(),
+});
+export type InputField = z.infer<typeof InputFieldSchema>;
+
+export const InputSchemaSchema = z.object({
+  fields: z.array(InputFieldSchema).default([]),
+});
+export type InputSchema = z.infer<typeof InputSchemaSchema>;
+
+export const ValidateRuleSchema = InputFieldSchema.extend({
+  message: z.string().optional(),
+});
+export type ValidateRule = z.infer<typeof ValidateRuleSchema>;
+
+export const ValidateConfigSchema = z.object({
+  rules: z.array(ValidateRuleSchema).min(1),
+});
+export type ValidateConfig = z.infer<typeof ValidateConfigSchema>;
 
 export const TriggerConfigSchema = z.object({
   kind: TriggerKindSchema.default("manual"),
   cron: z.string().optional(),
-  channelSlug: z.string().optional(),
-  isPublic: z.boolean().default(false),
+  integrationId: z.string().optional(),
+  event: z.string().optional(),
+  inputSchema: InputSchemaSchema.optional(),
 });
 export type TriggerConfig = z.infer<typeof TriggerConfigSchema>;
 
@@ -77,6 +100,14 @@ export type WorkflowRunStatus = z.infer<typeof WorkflowRunStatusSchema>;
 
 export const StepStatusSchema = z.enum(["running", "succeeded", "failed", "timed_out", "skipped"]);
 export type StepStatus = z.infer<typeof StepStatusSchema>;
+
+export const RunProvenanceSchema = z.object({
+  launchedBy: z.string().optional(),
+  graphHash: z.string().optional(),
+  integrationId: z.string().optional(),
+  sourceDetail: z.string().optional(),
+});
+export type RunProvenance = z.infer<typeof RunProvenanceSchema>;
 
 export const StepCheckpointSchema = z.object({
   runId: z.string(),

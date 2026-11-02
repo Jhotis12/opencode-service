@@ -37,13 +37,24 @@ export class GetHealthUseCase {
       });
     }
 
-    for (const channel of this.deps.store.channels.list()) {
+    for (const integration of this.deps.store.integrations.listAll()) {
       services.push({
-        name: `Channel ${channel.slug}`,
-        status: channel.status === "connected" ? "ok" : "degraded",
-        detail: channel.status,
+        name: `Integration ${integration.name}`,
+        status:
+          integration.status === "error"
+            ? "down"
+            : integration.status === "needs_config"
+              ? "degraded"
+              : "ok",
+        detail: `${integration.kind} · ${integration.status}`,
       });
     }
+
+    services.push({
+      name: "Global orchestrator",
+      status: "ok",
+      detail: "Control workspace configured",
+    });
 
     services.push({
       name: "Worker pool",

@@ -5,7 +5,7 @@ import { LoginPage } from "./pages/LoginPage.tsx";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage.tsx";
 import { ProjectsPage } from "./pages/ProjectsPage.tsx";
 import { ProjectPage } from "./pages/ProjectPage.tsx";
-import { NotebooksPage } from "./pages/NotebooksPage.tsx";
+import { OrchestratorPage } from "./pages/OrchestratorPage.tsx";
 import { SettingsPage } from "./pages/SettingsPage.tsx";
 import { HealthPage } from "./pages/HealthPage.tsx";
 
@@ -29,7 +29,7 @@ export function App() {
         <Route element={<Layout />}>
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:slug" element={<ProjectPage />} />
-          <Route path="/notebooks" element={<NotebooksPage />} />
+          <Route path="/orchestrator" element={<OrchestratorPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/system/health" element={<HealthPage />} />
         </Route>

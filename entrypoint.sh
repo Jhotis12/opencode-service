@@ -9,7 +9,9 @@ mkdir -p \
   "$DATA_DIR/workspaces" \
   "$DATA_DIR/knowledge" \
   "$DATA_DIR/channels" \
-  "$DATA_DIR/opencode"
+  "$DATA_DIR/opencode" \
+  "$DATA_DIR/opencode/state" \
+  "$DATA_DIR/control"
 
 # Snapshot the platform database before migrations run.
 DB="$DATA_DIR/db/platform.sqlite"
@@ -19,9 +21,15 @@ if [ -f "$DB" ]; then
   ls -1t "$DATA_DIR"/db/backups/platform-*.sqlite 2>/dev/null | tail -n +11 | xargs -r rm -f
 fi
 
-# Internal service token shared with the OpenCode plugin tools.
+# Internal service tokens shared with the OpenCode plugin tools. Project
+# locations use PLATFORM_SERVICE_TOKEN; the control workspace uses the global
+# token and never inherits project scope.
 export PLATFORM_SERVICE_TOKEN="${PLATFORM_SERVICE_TOKEN:-$(head -c 32 /dev/urandom | base64 | tr -d '\n')}"
+export PLATFORM_GLOBAL_TOKEN="${PLATFORM_GLOBAL_TOKEN:-$(head -c 32 /dev/urandom | base64 | tr -d '\n')}"
 export PLATFORM_API_URL="${PLATFORM_API_URL:-http://127.0.0.1:${PORT}}"
+# Keep OpenCode sessions and provider auth inside the persistent /data volume.
+export OPENCODE_DB="${OPENCODE_DB:-$DATA_DIR/opencode/opencode.db}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-$DATA_DIR/opencode/state}"
 export OPENCODE_MODE="${OPENCODE_MODE:-auto}"
 
 # Load the platform tool namespace into every OpenCode location.

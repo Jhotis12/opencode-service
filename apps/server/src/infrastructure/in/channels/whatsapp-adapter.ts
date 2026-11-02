@@ -1,7 +1,6 @@
-import type { ChannelEgressPort } from "../../../application/ports/channels.ts";
+import type { IncomingIntegrationMessage, IntegrationEgressPort } from "../../../application/ports/channels.ts";
 import type { EventBus } from "../../../application/ports/events.ts";
 import type { Logger } from "../../../domain/telemetry/index.ts";
-import type { RouteIncomingMessageUseCase } from "../../../application/use-cases/route-channel-message.ts";
 
 export interface WhatsAppTransport {
   readonly type: "whatsapp";
@@ -113,14 +112,17 @@ export function parseCloudWebhook(payload: unknown): Array<{ senderId: string; t
   return messages;
 }
 
-export class WhatsAppChannelAdapter implements ChannelEgressPort {
+export class WhatsAppChannelAdapter implements IntegrationEgressPort {
   constructor(
     private readonly options: {
-      slug: string;
+      integrationId: string;
+      scope: "project" | "global";
+      projectSlug?: string;
       transport: WhatsAppTransport;
-      router: Pick<RouteIncomingMessageUseCase, "execute">;
+      router: { execute(message: IncomingIntegrationMessage): Promise<{ decision: string }> };
       events: EventBus;
       logger: Logger;
+      onQr?: (qr: string) => void;
     },
   ) {}
 
@@ -129,8 +131,8 @@ export class WhatsAppChannelAdapter implements ChannelEgressPort {
       (message) => {
         void this.options.router
           .execute({
-            channelSlug: this.options.slug,
-            channelType: "whatsapp",
+            integrationId: this.options.integrationId,
+            kind: "whatsapp",
             senderId: message.senderId,
             text: message.text,
           })
@@ -138,22 +140,28 @@ export class WhatsAppChannelAdapter implements ChannelEgressPort {
             this.options.logger.error({
               event: "whatsapp_message_failed",
               entryPoint: "whatsapp",
+              integrationId: this.options.integrationId,
               error: error instanceof Error ? error.message : String(error),
             }),
           );
       },
       (qr) => {
+        this.options.onQr?.(qr);
         this.options.events.publish({
-          type: "channel.status",
-          channelSlug: this.options.slug,
+          type: "integration.status",
+          integrationId: this.options.integrationId,
+          scope: this.options.scope,
+          projectSlug: this.options.projectSlug,
           status: "qr_pending",
           qr,
         });
       },
     );
     this.options.events.publish({
-      type: "channel.status",
-      channelSlug: this.options.slug,
+      type: "integration.status",
+      integrationId: this.options.integrationId,
+      scope: this.options.scope,
+      projectSlug: this.options.projectSlug,
       status: this.options.transport.status(),
     });
   }
@@ -166,8 +174,10 @@ export class WhatsAppChannelAdapter implements ChannelEgressPort {
   async stop(): Promise<void> {
     await this.options.transport.stop();
     this.options.events.publish({
-      type: "channel.status",
-      channelSlug: this.options.slug,
+      type: "integration.status",
+      integrationId: this.options.integrationId,
+      scope: this.options.scope,
+      projectSlug: this.options.projectSlug,
       status: "disconnected",
     });
   }

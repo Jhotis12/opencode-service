@@ -5,14 +5,14 @@ import { join } from "node:path";
 import { SqliteStore } from "../src/infrastructure/out/persistence/sqlite-store.ts";
 import { SafeFsWorkspaceAdapter } from "../src/infrastructure/out/workspace-fs/safe-workspace.ts";
 import { FakeAgentRuntime } from "../src/infrastructure/out/opencode/fake-runtime.ts";
-import { RouteIncomingMessageUseCase } from "../src/application/use-cases/route-channel-message.ts";
 import {
-  parseApprovalCommand,
-  routeMessage,
-  senderMatchesAllowlist,
-} from "../src/domain/channels/router.ts";
-import type { ChannelEgressPort, TriggerRef } from "../src/application/ports/channels.ts";
+  RouteGlobalIntegrationMessageUseCase,
+  RouteProjectIntegrationMessageUseCase,
+} from "../src/application/use-cases/route-channel-message.ts";
+import { parseApprovalCommand, routeProjectMessage, senderMatchesAllowlist } from "../src/domain/channels/router.ts";
+import type { IntegrationEgressPort, TriggerRef } from "../src/application/ports/channels.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
+import type { IntegrationRecord } from "../src/domain/entities.ts";
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -29,10 +29,10 @@ const silentLogger: Logger = {
   },
 };
 
-class FakeEgress implements ChannelEgressPort {
-  sent: Array<{ channelSlug: string; text: string }> = [];
-  async send(channelSlug: string, text: string, _recipient?: string) {
-    this.sent.push({ channelSlug, text });
+class FakeEgress implements IntegrationEgressPort {
+  sent: Array<{ integrationId: string; text: string }> = [];
+  async send(integrationId: string, text: string) {
+    this.sent.push({ integrationId, text });
   }
 }
 
@@ -40,20 +40,21 @@ const trigger: TriggerRef = {
   projectSlug: "ventas",
   workflowId: "ventas",
   nodeId: "start",
-  channelSlug: "telegram",
-  isPublic: true,
+  integrationId: "i1",
+  event: "message.received",
 };
 
-describe("channel router domain", () => {
-  it("routes allowlisted senders to the global orchestrator", () => {
-    const decision = routeMessage({
+describe("project channel routing domain", () => {
+  it("routes allowlisted senders to the project agent in hybrid mode", () => {
+    const decision = routeProjectMessage({
       senderId: "+57 300 111 2233",
       text: "¿cómo va el flujo?",
-      channelSlug: "telegram",
+      mode: "hybrid",
       allowlist: ["+573001112233"],
+      publicTriggers: true,
       triggers: [trigger],
     });
-    expect(decision.type).toBe("orchestrator");
+    expect(decision.type).toBe("agent");
   });
 
   it("parses approval commands from admins", () => {
@@ -64,20 +65,35 @@ describe("channel router domain", () => {
     });
     expect(parseApprovalCommand("/reject run-12345678 review")?.action).toBe("reject");
     expect(parseApprovalCommand("hola")).toBeUndefined();
-    const decision = routeMessage({
+    const decision = routeProjectMessage({
       senderId: "123",
       text: "/approve run-12345678 review",
-      channelSlug: "telegram",
+      mode: "hybrid",
       allowlist: ["123"],
+      publicTriggers: false,
       triggers: [],
     });
     expect(decision.type).toBe("approval");
   });
 
   it("routes unknown senders only to public triggers", () => {
-    const allowed = routeMessage({ senderId: "999", text: "hola", channelSlug: "telegram", allowlist: ["123"], triggers: [trigger] });
+    const allowed = routeProjectMessage({
+      senderId: "999",
+      text: "hola",
+      mode: "hybrid",
+      allowlist: ["123"],
+      publicTriggers: true,
+      triggers: [trigger],
+    });
     expect(allowed.type).toBe("workflow");
-    const dropped = routeMessage({ senderId: "999", text: "hola", channelSlug: "telegram", allowlist: ["123"], triggers: [{ ...trigger, isPublic: false }] });
+    const dropped = routeProjectMessage({
+      senderId: "999",
+      text: "hola",
+      mode: "hybrid",
+      allowlist: ["123"],
+      publicTriggers: false,
+      triggers: [trigger],
+    });
     expect(dropped.type).toBe("dropped");
   });
 
@@ -96,7 +112,7 @@ async function setup() {
   const graph = await workspace.readWorkflow("ventas");
   graph.nodes[0] = {
     ...graph.nodes[0]!,
-    config: { kind: "telegram", channelSlug: "telegram", isPublic: true },
+    config: { kind: "integration", integrationId: "i1", event: "message.received" },
   };
   graph.nodes.push({
     id: "reply",
@@ -113,15 +129,30 @@ async function setup() {
   await workspace.writeNode("ventas", "nodes/reply.ts", `export default async (input: any) => "eco:" + input.message;`);
 
   const store = new SqliteStore(":memory:");
-  store.channels.create({
-    id: "c1",
-    slug: "telegram",
-    type: "telegram",
+  const now = new Date().toISOString();
+  const integration: IntegrationRecord = {
+    id: "i1",
+    scope: "project",
+    projectSlug: "ventas",
+    kind: "telegram",
     name: "Telegram",
-    adminAllowlist: ["+573001112233"],
-    isPublic: true,
+    slug: "telegram",
+    config: { routing: { mode: "hybrid", allowlist: ["+573001112233"], public: true } },
+    secretRefs: {},
+    capabilities: ["inbound_message", "outbound_message"],
     status: "connected",
-    createdAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.integrations.create(integration);
+  store.projects.create({
+    id: "p1",
+    slug: "ventas",
+    name: "Ventas",
+    description: "",
+    primaryAgent: "principal/agente",
+    createdAt: now,
+    updatedAt: now,
   });
   const agent = new FakeAgentRuntime();
   const egress = new FakeEgress();
@@ -137,7 +168,7 @@ async function setup() {
       return { id: runId, status: approved ? "succeeded" : "failed" };
     },
   };
-  const router = new RouteIncomingMessageUseCase({
+  const router = new RouteProjectIntegrationMessageUseCase({
     store,
     workspace,
     agent,
@@ -145,16 +176,15 @@ async function setup() {
     egress,
     events: { publish() {} },
     logger: silentLogger,
-    orchestratorDirectory: join(dir, "orchestrator"),
   });
   return { router, store, agent, egress, executed, approvals };
 }
 
-describe("route incoming messages", () => {
-  it("answers admin messages through a persistent orchestrator session", async () => {
+describe("route incoming project messages", () => {
+  it("answers admin messages through the project agent", async () => {
     const { router, agent, egress, executed } = await setup();
-    await router.execute({ channelSlug: "telegram", channelType: "telegram", senderId: "+573001112233", text: "estado" });
-    await router.execute({ channelSlug: "telegram", channelType: "telegram", senderId: "+573001112233", text: "otra" });
+    await router.execute({ integrationId: "i1", kind: "telegram", senderId: "+573001112233", text: "estado" });
+    await router.execute({ integrationId: "i1", kind: "telegram", senderId: "+573001112233", text: "otra" });
     expect(agent.sessionCount).toBe(1);
     expect(agent.prompts).toHaveLength(2);
     expect(egress.sent).toHaveLength(2);
@@ -163,24 +193,17 @@ describe("route incoming messages", () => {
 
   it("executes public workflow triggers for unknown senders", async () => {
     const { router, egress, executed } = await setup();
-    await router.execute({ channelSlug: "telegram", channelType: "telegram", senderId: "999", text: "hola" });
+    await router.execute({ integrationId: "i1", kind: "telegram", senderId: "999", text: "hola" });
     expect(executed).toHaveLength(1);
     expect(egress.sent[0]?.text).toBe("resultado-flujo");
   });
 
-  it("drops unknown senders when no public trigger matches", async () => {
-    const { router, egress, executed, store } = await setup();
-    store.channels.create({
-      id: "c2",
-      slug: "telegram-2",
-      type: "telegram",
-      name: "Telegram 2",
-      adminAllowlist: [],
-      isPublic: false,
-      status: "connected",
-      createdAt: new Date().toISOString(),
-    });
-    const result = await router.execute({ channelSlug: "telegram-2", channelType: "telegram", senderId: "999", text: "hola" });
+  it("drops unknown senders when public access is disabled", async () => {
+    const { router, store, egress, executed } = await setup();
+    const integration = store.integrations.findById("i1")!;
+    integration.config = { routing: { mode: "hybrid", allowlist: ["123"], public: false } };
+    store.integrations.update("i1", { config: integration.config });
+    const result = await router.execute({ integrationId: "i1", kind: "telegram", senderId: "999", text: "hola" });
     expect(result.decision).toBe("dropped");
     expect(egress.sent).toHaveLength(0);
     expect(executed).toHaveLength(0);
@@ -189,12 +212,53 @@ describe("route incoming messages", () => {
   it("resumes paused runs from admin approval commands", async () => {
     const { router, approvals, egress } = await setup();
     await router.execute({
-      channelSlug: "telegram",
-      channelType: "telegram",
+      integrationId: "i1",
+      kind: "telegram",
       senderId: "+573001112233",
       text: "/approve run-12345678 review",
     });
     expect(approvals).toEqual([{ runId: "run-12345678", nodeId: "review", approved: true, by: "+573001112233" }]);
     expect(egress.sent[0]?.text).toContain("succeeded");
+  });
+
+  it("routes only allowlisted senders to the global orchestrator", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "platform-global-"));
+    dirs.push(dir);
+    const workspace = new SafeFsWorkspaceAdapter(join(dir, "workspaces"));
+    const store = new SqliteStore(":memory:");
+    const now = new Date().toISOString();
+    store.integrations.create({
+      id: "global-1",
+      scope: "global",
+      kind: "telegram",
+      name: "Alertas",
+      slug: "alertas",
+      config: { routing: { mode: "agent", allowlist: ["123"], public: false } },
+      secretRefs: {},
+      capabilities: ["inbound_message", "outbound_message"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const agent = new FakeAgentRuntime();
+    const egress = new FakeEgress();
+    const router = new RouteGlobalIntegrationMessageUseCase({
+      store,
+      workspace,
+      agent,
+      executor: {} as never,
+      egress,
+      events: { publish() {} },
+      logger: silentLogger,
+      controlDirectory: join(dir, "control"),
+      orchestratorAgent: "orchestrator/agente",
+    });
+    const allowed = await router.execute({ integrationId: "global-1", kind: "telegram", senderId: "123", text: "estado" });
+    const dropped = await router.execute({ integrationId: "global-1", kind: "telegram", senderId: "999", text: "hola" });
+    expect(allowed.decision).toBe("orchestrator");
+    expect(dropped.decision).toBe("dropped");
+    expect(egress.sent).toHaveLength(1);
+    expect(agent.sessionCount).toBe(1);
+    store.close();
   });
 });

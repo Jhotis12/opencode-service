@@ -7,19 +7,27 @@ export interface PlatformClient {
   upsertWorkflow(projectSlug: string, graph: unknown): Promise<unknown>;
   triggerWorkflow(projectSlug: string, payload: unknown, idempotencyKey?: string): Promise<unknown>;
   listRuns(projectSlug: string, limit?: number): Promise<unknown>;
+  listAllRuns(limit?: number): Promise<unknown>;
   upsertSubagent(projectSlug: string, category: string, role: string, input: unknown): Promise<unknown>;
   listSubagents(projectSlug: string): Promise<unknown>;
-  searchKnowledge(notebookSlug: string, query: string, limit?: number): Promise<unknown>;
-  queryDatabase(alias: string, sql: string, params?: unknown[]): Promise<unknown>;
-  notify(channelSlug: string, text: string): Promise<unknown>;
+  searchKnowledge(projectSlug: string, notebookSlug: string, query: string, limit?: number): Promise<unknown>;
+  searchKnowledgeAcrossProjects(query: string, projectSlug?: string, limit?: number): Promise<unknown>;
+  queryDatabase(projectSlug: string, integrationId: string, sql: string, params?: unknown[]): Promise<unknown>;
+  notify(projectSlug: string, integrationId: string, text: string, recipient?: string): Promise<unknown>;
   health(): Promise<unknown>;
+  overview(): Promise<unknown>;
+}
+
+export interface PlatformClientScope {
+  projectSlug?: string;
+  global?: boolean;
 }
 
 export class HttpPlatformClient implements PlatformClient {
   constructor(
     private readonly baseUrl: string,
     private readonly token: string,
-    private readonly projectSlug?: string,
+    private readonly scope: PlatformClientScope = {},
   ) {}
 
   private async request(method: string, path: string, body?: unknown): Promise<unknown> {
@@ -28,7 +36,8 @@ export class HttpPlatformClient implements PlatformClient {
       headers: {
         "content-type": "application/json",
         ...(this.token ? { "x-platform-token": this.token } : {}),
-        ...(this.projectSlug ? { "x-platform-project": this.projectSlug } : {}),
+        ...(this.scope.projectSlug ? { "x-platform-project": this.scope.projectSlug } : {}),
+        ...(this.scope.global ? { "x-platform-scope": "global" } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(60_000),
@@ -45,38 +54,51 @@ export class HttpPlatformClient implements PlatformClient {
     return payload;
   }
 
+  private projectPath(projectSlug: string, suffix: string): string {
+    return `/api/projects/${projectSlug}${suffix}`;
+  }
+
   listProjects() {
     return this.request("GET", "/api/projects");
   }
   getWorkflow(projectSlug: string) {
-    return this.request("GET", `/api/projects/${projectSlug}/workflow`);
+    return this.request("GET", this.projectPath(projectSlug, "/workflow"));
   }
   upsertWorkflow(projectSlug: string, graph: unknown) {
-    return this.request("PUT", `/api/projects/${projectSlug}/workflow`, graph);
+    return this.request("PUT", this.projectPath(projectSlug, "/workflow"), graph);
   }
   triggerWorkflow(projectSlug: string, payload: unknown, idempotencyKey?: string) {
-    return this.request("POST", `/api/projects/${projectSlug}/runs`, { payload, idempotencyKey });
+    return this.request("POST", this.projectPath(projectSlug, "/runs"), { payload, idempotencyKey });
   }
   listRuns(projectSlug: string, limit = 10) {
-    return this.request("GET", `/api/projects/${projectSlug}/runs?limit=${limit}`);
+    return this.request("GET", this.projectPath(projectSlug, `/runs?limit=${limit}`));
+  }
+  listAllRuns(limit = 20) {
+    return this.request("GET", `/api/control/runs?limit=${limit}`);
   }
   upsertSubagent(projectSlug: string, category: string, role: string, input: unknown) {
-    return this.request("PUT", `/api/projects/${projectSlug}/agents/${category}/${role}`, input);
+    return this.request("PUT", this.projectPath(projectSlug, `/agents/${category}/${role}`), input);
   }
   listSubagents(projectSlug: string) {
-    return this.request("GET", `/api/projects/${projectSlug}/agents`);
+    return this.request("GET", this.projectPath(projectSlug, "/agents"));
   }
-  searchKnowledge(notebookSlug: string, query: string, limit = 5) {
-    return this.request("POST", `/api/notebooks/${notebookSlug}/search`, { query, limit });
+  searchKnowledge(projectSlug: string, notebookSlug: string, query: string, limit = 5) {
+    return this.request("POST", this.projectPath(projectSlug, `/notebooks/${notebookSlug}/search`), { query, limit });
   }
-  queryDatabase(alias: string, sql: string, params: unknown[] = []) {
-    return this.request("POST", `/api/databases/${alias}/query`, { sql, params });
+  searchKnowledgeAcrossProjects(query: string, projectSlug?: string, limit = 5) {
+    return this.request("POST", "/api/control/knowledge/search", { query, projectSlug, limit });
   }
-  notify(channelSlug: string, text: string) {
-    return this.request("POST", `/api/channels/${channelSlug}/notify`, { text });
+  queryDatabase(projectSlug: string, integrationId: string, sql: string, params: unknown[] = []) {
+    return this.request("POST", this.projectPath(projectSlug, `/integrations/${integrationId}/database/query`), { sql, params });
+  }
+  notify(projectSlug: string, integrationId: string, text: string, recipient?: string) {
+    return this.request("POST", this.projectPath(projectSlug, `/integrations/${integrationId}/notify`), { text, recipient });
   }
   health() {
     return this.request("GET", "/api/system/health");
+  }
+  overview() {
+    return this.request("GET", "/api/control/overview");
   }
 }
 
@@ -96,13 +118,14 @@ export interface PlatformTool {
   execute(input: unknown): Promise<{ content: string }>;
 }
 
-export function createPlatformTools(client: PlatformClient): PlatformTool[] {
+export function createPlatformTools(client: PlatformClient, scope: PlatformClientScope = {}): PlatformTool[] {
   const projectSlug = { type: "string", description: "Project/automation slug" };
+  const currentProject = scope.projectSlug;
 
   return [
     {
       name: "workflow_list",
-      description: "Lista los proyectos/automatizaciones de la plataforma.",
+      description: "Lista los proyectos/automatizaciones visibles para este scope.",
       input: objectSchema({}, []),
       async execute() {
         return { content: JSON.stringify(await client.listProjects(), null, 2) };
@@ -160,16 +183,36 @@ export function createPlatformTools(client: PlatformClient): PlatformTool[] {
     },
     {
       name: "workflow_runs",
-      description: "Consulta las últimas ejecuciones y sus pasos/errores.",
-      input: objectSchema({ projectSlug, limit: { type: "number", minimum: 1, maximum: 50 } }, ["projectSlug"]),
+      description: "Consulta las últimas ejecuciones y sus pasos/errores. Sin projectSlug consulta todos los proyectos.",
+      input: objectSchema(
+        { projectSlug: { ...projectSlug, description: "Opcional; si se omite consulta todos los proyectos" }, limit: { type: "number", minimum: 1, maximum: 50 } },
+        [],
+      ),
       async execute(input) {
-        const parsed = z.object({ projectSlug: slug, limit: z.number().int().min(1).max(50).optional() }).parse(input);
-        return { content: JSON.stringify(await client.listRuns(parsed.projectSlug, parsed.limit), null, 2) };
+        const parsed = z
+          .object({ projectSlug: slug.optional(), limit: z.number().int().min(1).max(50).optional() })
+          .parse(input);
+        const project = parsed.projectSlug ?? currentProject;
+        return {
+          content: JSON.stringify(
+            project ? await client.listRuns(project, parsed.limit) : await client.listAllRuns(parsed.limit),
+            null,
+            2,
+          ),
+        };
+      },
+    },
+    {
+      name: "project_overview",
+      description: "Resume proyectos, ejecuciones recientes, errores e integraciones de la plataforma.",
+      input: objectSchema({}, []),
+      async execute() {
+        return { content: JSON.stringify(await client.overview(), null, 2) };
       },
     },
     {
       name: "subagent_upsert",
-      description: "Crea o actualiza un sub-agente Markdown en .opencode/agents/<categoria>/<rol>.md.",
+      description: "Crea o actualiza un agente Markdown en .opencode/agents/<categoria>/<rol>.md.",
       input: objectSchema(
         {
           projectSlug,
@@ -178,7 +221,7 @@ export function createPlatformTools(client: PlatformClient): PlatformTool[] {
           description: { type: "string" },
           mode: { type: "string", enum: ["primary", "subagent", "all"] },
           model: { type: "string", description: "provider/model#variant" },
-          body: { type: "string", description: "Instrucciones de sistema del sub-agente" },
+          body: { type: "string", description: "Instrucciones de sistema del agente" },
           permissions: { type: "array", description: "Reglas allow/deny/ask" },
           notebooks: { type: "array", items: { type: "string" }, description: "Bancos de información asignados" },
         },
@@ -206,7 +249,7 @@ export function createPlatformTools(client: PlatformClient): PlatformTool[] {
     },
     {
       name: "subagent_list",
-      description: "Lista los sub-agentes y categorías de un proyecto.",
+      description: "Lista los agentes y categorías de un proyecto.",
       input: objectSchema({ projectSlug }, ["projectSlug"]),
       async execute(input) {
         const { projectSlug: project } = z.object({ projectSlug: slug }).parse(input);
@@ -215,47 +258,86 @@ export function createPlatformTools(client: PlatformClient): PlatformTool[] {
     },
     {
       name: "kb_search",
-      description: "Busca en un Banco de Información (Notebook) y devuelve fragmentos con citas.",
-      input: objectSchema(
-        { notebookSlug: slug, query: { type: "string" }, limit: { type: "number", minimum: 1, maximum: 20 } },
-        ["notebookSlug", "query"],
-      ),
-      async execute(input) {
-        const parsed = z
-          .object({ notebookSlug: slug, query: z.string().min(1), limit: z.number().int().min(1).max(20).optional() })
-          .parse(input);
-        return { content: JSON.stringify(await client.searchKnowledge(parsed.notebookSlug, parsed.query, parsed.limit), null, 2) };
-      },
-    },
-    {
-      name: "db_query",
-      description: "Ejecuta una consulta SQL contra una base de datos externa registrada por alias.",
+      description: "Busca en los Bancos de Información de un proyecto o en todos los proyectos y devuelve citas.",
       input: objectSchema(
         {
-          alias: { type: "string", pattern: "^[a-z][a-z0-9_-]{1,60}$", description: "Database alias" },
-          sql: { type: "string" },
-          params: { type: "array" },
+          projectSlug: { ...projectSlug, description: "Opcional; en scope global busca en todos si se omite" },
+          notebookSlug: { type: "string", description: "Notebook slug dentro del proyecto" },
+          query: { type: "string" },
+          limit: { type: "number", minimum: 1, maximum: 20 },
         },
-        ["alias", "sql"],
+        ["query"],
       ),
       async execute(input) {
         const parsed = z
           .object({
-            alias: z.string().regex(/^[a-z][a-z0-9_-]{1,60}$/),
+            projectSlug: slug.optional(),
+            notebookSlug: z.string().optional(),
+            query: z.string().min(1),
+            limit: z.number().int().min(1).max(20).optional(),
+          })
+          .parse(input);
+        const project = parsed.projectSlug ?? currentProject;
+        const result =
+          project && parsed.notebookSlug
+            ? await client.searchKnowledge(project, parsed.notebookSlug, parsed.query, parsed.limit)
+            : await client.searchKnowledgeAcrossProjects(parsed.query, project, parsed.limit);
+        return { content: JSON.stringify(result, null, 2) };
+      },
+    },
+    {
+      name: "db_query",
+      description: "Ejecuta una consulta SQL contra una integración de base de datos del proyecto.",
+      input: objectSchema(
+        {
+          projectSlug,
+          integrationId: { type: "string", description: "ID estable de la integración de base de datos" },
+          sql: { type: "string" },
+          params: { type: "array" },
+        },
+        ["projectSlug", "integrationId", "sql"],
+      ),
+      async execute(input) {
+        const parsed = z
+          .object({
+            projectSlug: slug,
+            integrationId: z.string().min(1),
             sql: z.string().min(1),
             params: z.array(z.unknown()).optional(),
           })
           .parse(input);
-        return { content: JSON.stringify(await client.queryDatabase(parsed.alias, parsed.sql, parsed.params), null, 2) };
+        return {
+          content: JSON.stringify(
+            await client.queryDatabase(parsed.projectSlug, parsed.integrationId, parsed.sql, parsed.params),
+            null,
+            2,
+          ),
+        };
       },
     },
     {
       name: "notify",
-      description: "Envía un mensaje a un canal (Telegram, WhatsApp o chat externo).",
-      input: objectSchema({ channelSlug: slug, text: { type: "string" } }, ["channelSlug", "text"]),
+      description: "Envía un mensaje por una integración de canal del proyecto.",
+      input: objectSchema(
+        { projectSlug, integrationId: { type: "string" }, text: { type: "string" }, recipient: { type: "string" } },
+        ["projectSlug", "integrationId", "text"],
+      ),
       async execute(input) {
-        const parsed = z.object({ channelSlug: slug, text: z.string().min(1).max(4096) }).parse(input);
-        return { content: JSON.stringify(await client.notify(parsed.channelSlug, parsed.text), null, 2) };
+        const parsed = z
+          .object({
+            projectSlug: slug,
+            integrationId: z.string().min(1),
+            text: z.string().min(1).max(4096),
+            recipient: z.string().optional(),
+          })
+          .parse(input);
+        return {
+          content: JSON.stringify(
+            await client.notify(parsed.projectSlug, parsed.integrationId, parsed.text, parsed.recipient),
+            null,
+            2,
+          ),
+        };
       },
     },
     {

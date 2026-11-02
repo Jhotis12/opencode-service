@@ -6,27 +6,35 @@ import { KnowledgeError } from "./extractors.ts";
 const SLUG = /^[a-z0-9][a-z0-9-]{1,60}$/;
 
 export class KnowledgeFileStore implements KnowledgeFilePort {
-  constructor(private readonly rootDir: string) {}
+  constructor(private readonly workspacesDir: string) {}
 
-  async writeSource(notebookSlug: string, sourceId: string, markdown: string): Promise<string> {
-    if (!SLUG.test(notebookSlug) || !/^[a-zA-Z0-9-]{8,80}$/.test(sourceId)) {
-      throw new KnowledgeError("EXTRACTION_FAILED", "invalid notebook or source id");
+  async writeSource(projectSlug: string, notebookSlug: string, sourceId: string, markdown: string): Promise<string> {
+    if (!SLUG.test(projectSlug) || !SLUG.test(notebookSlug) || !/^[a-zA-Z0-9-]{8,80}$/.test(sourceId)) {
+      throw new KnowledgeError("EXTRACTION_FAILED", "invalid project, notebook or source id");
     }
-    const directory = join(this.rootDir, notebookSlug, "sources");
+    const directory = join(this.workspacesDir, projectSlug, "knowledge", notebookSlug, "sources");
     await mkdir(directory, { recursive: true });
     const path = join(directory, `${sourceId}.md`);
     await writeFile(path, markdown, "utf8");
-    return relative(this.rootDir, path).split(sep).join("/");
+    return relative(join(this.workspacesDir, projectSlug), path).split(sep).join("/");
   }
 
-  async readSource(relativePath: string): Promise<string> {
-    if (isAbsolute(relativePath)) throw new KnowledgeError("EXTRACTION_FAILED", "invalid source path");
-    const realRoot = await realpath(this.rootDir).catch(() => this.rootDir);
-    const candidate = resolve(this.rootDir, relativePath);
-    const relation = relative(realRoot, candidate);
-    if (relation.startsWith("..") || isAbsolute(relation)) {
-      throw new KnowledgeError("EXTRACTION_FAILED", "source path escapes the knowledge root");
+  async readSource(projectSlug: string, relativePath: string): Promise<string> {
+    if (!SLUG.test(projectSlug) || isAbsolute(relativePath)) {
+      throw new KnowledgeError("EXTRACTION_FAILED", "invalid source path");
     }
-    return readFile(candidate, "utf8");
+    const projectRoot = join(this.workspacesDir, projectSlug);
+    const candidate = resolve(projectRoot, relativePath);
+    const realRoot = await realpath(projectRoot).catch(() => {
+      throw new KnowledgeError("EXTRACTION_FAILED", "project not found");
+    });
+    const realCandidate = await realpath(candidate).catch(() => {
+      throw new KnowledgeError("EXTRACTION_FAILED", "source not found");
+    });
+    const relation = relative(realRoot, realCandidate);
+    if (relation.startsWith("..") || isAbsolute(relation)) {
+      throw new KnowledgeError("EXTRACTION_FAILED", "source path escapes the project");
+    }
+    return readFile(realCandidate, "utf8");
   }
 }

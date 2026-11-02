@@ -1,10 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { SseEvent } from "@platform/shared";
-import { ChannelEgressRouter } from "../src/infrastructure/in/channels/egress-router.ts";
-import {
-  TelegramChannelAdapter,
-  type TelegramTransport,
-} from "../src/infrastructure/in/channels/telegram-adapter.ts";
+import { IntegrationEgressRouter } from "../src/infrastructure/in/channels/egress-router.ts";
+import { TelegramChannelAdapter, type TelegramTransport } from "../src/infrastructure/in/channels/telegram-adapter.ts";
 import {
   WhatsAppChannelAdapter,
   WhatsAppCloudTransport,
@@ -84,7 +81,9 @@ describe("channel adapters", () => {
     const { router, calls } = routerRecorder();
     const events: SseEvent[] = [];
     const adapter = new TelegramChannelAdapter({
-      slug: "telegram",
+      integrationId: "telegram",
+      scope: "project",
+      projectSlug: "ventas",
       transport,
       router: router as never,
       events: { publish: (event) => events.push(event) },
@@ -93,17 +92,18 @@ describe("channel adapters", () => {
     await adapter.start();
     transport.handler?.({ senderId: "123", text: "hola" });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    expect(calls[0]).toEqual({ channelSlug: "telegram", channelType: "telegram", senderId: "123", text: "hola" });
+    expect(calls[0]).toEqual({ integrationId: "telegram", kind: "telegram", senderId: "123", text: "hola" });
     await adapter.send("respuesta", "123");
     expect(transport.sent[0]).toEqual({ to: "123", text: "respuesta" });
-    expect(events.some((event) => event.type === "channel.status" && event.status === "connected")).toBe(true);
+    expect(events.some((event) => event.type === "integration.status" && event.status === "connected")).toBe(true);
     await adapter.stop();
-    expect(events.some((event) => event.type === "channel.status" && event.status === "disconnected")).toBe(true);
+    expect(events.some((event) => event.type === "integration.status" && event.status === "disconnected")).toBe(true);
   });
 
   it("requires a recipient for telegram replies", async () => {
     const adapter = new TelegramChannelAdapter({
-      slug: "telegram",
+      integrationId: "telegram",
+      scope: "project",
       transport: new FakeTelegram(),
       router: routerRecorder().router as never,
       events: { publish() {} },
@@ -117,7 +117,9 @@ describe("channel adapters", () => {
     const { router, calls } = routerRecorder();
     const events: SseEvent[] = [];
     const adapter = new WhatsAppChannelAdapter({
-      slug: "whatsapp",
+      integrationId: "whatsapp",
+      scope: "project",
+      projectSlug: "ventas",
       transport,
       router: router as never,
       events: { publish: (event) => events.push(event) },
@@ -127,10 +129,10 @@ describe("channel adapters", () => {
     transport.onQr?.("qr-payload");
     transport.handler?.({ senderId: "57300@s.whatsapp.net", text: "hola" });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    expect(events.some((event) => event.type === "channel.status" && event.qr === "qr-payload")).toBe(true);
+    expect(events.some((event) => event.type === "integration.status" && event.qr === "qr-payload")).toBe(true);
     expect(calls[0]).toEqual({
-      channelSlug: "whatsapp",
-      channelType: "whatsapp",
+      integrationId: "whatsapp",
+      kind: "whatsapp",
       senderId: "57300@s.whatsapp.net",
       text: "hola",
     });
@@ -165,8 +167,8 @@ describe("channel adapters", () => {
 });
 
 describe("egress router", () => {
-  it("routes replies to the registered channel", async () => {
-    const router = new ChannelEgressRouter();
+  it("routes replies to the registered integration", async () => {
+    const router = new IntegrationEgressRouter();
     const sent: string[] = [];
     router.register("telegram", async (text) => {
       sent.push(text);

@@ -20,13 +20,14 @@ const NOTEBOOK_SLUG = /^[a-z0-9][a-z0-9-]{1,60}$/;
 export class IngestKnowledgeUseCase {
   constructor(private readonly deps: IngestDeps) {}
 
-  createNotebook(input: { slug: string; name: string; description?: string }): NotebookRecord {
+  createNotebook(projectSlug: string, input: { slug: string; name: string; description?: string }): NotebookRecord {
     if (!NOTEBOOK_SLUG.test(input.slug)) throw new KnowledgeError("EXTRACTION_FAILED", "invalid notebook slug");
-    if (this.deps.store.notebooks.findBySlug(input.slug)) {
+    if (this.deps.store.notebooks.findBySlug(projectSlug, input.slug)) {
       throw new KnowledgeError("EXTRACTION_FAILED", `notebook already exists: ${input.slug}`);
     }
     const notebook: NotebookRecord = {
       id: crypto.randomUUID(),
+      projectSlug,
       slug: input.slug,
       name: input.name,
       description: input.description ?? "",
@@ -36,15 +37,16 @@ export class IngestKnowledgeUseCase {
     return notebook;
   }
 
-  listNotebooks(): NotebookRecord[] {
-    return this.deps.store.notebooks.list();
+  listNotebooks(projectSlug: string): NotebookRecord[] {
+    return this.deps.store.notebooks.list(projectSlug);
   }
 
   async ingestFile(
+    projectSlug: string,
     notebookSlug: string,
     input: { filename: string; mime?: string; bytes: Uint8Array },
   ): Promise<{ source: KbSourceRecord; chunks: number; embedded: boolean }> {
-    const notebook = this.requireNotebook(notebookSlug);
+    const notebook = this.requireNotebook(projectSlug, notebookSlug);
     const extracted = await this.deps.extractor.extract(input);
     return this.index(notebook, {
       title: input.filename,
@@ -54,8 +56,12 @@ export class IngestKnowledgeUseCase {
     });
   }
 
-  async ingestUrl(notebookSlug: string, rawUrl: string): Promise<{ source: KbSourceRecord; chunks: number; embedded: boolean }> {
-    const notebook = this.requireNotebook(notebookSlug);
+  async ingestUrl(
+    projectSlug: string,
+    notebookSlug: string,
+    rawUrl: string,
+  ): Promise<{ source: KbSourceRecord; chunks: number; embedded: boolean }> {
+    const notebook = this.requireNotebook(projectSlug, notebookSlug);
     let safe: { url: URL };
     try {
       safe = await assertSafeUrl(rawUrl, this.deps.resolver);
@@ -88,8 +94,8 @@ export class IngestKnowledgeUseCase {
     });
   }
 
-  private requireNotebook(slug: string): NotebookRecord {
-    const notebook = this.deps.store.notebooks.findBySlug(slug);
+  private requireNotebook(projectSlug: string, slug: string): NotebookRecord {
+    const notebook = this.deps.store.notebooks.findBySlug(projectSlug, slug);
     if (!notebook) throw new KnowledgeError("EXTRACTION_FAILED", `unknown notebook: ${slug}`);
     return notebook;
   }
@@ -104,7 +110,7 @@ export class IngestKnowledgeUseCase {
     if (chunks.length === 0) throw new KnowledgeError("EXTRACTION_FAILED", "document produced no chunks");
 
     const sourceId = crypto.randomUUID();
-    const markdownPath = await this.deps.files.writeSource(notebook.slug, sourceId, markdown);
+    const markdownPath = await this.deps.files.writeSource(notebook.projectSlug, notebook.slug, sourceId, markdown);
     const source: KbSourceRecord = {
       id: sourceId,
       notebookId: notebook.id,

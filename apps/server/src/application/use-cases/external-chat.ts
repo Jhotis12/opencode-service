@@ -1,75 +1,20 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
+import { ChannelRoutingSchema } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { SecretVault } from "../ports/security.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
-import type { ChannelRecord } from "../../domain/entities.ts";
 import { assertSafeUrl } from "../../domain/knowledge/url-safety.ts";
 import type { ExecuteWorkflowRunUseCase } from "./execute-workflow.ts";
+import { verifyIntegrationKey } from "./manage-integrations.ts";
+import { validateWorkflowResources } from "./workflow-resources.ts";
+import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
+import type { Logger } from "../../domain/telemetry/index.ts";
 
 export class ChannelAuthError extends Error {
   constructor() {
-    super("invalid channel key");
+    super("invalid integration key");
     this.name = "ChannelAuthError";
-  }
-}
-
-export interface ExternalChatConfig {
-  webhookSecret?: string;
-  projectSlug?: string;
-  workflowId?: string;
-  agentId?: string;
-  model?: string;
-}
-
-export function hashChannelKey(key: string): string {
-  return createHash("sha256").update(key).digest("hex");
-}
-
-export function verifyChannelKey(key: string, expectedHash: string | undefined): boolean {
-  if (!expectedHash) return false;
-  const actual = Buffer.from(hashChannelKey(key));
-  const expected = Buffer.from(expectedHash);
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
-}
-
-export class CreateChannelUseCase {
-  constructor(
-    private readonly store: Store,
-    private readonly vault: SecretVault,
-  ) {}
-
-  execute(input: {
-    slug: string;
-    type: "telegram" | "whatsapp" | "external_chat";
-    name: string;
-    adminAllowlist?: string[];
-    isPublic?: boolean;
-    config?: Record<string, unknown>;
-  }): { channel: ChannelRecord; apiKey?: string; webhookSecret?: string } {
-    if (!/^[a-z0-9][a-z0-9-]{1,60}$/.test(input.slug)) throw new Error("invalid channel slug");
-    if (this.store.channels.findBySlug(input.slug)) throw new Error(`channel already exists: ${input.slug}`);
-    const apiKey = input.type === "external_chat" ? `sk_chat_${crypto.randomUUID().replaceAll("-", "")}` : undefined;
-    const webhookSecret = input.type === "external_chat" ? randomBytes(24).toString("hex") : undefined;
-    const config = { ...(input.config ?? {}), ...(webhookSecret ? { webhookSecret } : {}) };
-    const channel: ChannelRecord = {
-      id: crypto.randomUUID(),
-      slug: input.slug,
-      type: input.type,
-      name: input.name,
-      configCiphertext: this.vault.encrypt(JSON.stringify(config)),
-      keyHash: apiKey ? hashChannelKey(apiKey) : undefined,
-      adminAllowlist: input.adminAllowlist ?? [],
-      isPublic: input.isPublic ?? false,
-      status: "disconnected",
-      createdAt: new Date().toISOString(),
-    };
-    this.store.channels.create(channel);
-    return { channel, apiKey, webhookSecret };
-  }
-
-  list(): ChannelRecord[] {
-    return this.store.channels.list();
   }
 }
 
@@ -103,83 +48,122 @@ export class SendExternalChatMessageUseCase {
       agent: AgentRuntimePort;
       workspace: WorkspacePort;
       executor: Pick<ExecuteWorkflowRunUseCase, "execute">;
-      defaultDirectory: string;
+      controlDirectory: string;
       fetchImpl?: typeof fetch;
       webhookValidator?: (url: string) => Promise<unknown>;
+      logger?: Logger;
     },
   ) {}
 
   async execute(input: {
-    channelSlug: string;
+    integrationId: string;
     apiKey: string;
     threadId: string;
     message: string;
     metadata?: Record<string, unknown>;
     webhookUrl?: string;
     onSession?: (sessionId: string) => Promise<void> | void;
-  }): Promise<{ threadId: string; sessionId: string; reply: string; channel: ChannelRecord; config: ExternalChatConfig }> {
-    const channel = this.deps.store.channels.findBySlug(input.channelSlug);
-    if (!channel || channel.type !== "external_chat" || !verifyChannelKey(input.apiKey, channel.keyHash)) {
+  }): Promise<{ threadId: string; sessionId: string; reply: string; integrationId: string }> {
+    const integration = this.deps.store.integrations.findById(input.integrationId);
+    if (
+      !integration ||
+      integration.kind !== "external_chat" ||
+      !verifyIntegrationKey(input.apiKey, integration.keyHash)
+    ) {
       throw new ChannelAuthError();
     }
-    const config = JSON.parse(this.deps.vault.decrypt(channel.configCiphertext!)) as ExternalChatConfig;
-
     if (input.webhookUrl) {
       const validator = this.deps.webhookValidator ?? ((url: string) => assertSafeUrl(url));
       await validator(input.webhookUrl);
-      this.deps.store.channels.setWebhook(channel.slug, input.webhookUrl);
+      integration.config = { ...integration.config, webhookUrl: input.webhookUrl };
+      this.deps.store.integrations.update(integration.id, { config: integration.config });
     }
 
-    const thread = this.deps.store.threads.findOrCreate({
-      channelSlug: channel.slug,
+    const routing = ChannelRoutingSchema.parse(integration.config.routing ?? {});
+    const thread = this.deps.store.chatThreads.findOrCreate({
+      scope: integration.scope,
+      projectSlug: integration.projectSlug,
+      integrationId: integration.id,
       externalThreadId: input.threadId,
-      projectSlug: config.projectSlug,
-      workflowId: config.workflowId,
+      title: `${integration.name} · ${input.threadId}`,
     });
 
-    if (config.workflowId && config.projectSlug) {
-      const graph = await this.deps.workspace.readWorkflow(config.projectSlug);
-      const run = await this.deps.executor.execute({
-        projectSlug: config.projectSlug,
-        graph,
-        payload: { message: input.message, threadId: input.threadId, metadata: input.metadata ?? {} },
-        entryPoint: "external_chat",
-      });
-      const reply = typeof run.output === "string" ? run.output : JSON.stringify(run.output ?? run.status);
-      this.deps.store.threads.touch(thread.id);
-      await this.maybeDeliver(channel, config, input.webhookUrl, { threadId: input.threadId, runId: run.id, status: run.status, reply });
-      return { threadId: input.threadId, sessionId: thread.opencodeSessionId ?? "", reply, channel, config };
+    if (routing.mode !== "agent" && integration.projectSlug) {
+      const graph = await this.deps.workspace.readWorkflow(integration.projectSlug);
+      const trigger = graph.nodes.find(
+        (node) =>
+          node.type === "trigger" &&
+          node.config.integrationId === integration.id &&
+          String(node.config.event ?? "message.received") === "message.received",
+      );
+      if (trigger) {
+        await validateWorkflowResources(this.deps.store, this.deps.workspace, integration.projectSlug, graph);
+        const run = await this.deps.executor.execute({
+          projectSlug: integration.projectSlug,
+          graph,
+          payload: { message: input.message, threadId: input.threadId, metadata: input.metadata ?? {} },
+          entryPoint: "external_chat",
+          integrationId: integration.id,
+          launchedBy: `external:${input.threadId}`,
+          sourceDetail: `integration:${integration.id}`,
+        });
+        const reply = typeof run.output === "string" ? run.output : JSON.stringify(run.output ?? run.status);
+        this.deps.store.chatThreads.touch(thread.id);
+        await this.maybeDeliver(integration, input.webhookUrl, {
+          threadId: input.threadId,
+          runId: run.id,
+          status: run.status,
+          reply,
+        });
+        return { threadId: input.threadId, sessionId: thread.opencodeSessionId ?? "", reply, integrationId: integration.id };
+      }
     }
 
-    let sessionId = thread.opencodeSessionId;
-    if (!sessionId) {
-      const directory = config.projectSlug
-        ? await this.deps.workspace.projectDirectory(config.projectSlug)
-        : this.deps.defaultDirectory;
-      const session = await this.deps.agent.createSession({
+    const project = integration.projectSlug ? this.deps.store.projects.findBySlug(integration.projectSlug) : undefined;
+    const directory = integration.projectSlug
+      ? await this.deps.workspace.projectDirectory(integration.projectSlug)
+      : this.deps.controlDirectory;
+    const create = () =>
+      this.deps.agent.createSession({
         directory,
-        title: `Chat externo ${channel.slug} · ${input.threadId}`,
-        agent: config.agentId,
-        model: config.model,
+        title: thread.title,
+        agent: project?.primaryAgent,
+        model: project?.defaultModel,
       });
-      sessionId = session.id;
-      this.deps.store.threads.setSession(thread.id, sessionId);
-    }
+    const sessionFactory = { create, agentId: project?.primaryAgent, logger: this.deps.logger };
+    const sessionId = await ensureChatSession(this.deps.store, this.deps.agent, thread, sessionFactory);
     await input.onSession?.(sessionId);
-    const reply = await this.deps.agent.prompt(sessionId, input.message);
-    this.deps.store.threads.touch(thread.id);
-    await this.maybeDeliver(channel, config, input.webhookUrl, { threadId: input.threadId, sessionId, reply });
-    return { threadId: input.threadId, sessionId, reply, channel, config };
+    const result = await promptWithSessionRecovery(
+      this.deps.store,
+      this.deps.agent,
+      thread,
+      sessionId,
+      input.message,
+      sessionFactory,
+    );
+    this.deps.store.chatThreads.touch(thread.id);
+    await this.maybeDeliver(integration, input.webhookUrl, {
+      threadId: input.threadId,
+      sessionId: result.sessionId,
+      reply: result.reply,
+    });
+    return { threadId: input.threadId, sessionId: result.sessionId, reply: result.reply, integrationId: integration.id };
   }
 
   private async maybeDeliver(
-    channel: ChannelRecord,
-    config: ExternalChatConfig,
+    integration: { scope: "project" | "global"; projectSlug?: string; secretRefs: Record<string, string>; config: Record<string, unknown> },
     webhookUrl: string | undefined,
     payload: unknown,
   ): Promise<void> {
-    const url = webhookUrl ?? channel.webhookUrl;
-    if (!url || !config.webhookSecret) return;
-    await deliverWebhook(url, config.webhookSecret, payload, this.deps.fetchImpl);
+    const url = webhookUrl ?? (typeof integration.config.webhookUrl === "string" ? integration.config.webhookUrl : undefined);
+    const alias = integration.secretRefs.webhookSecret;
+    if (!url || !alias) return;
+    const secret = this.deps.store.vault.findByAlias({
+      scope: integration.scope,
+      projectSlug: integration.projectSlug,
+      alias,
+    });
+    if (!secret) return;
+    await deliverWebhook(url, this.deps.vault.decrypt(secret.ciphertext), payload, this.deps.fetchImpl);
   }
 }

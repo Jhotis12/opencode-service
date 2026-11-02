@@ -3,6 +3,8 @@ import { SqliteStore } from "../src/infrastructure/out/persistence/sqlite-store.
 import { migrate } from "../src/infrastructure/out/persistence/migrate.ts";
 import { openDatabase } from "../src/infrastructure/out/persistence/db.ts";
 
+const now = new Date().toISOString();
+
 describe("persistence migrations", () => {
   it("creates the full schema on an in-memory database", () => {
     const handle = openDatabase(":memory:");
@@ -11,9 +13,24 @@ describe("persistence migrations", () => {
       .query("SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name")
       .all()
       .map((row) => (row as { name: string }).name);
-    for (const table of ["users", "vault_secrets", "external_databases", "system_settings", "system_error_events", "workflow_runs", "workflow_step_runs", "kb_chunks", "kb_chunks_fts"]) {
+    for (const table of [
+      "users",
+      "vault_secrets",
+      "system_settings",
+      "system_error_events",
+      "projects",
+      "integrations",
+      "chat_threads",
+      "chat_messages",
+      "workflow_runs",
+      "workflow_step_runs",
+      "kb_chunks",
+      "kb_chunks_fts",
+    ]) {
       expect(tables).toContain(table);
     }
+    expect(tables).not.toContain("channels");
+    expect(tables).not.toContain("external_databases");
     handle.close();
   });
 
@@ -33,7 +50,7 @@ describe("sqlite store", () => {
       username: "admin",
       passwordHash: "hash",
       mustChangePassword: true,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
     };
     store.users.create(user);
     expect(store.users.count()).toBe(1);
@@ -52,7 +69,7 @@ describe("sqlite store", () => {
       payloadHash: "hash-a",
       input: { a: 1 },
       entryPoint: "webhook" as const,
-      startedAt: new Date().toISOString(),
+      startedAt: now,
     };
     const first = store.runs.claim({ ...base, id: "r1" });
     const second = store.runs.claim({ ...base, id: "r2" });
@@ -72,14 +89,78 @@ describe("sqlite store", () => {
       input: { in: true },
       output: { out: true },
       durationMs: 5,
-      startedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
+      startedAt: now,
+      finishedAt: now,
     });
     expect(store.runs.listSteps("r1")[0]?.output).toEqual({ out: true });
-    store.runs.createApproval({ id: "a1", runId: "r1", nodeId: "review", status: "pending", createdAt: new Date().toISOString() });
+    store.runs.createApproval({ id: "a1", runId: "r1", nodeId: "review", status: "pending", createdAt: now });
     expect(store.runs.pendingApproval("r1")?.nodeId).toBe("review");
     store.runs.decideApproval("r1", "review", "approved", "admin");
     expect(store.runs.pendingApproval("r1")).toBeUndefined();
+    store.close();
+  });
+
+  it("scopes integrations, vault secrets and notebooks to a project", () => {
+    const store = new SqliteStore(":memory:");
+    store.integrations.create({
+      id: "i1",
+      scope: "project",
+      projectSlug: "ventas",
+      kind: "telegram",
+      name: "Ventas",
+      slug: "ventas-bot",
+      config: {},
+      secretRefs: {},
+      capabilities: ["inbound_message", "outbound_message"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.integrations.create({
+      id: "i2",
+      scope: "global",
+      kind: "telegram",
+      name: "Global",
+      slug: "global-bot",
+      config: {},
+      secretRefs: {},
+      capabilities: ["inbound_message", "outbound_message"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(store.integrations.list({ scope: "project", projectSlug: "ventas" })).toHaveLength(1);
+    expect(store.integrations.list({ scope: "global" })).toHaveLength(1);
+    expect(store.integrations.findBySlug({ scope: "project", projectSlug: "soporte", slug: "ventas-bot" })).toBeUndefined();
+
+    store.vault.upsert({
+      id: "v1",
+      scope: "project",
+      projectSlug: "ventas",
+      alias: "token",
+      kind: "integration:telegram",
+      ciphertext: "cipher",
+      createdAt: now,
+    });
+    expect(store.vault.findByAlias({ scope: "project", projectSlug: "ventas", alias: "token" })?.id).toBe("v1");
+    expect(store.vault.findByAlias({ scope: "project", projectSlug: "soporte", alias: "token" })).toBeUndefined();
+
+    store.notebooks.create({ id: "n1", projectSlug: "ventas", slug: "manual", name: "Manual", description: "", createdAt: now });
+    expect(store.notebooks.list("ventas")).toHaveLength(1);
+    expect(store.notebooks.list("soporte")).toHaveLength(0);
+    store.close();
+  });
+
+  it("creates and reuses chat threads by scope", () => {
+    const store = new SqliteStore(":memory:");
+    const project = store.chatThreads.findOrCreate({ scope: "project", projectSlug: "ventas", externalThreadId: "web" });
+    const same = store.chatThreads.findOrCreate({ scope: "project", projectSlug: "ventas", externalThreadId: "web" });
+    const global = store.chatThreads.findOrCreate({ scope: "global", externalThreadId: "web" });
+    expect(same.id).toBe(project.id);
+    expect(global.id).not.toBe(project.id);
+    store.chat.append({ id: "m1", threadId: project.id, role: "user", content: "hola", createdAt: now });
+    expect(store.chat.listByThread(project.id, 10)).toHaveLength(1);
+    expect(store.chat.listByThread(global.id, 10)).toHaveLength(0);
     store.close();
   });
 });

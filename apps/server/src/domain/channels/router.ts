@@ -1,10 +1,11 @@
+import type { ChannelMode } from "@platform/shared";
 import type { TriggerRef } from "../../application/ports/channels.ts";
 
 export type ApprovalCommand = { action: "approve" | "reject"; runId: string; nodeId: string };
 
-export type RouteDecision =
-  | { type: "orchestrator"; reason: "admin" }
-  | { type: "workflow"; trigger: TriggerRef; reason: "public_trigger" }
+export type ProjectRouteDecision =
+  | { type: "agent"; reason: "allowlisted" | "agent_mode" }
+  | { type: "workflow"; trigger: TriggerRef; reason: "workflow_mode" | "public_trigger" }
   | { type: "approval"; command: ApprovalCommand }
   | { type: "dropped"; reason: "not_allowed" | "no_trigger" };
 
@@ -28,22 +29,43 @@ export function parseApprovalCommand(text: string): ApprovalCommand | undefined 
   return { action: match[1] === "approve" ? "approve" : "reject", runId: match[2]!, nodeId: match[3]! };
 }
 
-export function routeMessage(input: {
+export function routeProjectMessage(input: {
   senderId: string;
   text: string;
-  channelSlug: string;
+  mode: ChannelMode;
   allowlist: string[];
+  publicTriggers: boolean;
   triggers: TriggerRef[];
-}): RouteDecision {
+}): ProjectRouteDecision {
   const isAdmin = senderMatchesAllowlist(input.senderId, input.allowlist);
   if (isAdmin) {
     const command = parseApprovalCommand(input.text);
     if (command) return { type: "approval", command };
-    return { type: "orchestrator", reason: "admin" };
   }
-  const trigger = input.triggers.find(
-    (item) => item.channelSlug === input.channelSlug && item.isPublic,
-  );
-  if (trigger) return { type: "workflow", trigger, reason: "public_trigger" };
-  return { type: "dropped", reason: input.triggers.some((item) => item.channelSlug === input.channelSlug) ? "not_allowed" : "no_trigger" };
+  if (input.mode === "agent") {
+    if (isAdmin || input.publicTriggers) return { type: "agent", reason: isAdmin ? "allowlisted" : "agent_mode" };
+    return { type: "dropped", reason: "not_allowed" };
+  }
+  if (input.mode === "hybrid") {
+    if (isAdmin) return { type: "agent", reason: "allowlisted" };
+    if (!input.publicTriggers) return { type: "dropped", reason: "not_allowed" };
+    const trigger = input.triggers[0];
+    return trigger
+      ? { type: "workflow", trigger, reason: "public_trigger" }
+      : { type: "dropped", reason: "no_trigger" };
+  }
+  if (!isAdmin && !input.publicTriggers) return { type: "dropped", reason: "not_allowed" };
+  const trigger = input.triggers[0];
+  return trigger
+    ? { type: "workflow", trigger, reason: "workflow_mode" }
+    : { type: "dropped", reason: "no_trigger" };
+}
+
+export function routeGlobalMessage(input: {
+  senderId: string;
+  allowlist: string[];
+}): { type: "orchestrator" } | { type: "dropped"; reason: "not_allowed" } {
+  return senderMatchesAllowlist(input.senderId, input.allowlist)
+    ? { type: "orchestrator" }
+    : { type: "dropped", reason: "not_allowed" };
 }

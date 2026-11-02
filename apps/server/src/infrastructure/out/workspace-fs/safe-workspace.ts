@@ -80,7 +80,9 @@ export class SafeFsWorkspaceAdapter implements WorkspacePort {
     this.assertSlug(input.slug);
     const projectRoot = join(this.rootDir, input.slug);
     await mkdir(join(projectRoot, "nodes"), { recursive: true });
-    await mkdir(join(projectRoot, ".opencode", "agents"), { recursive: true });
+    await mkdir(join(projectRoot, ".opencode", "agents", "principal"), { recursive: true });
+    await mkdir(join(projectRoot, "knowledge"), { recursive: true });
+    await this.ensureProjectScaffold(input.slug, input.name);
     const now = new Date().toISOString();
     const graph: WorkflowGraph = {
       version: 1,
@@ -108,13 +110,74 @@ export class SafeFsWorkspaceAdapter implements WorkspacePort {
       `${JSON.stringify(
         {
           $schema: "https://opencode.ai/config.json",
-          agents: {},
+          default_agent: "principal/agente",
           permissions: PROJECT_ISOLATION_PERMISSIONS,
         },
         null,
         2,
       )}\n`,
     );
+  }
+
+  async ensureProjectScaffold(slug: string, projectName = slug): Promise<void> {
+    this.assertSlug(slug);
+    const projectRoot = join(this.rootDir, slug);
+    await mkdir(join(projectRoot, "nodes"), { recursive: true });
+    await mkdir(join(projectRoot, ".opencode", "agents", "principal"), { recursive: true });
+    await mkdir(join(projectRoot, "knowledge"), { recursive: true });
+
+    const agentsPath = join(projectRoot, "AGENTS.md");
+    const agentsExists = await readFile(agentsPath, "utf8").then(() => true).catch(() => false);
+    if (!agentsExists) {
+      await this.atomicWrite(
+        agentsPath,
+        [
+          `# Proyecto ${projectName}`,
+          "",
+          "- Este proyecto es un caso de uso autocontenido.",
+          "- El flujo vive en `workflow.json`; los nodos de código en `nodes/`.",
+          "- Los agentes viven en `.opencode/agents/<categoria>/<rol>.md`.",
+          "- El conocimiento del proyecto vive en `knowledge/`.",
+          "- No compartas recursos, secretos ni conocimiento con otros proyectos.",
+        ].join("\n") + "\n",
+      );
+    }
+
+    const primaryPath = join(projectRoot, ".opencode", "agents", "principal", "agente.md");
+    const primaryExists = await readFile(primaryPath, "utf8").then(() => true).catch(() => false);
+    if (!primaryExists) {
+      await this.atomicWrite(
+        primaryPath,
+        [
+          "---",
+          "description: Agente principal del proyecto; co-diseña flujos y explica en lenguaje de negocio.",
+          "mode: primary",
+          "---",
+          "",
+          "Eres el agente principal de este proyecto. Hablas con personas de negocio.",
+          "",
+          "- Explica en términos de nodos, flujos y resultados.",
+          "- No menciones rutas, archivos ni nombres internos salvo que te lo pidan.",
+          "- Empieza con un resumen de 2-3 líneas; luego \"Qué cambié\" y \"Siguiente paso\".",
+          "- No uses tablas de más de 3 columnas; para datos largos usa listas.",
+          "- No pegues JSON crudo; describe el resultado.",
+          "- Antes de borrar o reemplazar algo, pide confirmación.",
+        ].join("\n") + "\n",
+      );
+    }
+
+    const configPath = join(projectRoot, "opencode.jsonc");
+    const config = await this.readOpencodeConfig(slug);
+    let changed = false;
+    if (!config.default_agent) {
+      config.default_agent = "principal/agente";
+      changed = true;
+    }
+    if (!Array.isArray(config.permissions)) {
+      config.permissions = PROJECT_ISOLATION_PERMISSIONS;
+      changed = true;
+    }
+    if (changed) await this.writeOpencodeConfig(slug, config);
   }
 
   async listProjects(): Promise<string[]> {
@@ -235,9 +298,11 @@ export class SafeFsWorkspaceAdapter implements WorkspacePort {
   async removeProject(slug: string): Promise<void> {
     this.assertSlug(slug);
     const dir = join(this.rootDir, slug);
-    const realRoot = await realpath(this.rootDir);
+    const realRoot = await realpath(this.rootDir).catch(() => undefined);
+    if (!realRoot) return;
     const realDir = await realpath(dir).catch(() => undefined);
-    if (!realDir || !realDir.startsWith(`${realRoot}${sep}`)) {
+    if (!realDir) return;
+    if (!realDir.startsWith(`${realRoot}${sep}`)) {
       throw new WorkspaceError("FORBIDDEN_PATH", `refusing to remove ${slug}`);
     }
     await rm(realDir, { recursive: true, force: true });

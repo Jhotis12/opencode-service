@@ -1,10 +1,9 @@
 import type {
   ApprovalRecord,
-  ChannelRecord,
   ChatMessageRecord,
-  ConversationThreadRecord,
+  ChatThreadRecord,
   ErrorEventRecord,
-  ExternalDatabaseRecord,
+  IntegrationRecord,
   KbChunkRecord,
   KbSourceRecord,
   NotebookRecord,
@@ -14,6 +13,7 @@ import type {
   VaultSecretRecord,
   WorkflowRunRecord,
 } from "../../domain/entities.ts";
+import type { EntityScope } from "../../domain/entities.ts";
 
 export interface UserRepository {
   count(): number;
@@ -25,16 +25,9 @@ export interface UserRepository {
 
 export interface VaultRepository {
   upsert(record: VaultSecretRecord): void;
-  findByAlias(alias: string): VaultSecretRecord | undefined;
-  list(): VaultSecretRecord[];
-  remove(alias: string): boolean;
-}
-
-export interface ExternalDatabaseRepository {
-  upsert(record: ExternalDatabaseRecord): void;
-  findByAlias(alias: string): ExternalDatabaseRecord | undefined;
-  list(): ExternalDatabaseRecord[];
-  remove(alias: string): boolean;
+  findByAlias(input: { scope: EntityScope; projectSlug?: string; alias: string }): VaultSecretRecord | undefined;
+  list(input: { scope: EntityScope; projectSlug?: string }): VaultSecretRecord[];
+  remove(input: { scope: EntityScope; projectSlug?: string; alias: string }): boolean;
 }
 
 export interface SettingsRepository {
@@ -52,13 +45,33 @@ export interface ProjectRepository {
   create(record: ProjectRecord): void;
   list(): ProjectRecord[];
   findBySlug(slug: string): ProjectRecord | undefined;
-  setChatSession(slug: string, sessionId: string): void;
+  update(
+    slug: string,
+    patch: Partial<Pick<ProjectRecord, "name" | "description">> & {
+      defaultModel?: string | null;
+      primaryAgent?: string | null;
+    },
+  ): void;
+}
+
+export interface IntegrationRepository {
+  create(record: IntegrationRecord): void;
+  update(id: string, patch: Partial<Omit<IntegrationRecord, "id" | "scope" | "projectSlug" | "kind" | "createdAt">>): void;
+  findById(id: string): IntegrationRecord | undefined;
+  findBySlug(input: { scope: EntityScope; projectSlug?: string; slug: string }): IntegrationRecord | undefined;
+  list(input: { scope: EntityScope; projectSlug?: string }): IntegrationRecord[];
+  listAll(): IntegrationRecord[];
+  remove(id: string): boolean;
+  updateStatus(id: string, status: IntegrationRecord["status"], lastError?: string): void;
 }
 
 export interface WorkflowRunRepository {
   claim(record: WorkflowRunRecord): { run: WorkflowRunRecord; created: boolean };
   findById(id: string): WorkflowRunRecord | undefined;
-  update(id: string, patch: Partial<Pick<WorkflowRunRecord, "status" | "output" | "error" | "finishedAt">>): void;
+  update(
+    id: string,
+    patch: Partial<Pick<WorkflowRunRecord, "status" | "output" | "error" | "finishedAt" | "entryPoint" | "launchedBy" | "sourceDetail">>,
+  ): void;
   listByProject(projectSlug: string, limit: number): WorkflowRunRecord[];
   listRecent(limit: number): WorkflowRunRecord[];
   insertStep(record: StepRunRecord): void;
@@ -69,37 +82,33 @@ export interface WorkflowRunRepository {
   decideApproval(runId: string, nodeId: string, status: "approved" | "rejected", decidedBy: string): void;
 }
 
-export interface ConversationThreadRepository {
+export interface ChatThreadRepository {
   findOrCreate(input: {
-    channelSlug: string;
-    externalThreadId: string;
+    scope: EntityScope;
     projectSlug?: string;
-    workflowId?: string;
-  }): ConversationThreadRecord;
+    integrationId?: string;
+    externalThreadId?: string;
+    title?: string;
+  }): ChatThreadRecord;
+  findById(id: string): ChatThreadRecord | undefined;
   setSession(id: string, sessionId: string): void;
   touch(id: string): void;
-  find(id: string): ConversationThreadRecord | undefined;
-}
-
-export interface ChannelRepository {
-  create(record: ChannelRecord): void;
-  findBySlug(slug: string): ChannelRecord | undefined;
-  list(): ChannelRecord[];
-  updateStatus(slug: string, status: string): void;
-  setWebhook(slug: string, webhookUrl: string | undefined): void;
+  listByProject(projectSlug: string, limit: number): ChatThreadRecord[];
 }
 
 export interface ChatRepository {
   append(record: ChatMessageRecord): void;
-  list(projectSlug: string, limit: number): ChatMessageRecord[];
-  clear(projectSlug: string): void;
+  listByThread(threadId: string, limit: number): ChatMessageRecord[];
+  clearByThread(threadId: string): void;
 }
 
 export interface NotebookRepository {
   create(record: NotebookRecord): void;
-  list(): NotebookRecord[];
-  findBySlug(slug: string): NotebookRecord | undefined;
-  remove(slug: string): void;
+  list(projectSlug: string): NotebookRecord[];
+  listAll(): NotebookRecord[];
+  findBySlug(projectSlug: string, slug: string): NotebookRecord | undefined;
+  findById(id: string): NotebookRecord | undefined;
+  remove(projectSlug: string, slug: string): void;
 }
 
 export interface KnowledgeRepository {
@@ -115,15 +124,15 @@ export interface KnowledgeRepository {
 export interface Store {
   users: UserRepository;
   vault: VaultRepository;
-  externalDatabases: ExternalDatabaseRepository;
   settings: SettingsRepository;
   errors: ErrorEventRepository;
   projects: ProjectRepository;
+  integrations: IntegrationRepository;
   runs: WorkflowRunRepository;
-  threads: ConversationThreadRepository;
-  channels: ChannelRepository;
+  chatThreads: ChatThreadRepository;
   chat: ChatRepository;
   notebooks: NotebookRepository;
   knowledge: KnowledgeRepository;
+  deleteProjectData(projectSlug: string): void;
   close(): void;
 }

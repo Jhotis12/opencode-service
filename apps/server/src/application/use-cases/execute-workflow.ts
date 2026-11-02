@@ -1,5 +1,12 @@
 import { join } from "node:path";
-import type { NodeSpec, SseEvent, WorkflowGraph, WorkflowRunStatus } from "@platform/shared";
+import {
+  InputSchemaSchema,
+  ValidateConfigSchema,
+  type NodeSpec,
+  type SseEvent,
+  type WorkflowGraph,
+  type WorkflowRunStatus,
+} from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { CodeWorkerPort, WorkerRpcHandlers } from "../ports/worker.ts";
@@ -11,11 +18,18 @@ import type { StepRunRecord, WorkflowRunRecord } from "../../domain/entities.ts"
 import {
   IdempotencyMismatchError,
   RunInFlightError,
+  computeGraphHash,
   computePayloadHash,
   nextEdge,
   startNode,
   validateWorkflowGraph,
 } from "../../domain/workflow/graph.ts";
+import {
+  NodeValidationError,
+  WorkflowInputValidationError,
+  validateInputPayload,
+  validateNodeRules,
+} from "../../domain/workflow/input.ts";
 
 export interface ExecutorDeps {
   store: Store;
@@ -28,8 +42,9 @@ export interface ExecutorDeps {
   logger: Logger;
   workerHandlers?: WorkerRpcHandlers;
   notifyApproval?: (run: WorkflowRunRecord, nodeId: string) => Promise<void>;
-  knowledgeContext?: (notebookIds: string[], query: unknown, strictGrounding: boolean) => Promise<string>;
+  knowledgeContext?: (projectSlug: string, notebookIds: string[], query: unknown, strictGrounding: boolean) => Promise<string>;
   defaultModel?: () => string | undefined;
+  projectDefaultModel?: (projectSlug: string) => string | undefined;
 }
 
 export interface ExecuteRunInput {
@@ -39,6 +54,9 @@ export interface ExecuteRunInput {
   entryPoint: WorkflowRunRecord["entryPoint"];
   idempotencyKey?: string;
   approvalOverrides?: Record<string, boolean>;
+  launchedBy?: string;
+  integrationId?: string;
+  sourceDetail?: string;
 }
 
 interface RunState {
@@ -52,7 +70,41 @@ export class ExecuteWorkflowRunUseCase {
   constructor(protected readonly deps: ExecutorDeps) {}
 
   async execute(input: ExecuteRunInput): Promise<WorkflowRunRecord> {
+    const prepared = this.prepare(input);
+    if (!prepared.created) return prepared.run;
+    return this.runGraph(input.graph, input.payload, {
+      run: prepared.run,
+      priorOutputs: undefined,
+      resumeNodeId: undefined,
+    }, input.approvalOverrides ?? {});
+  }
+
+  async start(input: ExecuteRunInput): Promise<WorkflowRunRecord> {
+    const prepared = this.prepare(input);
+    if (!prepared.created) return prepared.run;
+    void this.runGraph(input.graph, input.payload, {
+      run: prepared.run,
+      priorOutputs: undefined,
+      resumeNodeId: undefined,
+    }, input.approvalOverrides ?? {}).catch((error) => {
+      this.deps.logger.error({
+        event: "workflow_background_failed",
+        entryPoint: input.entryPoint,
+        runId: prepared.run.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    return prepared.run;
+  }
+
+  private prepare(input: ExecuteRunInput): { run: WorkflowRunRecord; created: boolean } {
     validateWorkflowGraph(input.graph);
+    const trigger = input.graph.nodes.find((node) => node.type === "trigger");
+    const schema = InputSchemaSchema.safeParse(trigger?.config.inputSchema);
+    if (schema.success) validateInputPayload(schema.data, input.payload);
+    else if (trigger?.config.inputSchema !== undefined) {
+      throw new WorkflowInputValidationError(["El esquema de entrada del trigger no es válido."]);
+    }
     const payloadHash = computePayloadHash(input.payload);
     const run: WorkflowRunRecord = {
       id: crypto.randomUUID(),
@@ -63,13 +115,17 @@ export class ExecuteWorkflowRunUseCase {
       payloadHash,
       input: input.payload,
       entryPoint: input.entryPoint,
+      launchedBy: input.launchedBy,
+      graphHash: computeGraphHash(input.graph),
+      integrationId: input.integrationId,
+      sourceDetail: input.sourceDetail,
       startedAt: new Date().toISOString(),
     };
     const claimed = this.deps.store.runs.claim(run);
     if (!claimed.created) {
       if (claimed.run.payloadHash !== payloadHash) throw new IdempotencyMismatchError();
       if (claimed.run.status === "running" || claimed.run.status === "paused") throw new RunInFlightError(claimed.run.id);
-      return claimed.run;
+      return { run: claimed.run, created: false };
     }
     this.deps.events.publish({
       type: "run.updated",
@@ -78,14 +134,15 @@ export class ExecuteWorkflowRunUseCase {
       workflowId: run.workflowId,
       status: run.status,
     });
-    return this.runGraph(input.graph, input.payload, {
-      run,
-      priorOutputs: undefined,
-      resumeNodeId: undefined,
-    }, input.approvalOverrides ?? {});
+    return { run, created: true };
   }
 
-  async replay(runId: string, fromNodeId?: string, entryPoint: WorkflowRunRecord["entryPoint"] = "replay"): Promise<WorkflowRunRecord> {
+  async replay(
+    runId: string,
+    fromNodeId?: string,
+    entryPoint: WorkflowRunRecord["entryPoint"] = "replay",
+    launchedBy?: string,
+  ): Promise<WorkflowRunRecord> {
     const run = this.deps.store.runs.findById(runId);
     if (!run) throw new Error(`run not found: ${runId}`);
     const graph = await this.deps.workspace.readWorkflow(run.projectSlug);
@@ -96,7 +153,14 @@ export class ExecuteWorkflowRunUseCase {
     }
     const failed = steps.find((step) => step.status === "failed" || step.status === "timed_out");
     const resumeNodeId = fromNodeId ?? failed?.nodeId ?? graph.nodes[graph.nodes.length - 1]?.id;
-    this.deps.store.runs.update(runId, { status: "running", error: undefined, finishedAt: undefined });
+    this.deps.store.runs.update(runId, {
+      status: "running",
+      error: undefined,
+      finishedAt: undefined,
+      entryPoint,
+      launchedBy,
+      sourceDetail: `replay:${runId}`,
+    });
     this.deps.events.publish({
       type: "run.updated",
       projectSlug: run.projectSlug,
@@ -183,6 +247,15 @@ export class ExecuteWorkflowRunUseCase {
 
         const startedAt = new Date().toISOString();
         const started = Date.now();
+        events.publish({
+          type: "run.updated",
+          projectSlug: state.run.projectSlug,
+          runId: state.run.id,
+          workflowId: state.run.workflowId,
+          status: "running",
+          nodeId: current.id,
+          stepStatus: "running",
+        });
         let output: unknown;
         let model: string | undefined;
         let agentId: string | undefined;
@@ -196,6 +269,7 @@ export class ExecuteWorkflowRunUseCase {
             try {
               return await worker.execute({
                 nodeId: current.id,
+                projectSlug: state.run.projectSlug,
                 codePath,
                 input: currentInput,
                 timeoutMs: current.timeoutMs,
@@ -231,9 +305,17 @@ export class ExecuteWorkflowRunUseCase {
           output = currentInput;
         } else if (current.type === "transform") {
           output = executeTransform(current, currentInput);
+        } else if (current.type === "validate") {
+          const config = ValidateConfigSchema.parse(current.config);
+          validateNodeRules(config, currentInput);
+          output = currentInput;
         } else if (current.type === "agent") {
           agentId = current.agentId;
-          const selectedModel = current.modelOverride ?? graph.defaultModel ?? this.deps.defaultModel?.();
+          const selectedModel =
+            current.modelOverride ??
+            graph.defaultModel ??
+            this.deps.projectDefaultModel?.(state.run.projectSlug) ??
+            this.deps.defaultModel?.();
           model = selectedModel;
           if (!state.sessionId) {
             const session = await agent.createSession({
@@ -250,6 +332,7 @@ export class ExecuteWorkflowRunUseCase {
           let prompt = buildNodePrompt(graph, current.id, currentInput);
           if (current.notebookIds.length > 0 && this.deps.knowledgeContext) {
             const context = await this.deps.knowledgeContext(
+              state.run.projectSlug,
               current.notebookIds,
               currentInput,
               current.config.strictGrounding === true,
@@ -287,6 +370,7 @@ export class ExecuteWorkflowRunUseCase {
                   workflowId: state.run.workflowId,
                   status: "paused",
                   nodeId: current.id,
+                  stepStatus: "running",
                 });
                 await this.deps.notifyApproval?.(state.run, current.id);
                 return store.runs.findById(state.run.id)!;
@@ -325,6 +409,7 @@ export class ExecuteWorkflowRunUseCase {
           workflowId: state.run.workflowId,
           status: "running",
           nodeId: current.id,
+          stepStatus: "succeeded",
           output,
         });
         lastOutput = output;
@@ -364,6 +449,8 @@ export class ExecuteWorkflowRunUseCase {
         runId: state.run.id,
         projectSlug: state.run.projectSlug,
         workflowId: state.run.workflowId,
+        integrationId: state.run.integrationId,
+        launchedBy: state.run.launchedBy,
       });
     } catch (error) {
       const timeout = error instanceof WorkerTimeoutError;
@@ -387,12 +474,15 @@ export class ExecuteWorkflowRunUseCase {
         entryPoint,
         runId: state.run.id,
         projectSlug: state.run.projectSlug,
+        integrationId: state.run.integrationId,
         nodeId: current.id,
       });
       logger.error({
         event: "workflow_failed",
         entryPoint,
         runId: state.run.id,
+        projectSlug: state.run.projectSlug,
+        integrationId: state.run.integrationId,
         nodeId: current.id,
         error: message,
       });
@@ -403,6 +493,7 @@ export class ExecuteWorkflowRunUseCase {
         workflowId: state.run.workflowId,
         status,
         nodeId: current.id,
+        stepStatus: timeout ? "timed_out" : "failed",
         error: message,
       });
     }

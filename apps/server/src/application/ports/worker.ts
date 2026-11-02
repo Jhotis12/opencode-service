@@ -1,11 +1,12 @@
 export interface WorkerRpcHandlers {
-  db?: (args: { alias: string; sql: string; params: unknown[] }) => Promise<unknown>;
-  notify?: (args: { channelSlug: string; text: string }) => Promise<unknown>;
+  db?: (args: { projectSlug: string; integrationId: string; sql: string; params: unknown[] }) => Promise<unknown>;
+  notify?: (args: { projectSlug: string; integrationId: string; text: string }) => Promise<unknown>;
 }
 
 export interface CodeWorkerPort {
   execute(input: {
     nodeId: string;
+    projectSlug: string;
     codePath: string;
     input: unknown;
     timeoutMs: number;

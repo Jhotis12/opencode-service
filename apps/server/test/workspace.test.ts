@@ -81,7 +81,10 @@ describe("safe filesystem workspace", () => {
     const { ws } = await workspace();
     await ws.createProject({ slug: "p1", name: "P1" });
     await ws.writeAgent("p1", ".opencode/agents/ventas/calificador.md", "---\ndescription: x\n---\nbody\n");
-    expect(await ws.listAgentFiles("p1")).toEqual([".opencode/agents/ventas/calificador.md"]);
+    expect(await ws.listAgentFiles("p1")).toEqual([
+      ".opencode/agents/principal/agente.md",
+      ".opencode/agents/ventas/calificador.md",
+    ]);
     expect(await ws.readAgent("p1", ".opencode/agents/ventas/calificador.md")).toContain("body");
     await expect(ws.writeAgent("p1", "nodes/evil.md", "x")).rejects.toMatchObject({ code: "FORBIDDEN_PATH" });
   });

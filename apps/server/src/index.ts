@@ -7,12 +7,11 @@ const application = await createApplication({
   dataDir,
   initialAdminPassword: process.env.INITIAL_ADMIN_PASSWORD,
   serviceToken: process.env.PLATFORM_SERVICE_TOKEN,
+  globalServiceToken: process.env.PLATFORM_GLOBAL_TOKEN,
   sentryDsn: process.env.SENTRY_DSN,
   secureCookies: process.env.NODE_ENV === "production",
   env: process.env,
 });
-
-await application.channelManager.startAll();
 
 const server = Bun.serve({
   port,
@@ -24,7 +23,7 @@ console.log(`[platform] listening on http://localhost:${server.port} (data: ${da
 
 async function shutdown(signal: string): Promise<void> {
   console.log(`[platform] ${signal} received, shutting down`);
-  await application.channelManager.stopAll().catch(() => undefined);
+  await application.integrationManager.stopAll().catch(() => undefined);
   application.close();
   server.stop();
   process.exit(0);

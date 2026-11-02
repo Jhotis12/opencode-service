@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { ChatPanel } from "../components/ChatPanel.tsx";
-import { badge, card, pageTitle, statusBadge } from "../ui.ts";
+import { StatusBadge } from "../components/StatusBadge.tsx";
+import { badge, card, pageTitle } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 export function OrchestratorPage() {
@@ -78,7 +79,7 @@ export function OrchestratorPage() {
                     <strong className="text-sm">
                       {run.projectSlug} · {run.workflowId}
                     </strong>
-                    <span className={statusBadge(run.status)}>{run.status}</span>
+                    <StatusBadge status={run.status} />
                   </div>
                   <small className="text-xs text-muted">
                     {new Date(run.startedAt).toLocaleString()} · run {run.id.slice(0, 8)}
@@ -94,9 +95,11 @@ export function OrchestratorPage() {
             <h2 className="text-base font-semibold text-slate-100">Estado de integraciones</h2>
             <div className="flex flex-wrap gap-2">
               {(overview?.integrations ?? []).map((integration) => (
-                <span className={statusBadge(integration.status)} key={integration.id}>
-                  {integration.name} · {integration.kind} · {integration.scope}
-                  {integration.projectSlug ? ` · ${integration.projectSlug}` : ""}
+                <span key={integration.id} className="inline-flex flex-wrap items-center gap-1.5">
+                  <StatusBadge status={integration.status} />
+                  <span>{integration.name} · {integration.kind} · {integration.scope}
+                    {integration.projectSlug ? ` · ${integration.projectSlug}` : ""}
+                  </span>
                 </span>
               ))}
               {overview?.integrations.length === 0 && <p className="text-sm text-muted">Sin integraciones configuradas.</p>}

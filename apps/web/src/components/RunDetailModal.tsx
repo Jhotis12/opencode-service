@@ -1,6 +1,7 @@
 import type { RunRecord } from "../api.ts";
 import { Modal } from "./Modal.tsx";
-import { badge, buttonGhost, statusBadge } from "../ui.ts";
+import { StatusBadge } from "./StatusBadge.tsx";
+import { badge, buttonGhost } from "../ui.ts";
 
 function formatValue(value: unknown): string {
   if (value === undefined) return "—";
@@ -31,9 +32,7 @@ export function RunDetailModal({
   return (
     <Modal title={`Ejecución ${run.id.slice(0, 8)}`} onClose={onClose} size="lg">
       <div className="flex flex-wrap items-center gap-3">
-        <span className={statusBadge(run.status)} data-testid="run-status">
-          {run.status}
-        </span>
+        <StatusBadge status={run.status} testId="run-status" />
         <small className="text-xs text-muted">{new Date(run.startedAt).toLocaleString()}</small>
         {run.finishedAt && <small className="text-xs text-muted">→ {new Date(run.finishedAt).toLocaleTimeString()}</small>}
       </div>
@@ -63,7 +62,7 @@ export function RunDetailModal({
               <strong className="text-sm text-slate-100">
                 {index + 1}. {nodeLabels?.[step.nodeId] ?? step.nodeId}
               </strong>
-              <span className={statusBadge(step.status)}>{step.status}</span>
+              <StatusBadge status={step.status} />
             </header>
             <div className="flex flex-wrap gap-3">
               <small className="text-xs text-muted">{step.durationMs} ms</small>

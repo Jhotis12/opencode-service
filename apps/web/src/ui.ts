@@ -72,6 +72,18 @@ export function agentModeLabel(mode: string): string {
   return "Sub-agente";
 }
 
+export function friendlyError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/invalid username or password/i.test(message)) return "Usuario o contraseña incorrectos.";
+  if (/already exists/i.test(message)) return "Ya existe un recurso con ese identificador.";
+  if (/failed to fetch|network|load failed/i.test(message)) {
+    return "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.";
+  }
+  if (/unauthorized|session/i.test(message)) return "Tu sesión expiró. Vuelve a iniciar sesión.";
+  if (/timeout|timed out/i.test(message)) return "La operación tardó demasiado. Vuelve a intentarlo.";
+  return message || fallback;
+}
+
 export function statusBadge(status: string): string {
   return `${badge} ${STATUS_TONE_CLASS[statusTone(status)]}`.trim();
 }

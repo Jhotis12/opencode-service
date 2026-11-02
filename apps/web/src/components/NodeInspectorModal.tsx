@@ -6,6 +6,7 @@ import { NodeInspector } from "./NodeInspector.tsx";
 import { NODE_META } from "./nodes/node-catalog.ts";
 import { NodeIcon } from "./nodes/node-icons.tsx";
 import { getConnectionIssue, nodeIssues, type GraphIssue } from "./canvas/graph-edits.ts";
+import { StatusBadge } from "./StatusBadge.tsx";
 import { badge, button, buttonDanger, buttonGhost, statusBadge } from "../ui.ts";
 
 type InspectorTab = "settings" | "connections" | "execution";
@@ -159,7 +160,7 @@ export function NodeInspectorModal({
         </span>
         <span className={badge}>{meta.title}</span>
         <small className="truncate text-[11px] text-muted">{node.id}</small>
-        {lastStep && <span className={statusBadge(lastStep.status)}>{lastStep.status}</span>}
+        {lastStep && <StatusBadge status={lastStep.status} />}
         {nodeIssueList.length > 0 && (
           <span className={statusBadge("paused")}>
             {nodeIssueList.length} {nodeIssueList.length === 1 ? "problema" : "problemas"}
@@ -342,7 +343,7 @@ export function NodeInspectorModal({
           {lastStep ? (
             <>
               <div className="flex flex-wrap gap-1.5">
-                <span className={statusBadge(lastStep.status)}>{lastStep.status}</span>
+                <StatusBadge status={lastStep.status} />
                 <span className={badge}>{lastStep.durationMs} ms</span>
                 {lastStep.model && <span className={badge}>{lastStep.model}</span>}
                 {lastStep.agentId && <span className={badge}>{lastStep.agentId}</span>}

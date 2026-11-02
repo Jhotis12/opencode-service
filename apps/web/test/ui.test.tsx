@@ -76,14 +76,14 @@ describe("LoginPage", () => {
     );
     await userEvent.type(await screen.findByLabelText("Contraseña"), "mala");
     await userEvent.click(screen.getByRole("button", { name: "Entrar" }));
-    expect(await screen.findByText("invalid username or password")).toBeInTheDocument();
+    expect(await screen.findByText("Usuario o contraseña incorrectos.")).toBeInTheDocument();
   });
 });
 
 describe("HealthPage", () => {
   it("renders service status, RED metrics and recent errors", async () => {
     renderWithProviders(<HealthPage loadHealth={async () => health} />);
-    expect(await screen.findByTestId("health-status")).toHaveTextContent("ok");
+    expect(await screen.findByTestId("health-status")).toHaveTextContent("Operativo");
     expect(screen.getByText("OpenCode V2")).toBeInTheDocument();
     expect(screen.getByText("8.00%")).toBeInTheDocument();
     expect(screen.getByText("boom")).toBeInTheDocument();

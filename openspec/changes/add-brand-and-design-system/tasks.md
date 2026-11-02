@@ -64,12 +64,12 @@ Desktop-only frontend change. Do not edit `apps/server`, `packages/shared`, data
 
 ## 7. Status and copy localization
 
-- [ ] 7.1 Add the shared status/mode label map and a helper that returns both the visible Spanish label and the raw value; verify `ui.test.tsx` covers every raw value listed in the design.
-- [ ] 7.2 Update `statusBadge`, Health, Runs, Resources, Agents, Orchestrator and Settings to render the localized label and keep the raw value in `title`/`aria-label`; verify component tests no longer assert raw English visible labels.
-- [ ] 7.3 Map common API/login errors to actionable Spanish messages while preserving the raw error in a technical detail; verify login, project creation and integration failure tests.
-- [ ] 7.4 Remove `OpenCode V2 · Hexagonal` from the UI and replace the health emoji-only empty state with a check icon and text; verify `grep -R "Hexagonal\|🎉" apps/web/src` returns no user-facing occurrence.
-- [ ] 7.5 Add the copy glossary and raw-to-Spanish status table to `docs/design-standard.md`; verify the table matches the helper and the rendered labels.
-- [ ] 7.6 Update the affected unit and e2e tests for localized labels; verify `bun test --cwd apps/web` and the desktop e2e flow pass.
+- [x] 7.1 Add the shared status/mode label map and a helper that returns both the visible Spanish label and the raw value; verify `ui.test.tsx` covers every raw value listed in the design.
+- [x] 7.2 Update `statusBadge`, Health, Runs, Resources, Agents, Orchestrator and Settings to render the localized label and keep the raw value in `title`/`aria-label`; verify component tests no longer assert raw English visible labels.
+- [x] 7.3 Map common API/login errors to actionable Spanish messages while preserving the raw error in a technical detail; verify login, project creation and integration failure tests.
+- [x] 7.4 Remove `OpenCode V2 · Hexagonal` from the UI and replace the health emoji-only empty state with a check icon and text; verify `grep -R "Hexagonal\|🎉" apps/web/src` returns no user-facing occurrence.
+- [x] 7.5 Add the copy glossary and raw-to-Spanish status table to `docs/design-standard.md`; verify the table matches the helper and the rendered labels.
+- [x] 7.6 Update the affected unit and e2e tests for localized labels; verify `bun test --cwd apps/web` and the desktop e2e flow pass.
 
 ## 8. Accessibility hardening
 

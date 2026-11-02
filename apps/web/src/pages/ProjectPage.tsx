@@ -5,6 +5,7 @@ import type { ChatProgressEvent, NodeSpec, WorkflowGraph } from "@platform/share
 import { api, ApiClientError, type RunRecord } from "../api.ts";
 import { qk } from "../query.ts";
 import { AgentCatalog } from "../components/AgentCatalog.tsx";
+import { StatusBadge } from "../components/StatusBadge.tsx";
 import { ChatPanel } from "../components/ChatPanel.tsx";
 import { WorkflowCanvas } from "../components/WorkflowCanvas.tsx";
 import { ProjectTopBar, type ProjectTab } from "../components/ProjectTopBar.tsx";
@@ -24,7 +25,7 @@ import { ProjectKnowledgePanel } from "../components/ProjectKnowledgePanel.tsx";
 import { ProjectResourcesPanel } from "../components/ProjectResourcesPanel.tsx";
 import { ProjectSettingsPanel } from "../components/ProjectSettingsPanel.tsx";
 import { NODE_META } from "../components/nodes/node-catalog.ts";
-import { badge, buttonDanger, buttonGhost, buttonPrimary, card, statusBadge } from "../ui.ts";
+import { badge, buttonDanger, buttonGhost, buttonPrimary, card } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 const DEFAULT_CODE = `export default async function run(input: unknown, ctx: any) {
@@ -694,7 +695,7 @@ export function ProjectPage() {
                 <article className={`${card} gap-2`} key={run.id}>
                   <header className="flex flex-wrap items-center justify-between gap-3">
                     <strong className="text-sm">{run.id.slice(0, 8)}</strong>
-                    <span className={statusBadge(run.status)}>{run.status}</span>
+                    <StatusBadge status={run.status} />
                   </header>
                   <small className="text-xs text-muted">
                     {new Date(run.startedAt).toLocaleString()} · {run.launchedBy ?? "sistema"} · {run.sourceDetail ?? run.entryPoint}

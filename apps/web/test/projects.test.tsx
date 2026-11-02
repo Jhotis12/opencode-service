@@ -58,6 +58,17 @@ describe("ProjectsPage", () => {
     expect(await screen.findByText("proyecto abierto")).toBeInTheDocument();
   });
 
+  it("maps a project creation failure to actionable Spanish copy", async () => {
+    vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [] });
+    vi.mocked(api.createProject).mockRejectedValueOnce(new Error("already exists"));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Crear primer proyecto" }));
+    await userEvent.type(screen.getByLabelText(/Nombre del proyecto/), "Bot de Ventas");
+    await userEvent.click(screen.getByRole("button", { name: "Crear proyecto" }));
+    const error = await screen.findByText("Ya existe un recurso con ese identificador.");
+    expect(error).toHaveAttribute("title", "already exists");
+  });
+
   it("creates a project from the triaje-operativo vertical template", async () => {
     vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [] });
     renderPage();

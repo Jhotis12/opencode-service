@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { api } from "../api.ts";
 import { useAuth } from "../auth.tsx";
 import { BrandLockup } from "../components/Brand.tsx";
-import { buttonPrimary, card } from "../ui.ts";
+import { buttonPrimary, card, friendlyError } from "../ui.ts";
 
 export function LoginPage({ login = api.login }: { login?: typeof api.login } = {}) {
   const { setUser } = useAuth();
@@ -47,8 +47,12 @@ export function LoginPage({ login = api.login }: { login?: typeof api.login } = 
           />
         </label>
         {mutation.error && (
-          <p className="text-sm text-danger">
-            {mutation.error instanceof Error ? mutation.error.message : "No se pudo iniciar sesión"}
+          <p
+            className="text-sm text-danger"
+            role="alert"
+            title={mutation.error instanceof Error ? mutation.error.message : undefined}
+          >
+            {friendlyError(mutation.error, "No se pudo iniciar sesión.")}
           </p>
         )}
         <button className={buttonPrimary} type="submit" disabled={mutation.isPending || !password}>

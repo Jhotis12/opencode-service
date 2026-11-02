@@ -1,14 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { agentModeLabel, statusBadge, statusLabel, statusTone } from "../src/ui.ts";
+import { agentModeLabel, friendlyError, statusBadge, statusLabel, statusTone } from "../src/ui.ts";
 
 describe("status labels", () => {
-  it("localizes run, health and integration states", () => {
-    expect(statusLabel("running")).toBe("En ejecución");
-    expect(statusLabel("succeeded")).toBe("Completado");
-    expect(statusLabel("timed_out")).toBe("Tiempo agotado");
-    expect(statusLabel("ok")).toBe("Operativo");
-    expect(statusLabel("needs_config")).toBe("Falta configurar");
-    expect(statusLabel("connected")).toBe("Conectado");
+  it("localizes every run, health and integration state", () => {
+    const labels: Record<string, string> = {
+      queued: "En cola",
+      running: "En ejecución",
+      paused: "Pausado",
+      succeeded: "Completado",
+      failed: "Fallido",
+      timed_out: "Tiempo agotado",
+      cancelled: "Cancelado",
+      skipped: "Omitido",
+      ok: "Operativo",
+      degraded: "Degradado",
+      down: "Caído",
+      connected: "Conectado",
+      needs_config: "Falta configurar",
+      qr_pending: "QR pendiente",
+      error: "Error",
+      active: "Activo",
+    };
+    for (const [raw, label] of Object.entries(labels)) {
+      expect(statusLabel(raw)).toBe(label);
+    }
     expect(statusLabel("unknown_state")).toBe("unknown_state");
   });
 
@@ -26,5 +41,18 @@ describe("status labels", () => {
     expect(agentModeLabel("primary")).toBe("Principal");
     expect(agentModeLabel("subagent")).toBe("Sub-agente");
     expect(agentModeLabel("all")).toBe("Principal y sub-agente");
+  });
+
+  it("maps common API failures to actionable copy", () => {
+    expect(friendlyError(new Error("invalid username or password"), "fallback")).toBe(
+      "Usuario o contraseña incorrectos.",
+    );
+    expect(friendlyError(new Error("already exists"), "fallback")).toBe(
+      "Ya existe un recurso con ese identificador.",
+    );
+    expect(friendlyError(new Error("failed to fetch"), "fallback")).toMatch(/No se pudo conectar/);
+    expect(friendlyError(new Error("timed out"), "fallback")).toMatch(/tardó demasiado/);
+    expect(friendlyError(new Error("custom detail"), "fallback")).toBe("custom detail");
+    expect(friendlyError(undefined, "fallback")).toBe("fallback");
   });
 });

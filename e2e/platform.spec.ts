@@ -148,7 +148,7 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   const runDialog = page.getByRole("dialog", { name: /Ejecución/ });
   await expect(runDialog.getByText("Resultado final")).toBeVisible();
   await expect(runDialog.getByText("Preparar datos")).toBeVisible();
-  await expect(runDialog.getByTestId("run-status")).toHaveText("succeeded", { timeout: 15_000 });
+  await expect(runDialog.getByTestId("run-status")).toHaveText("Completado", { timeout: 15_000 });
   await runDialog.getByRole("button", { name: "Cerrar" }).click();
 
   await page.getByRole("button", { name: "Agente", exact: true }).click();
@@ -273,7 +273,7 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await expect(page.getByTestId("chat-panel")).toBeVisible();
 
   await page.goto("/system/health");
-  await expect(page.getByTestId("health-status")).toHaveText("ok");
+  await expect(page.getByTestId("health-status")).toHaveText("Operativo");
   await expect(page.getByRole("cell", { name: "OpenCode V2" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Database" })).toBeVisible();
 
@@ -295,7 +295,7 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await page.getByRole("button", { name: /^Ejecuciones/ }).first().click();
   await page.getByRole("button", { name: "Ver detalle" }).first().click();
   const triajeRunDialog = page.getByRole("dialog", { name: /Ejecución/ });
-  await expect(triajeRunDialog.getByTestId("run-status")).toHaveText("succeeded", { timeout: 15_000 });
+  await expect(triajeRunDialog.getByTestId("run-status")).toHaveText("Completado", { timeout: 15_000 });
   await expect(triajeRunDialog.getByText(/procesado/).first()).toBeVisible();
   await triajeRunDialog.getByRole("button", { name: "Cerrar" }).click();
 

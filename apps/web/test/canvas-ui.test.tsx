@@ -259,7 +259,7 @@ describe("NodeInspectorModal", () => {
     expect(onConnect).toHaveBeenCalledWith("agent", "code", undefined);
 
     await userEvent.click(within(dialog).getByRole("tab", { name: "Ejecución" }));
-    expect(within(dialog).getAllByText("succeeded").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("Completado").length).toBeGreaterThan(0);
     expect(within(dialog).getByText(/"ok": true/)).toBeInTheDocument();
   });
 

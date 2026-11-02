@@ -6,6 +6,8 @@ Define la conversación con los agentes: un agente principal propio por proyecto
 
 ## Requirements
 
+
+
 ### Requirement: Project primary agent and project instructions
 Each project SHALL have a primary agent profile and project instructions that OpenCode loads for project chat sessions, including a default agent selection for new sessions.
 
@@ -63,25 +65,6 @@ The chat SHALL render Markdown with GFM tables, code blocks, lists, headings, an
 - **WHEN** a long response arrives while the user is reading earlier messages
 - **THEN** the chat does not force-scroll away from the user's position and shows an indicator to jump to the latest message
 
-### Requirement: Adaptive chat surface
-The project chat SHALL support a docked state, an expanded state, and a minimized bubble state, and SHALL adapt to mobile screens without hiding the canvas or the input.
-
-#### Scenario: Expanding the chat
-- **WHEN** the user activates the expand action on the docked chat
-- **THEN** the chat opens into a larger panel or full-height drawer while preserving the current conversation and input draft
-
-#### Scenario: Minimizing the chat
-- **WHEN** the user minimizes the chat
-- **THEN** it collapses into a bubble that shows new-response status and can restore the panel with the same conversation state
-
-#### Scenario: Mobile layout
-- **WHEN** the project page is used on a narrow screen
-- **THEN** the chat opens as a full-screen sheet or equivalent layout with a visible close/minimize action and a usable input area
-
-#### Scenario: State survives navigation
-- **WHEN** the user navigates away from the project and returns
-- **THEN** the chat surface restores the last chosen state for that project and loads the persisted conversation
-
 ### Requirement: Chat progress, timeout, and error states
 The chat SHALL show that the agent is working, preserve timeout and failure messages in history, and allow retrying without losing prior messages.
 
@@ -96,21 +79,6 @@ The chat SHALL show that the agent is working, preserve timeout and failure mess
 #### Scenario: Chat request fails before a reply
 - **WHEN** the chat request fails with a transport or agent error
 - **THEN** the error is visible in the conversation and the user's original message remains available
-
-### Requirement: Accessible and responsive chat interaction
-The chat SHALL be keyboard accessible, announce loading and error states, and remain usable at mobile, tablet, and desktop breakpoints.
-
-#### Scenario: Keyboard-only operation
-- **WHEN** a user navigates the chat with the keyboard
-- **THEN** the input, send action, expand, minimize, copy, and close controls are reachable and operable with visible focus
-
-#### Scenario: Screen reader announcement
-- **WHEN** an agent reply arrives or an error occurs
-- **THEN** the chat announces the new state through an appropriate live region without reading the entire history
-
-#### Scenario: Responsive breakpoints
-- **WHEN** the project page is rendered at 320px, 768px, 1024px, or 1440px
-- **THEN** the chat surface, tables, code blocks, and input remain usable without horizontal page overflow
 
 ### Requirement: Stale chat session recovery
 The system SHALL recover a chat thread whose persisted OpenCode session no longer exists, by creating a new session on the same thread and retrying the turn once, while preserving the platform message history.
@@ -131,7 +99,41 @@ The system SHALL recover a chat thread whose persisted OpenCode session no longe
 - **WHEN** a stale-session recovery occurs
 - **THEN** the platform history contains one user message and one agent response for that turn, not a duplicated pending message
 
-### Requirement: Chat drawer that preserves canvas space
+### Requirement: Docked and minimized chat surface
+The project chat SHALL support a docked drawer state and a minimized bubble state on desktop. The expanded or maximized state is removed and SHALL NOT be offered. Mobile adaptation is not an acceptance target for this change.
+
+#### Scenario: Docked chat as a lateral drawer
+- **WHEN** the user opens the project chat
+- **THEN** it opens in the lateral drawer with the persisted conversation and input draft without covering the entire desktop viewport
+
+#### Scenario: Minimizing the chat
+- **WHEN** the user minimizes the chat
+- **THEN** it collapses into a bubble that shows new-response status and can restore the panel with the same conversation state
+
+#### Scenario: No expanded or maximized state
+- **WHEN** the user inspects the chat controls
+- **THEN** there is no expand or maximize action, no full-screen chat surface and no persisted expanded state
+
+#### Scenario: State survives navigation
+- **WHEN** the user navigates away from the project and returns
+- **THEN** the chat restores the last docked or minimized state for that project and loads the persisted conversation
+
+### Requirement: Accessible desktop chat interaction
+The chat SHALL be keyboard accessible, announce loading and error states, and remain usable at supported desktop viewports. Mobile responsiveness is not an acceptance target for this change.
+
+#### Scenario: Keyboard-only operation
+- **WHEN** a user navigates the chat with the keyboard
+- **THEN** the input, send action, minimize or close action, copy actions and jump-to-latest action are reachable and operable with visible focus
+
+#### Scenario: Screen reader announcement
+- **WHEN** an agent reply arrives or an error occurs
+- **THEN** the chat announces the new state through an appropriate live region without reading the entire history
+
+#### Scenario: Desktop viewport remains usable
+- **WHEN** the project page is rendered at 1280 px or 1440 px
+- **THEN** the chat surface, tables, code blocks and input remain usable without horizontal page overflow
+
+### Requirement: Project chat drawer
 The project chat SHALL open from the project header as a lateral drawer and SHALL be closed by default so the canvas remains full width until the user opens it.
 
 #### Scenario: Opening the project chat
@@ -142,6 +144,21 @@ The project chat SHALL open from the project header as a lateral drawer and SHAL
 - **WHEN** the user closes or minimizes the drawer
 - **THEN** the canvas regains the full width and the conversation remains persisted for the next open
 
-#### Scenario: Chat expansion
-- **WHEN** the user expands the open chat
-- **THEN** it uses a larger overlay without changing or losing the canvas workflow
+#### Scenario: The drawer is the maximum chat surface
+- **WHEN** the project chat is open
+- **THEN** the drawer remains bounded by its maximum width and there is no separate full-screen expansion action
+
+### Requirement: Chat scroll affordance
+The chat SHALL show a jump-to-latest control when the user is not at the bottom of the conversation, and the control SHALL NOT cover the last message or the composer.
+
+#### Scenario: Jump control appears away from the bottom
+- **WHEN** the user scrolls up while a long conversation is open
+- **THEN** a jump-to-latest control appears in a dedicated area that does not overlap message text or the composer
+
+#### Scenario: Jump control returns to the latest message
+- **WHEN** the user activates the jump-to-latest control
+- **THEN** the conversation scrolls to the newest message and the control hides once the bottom is reached
+
+#### Scenario: Incoming reply does not steal position
+- **WHEN** a long agent reply arrives while the user is reading earlier messages
+- **THEN** the viewport stays at the user's current position and the jump-to-latest control indicates that new content is available

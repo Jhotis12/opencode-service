@@ -14,13 +14,13 @@ Desktop-only frontend change. Do not edit `apps/server`, `packages/shared`, data
 
 ## 2. Tokens and semantic color system
 
-- [ ] 2.1 Add the surface, line, text, brand, agent, status and node-category tokens to `index.css`, keeping existing names as aliases only where they are still used; verify the app compiles with Tailwind 4 and no token is undefined.
-- [ ] 2.2 Replace hard-coded surface hex values in `ui.ts`, `Layout.tsx`, `ChatPanel.tsx`, `WorkflowCanvas.tsx`, `PlatformNode.tsx`, `PlatformEdge.tsx`, `Modal.tsx`, `ProjectsPage.tsx`, `SettingsPage.tsx`, `HealthPage.tsx`, `ProjectResourcesPanel.tsx`, `ProjectKnowledgePanel.tsx` and `ProjectSettingsPanel.tsx`; verify `grep` no longer finds the retired surface values outside `index.css`.
-- [ ] 2.3 Reduce `node-catalog.ts` from nine per-type colors to five category tokens; update palette previews, minimap node colors and node chips to derive color from category; verify a unit test asserts HTTP/code/transform/delay share the action token and validate/decision share the logic token.
-- [ ] 2.4 Update `statusBadge` and status dots so running uses the informational accent and warning is reserved for degraded/paused/needs-config/QR states; verify `ui.test.tsx` covers each tone and the localized label remains visible.
-- [ ] 2.5 Apply the 11 px metadata floor, 14 px node title and tabular numerals; increase the node footprint to keep category, title and subtitle legible; verify a component test asserts the node title size and card height, and a visual check at 100% zoom shows no clipped label.
-- [ ] 2.6 Truncate long model IDs, agent paths, slugs and run IDs with an accessible full-value title in Settings, Projects, Agents, Resources and Runs; verify the affected cards keep a stable height in component tests.
-- [ ] 2.7 Update the token and typography sections of `docs/design-standard.md` with the final values and category mapping; verify the document matches the classes used in the code.
+- [x] 2.1 Add the surface, line, text, brand, agent, status and node-category tokens to `index.css`, keeping existing names as aliases only where they are still used; verify the app compiles with Tailwind 4 and no token is undefined.
+- [x] 2.2 Replace hard-coded surface hex values in `ui.ts`, `Layout.tsx`, `ChatPanel.tsx`, `WorkflowCanvas.tsx`, `PlatformNode.tsx`, `PlatformEdge.tsx`, `Modal.tsx`, `ProjectsPage.tsx`, `SettingsPage.tsx`, `HealthPage.tsx`, `ProjectResourcesPanel.tsx`, `ProjectKnowledgePanel.tsx` and `ProjectSettingsPanel.tsx`; verify `grep` no longer finds the retired surface values outside `index.css`.
+- [x] 2.3 Reduce `node-catalog.ts` from nine per-type colors to five category tokens; update palette previews, minimap node colors and node chips to derive color from category; verify a unit test asserts HTTP/code/transform/delay share the action token and validate/decision share the logic token.
+- [x] 2.4 Update `statusBadge` and status dots so running uses the informational accent and warning is reserved for degraded/paused/needs-config/QR states; verify `ui.test.tsx` covers each tone and the localized label remains visible.
+- [x] 2.5 Apply the 11 px metadata floor, 14 px node title and tabular numerals; increase the node footprint to keep category, title and subtitle legible; verify a component test asserts the node title size and card height, and a visual check at 100% zoom shows no clipped label.
+- [x] 2.6 Truncate long model IDs, agent paths, slugs and run IDs with an accessible full-value title in Settings, Projects, Agents, Resources and Runs; verify the affected cards keep a stable height in component tests.
+- [x] 2.7 Update the token and typography sections of `docs/design-standard.md` with the final values and category mapping; verify the document matches the classes used in the code.
 
 ## 3. Desktop shell and project top bar
 

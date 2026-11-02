@@ -13,7 +13,7 @@ function ShapePreview({ type }: { type: NodeType }) {
       data-node-shape={type}
       style={{
         ...nodeShapeStyle(type),
-        background: `color-mix(in srgb, ${meta.color} 24%, #0b1220)`,
+        background: `color-mix(in srgb, ${meta.color} 24%, var(--color-well))`,
         color: meta.color,
       }}
     >
@@ -69,7 +69,7 @@ export function NodePaletteModal({
         <div className="grid gap-4 sm:grid-cols-2">
           {groups.map((group) => (
             <section key={group.label} className="flex flex-col gap-2">
-              <h3 className="text-[10px] uppercase tracking-wider text-muted">{group.label}</h3>
+              <h3 className="text-[11px] uppercase tracking-wider text-muted">{group.label}</h3>
               <div className="flex flex-col gap-1.5">
                 {group.types.map((type) => {
                   const meta = NODE_META[type];
@@ -80,14 +80,14 @@ export function NodePaletteModal({
                       type="button"
                       disabled={disabled}
                       title={disabled ? "Este flujo ya tiene un trigger." : undefined}
-                      className="flex min-w-0 items-center gap-2.5 rounded-lg border border-line bg-[#0b1220] p-2.5 text-left text-slate-200 transition hover:border-[var(--node-color)] disabled:cursor-not-allowed disabled:opacity-45"
+                      className="flex min-w-0 items-center gap-2.5 rounded-lg border border-line bg-well p-2.5 text-left text-slate-200 transition hover:border-[var(--node-color)] disabled:cursor-not-allowed disabled:opacity-45"
                       style={{ "--node-color": meta.color } as CSSProperties}
                       onClick={() => onAdd(type)}
                     >
                       <ShapePreview type={type} />
                       <span className="min-w-0">
                         <strong className="block text-xs">{meta.title}</strong>
-                        <small className="block truncate text-[10px] text-muted">
+                        <small className="block truncate text-[11px] text-muted">
                           {disabled ? "Este flujo ya tiene un trigger." : meta.description}
                         </small>
                       </span>

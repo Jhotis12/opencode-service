@@ -122,7 +122,7 @@ export function ControlChannelsPanel() {
       {status && <p className="text-sm text-ok">{status}</p>}
       <div className="flex flex-col gap-2">
         {integrations.map((integration) => (
-          <article className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-[#0a1120] p-3" key={integration.id}>
+          <article className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-well p-3" key={integration.id}>
             <span>
               <strong className="text-sm">{integration.name}</strong>{" "}
               <span className={statusBadge(integration.status)}>{integration.status}</span>

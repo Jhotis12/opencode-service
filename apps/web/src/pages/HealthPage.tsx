@@ -41,7 +41,7 @@ export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Pro
         ].map((metric) => (
           <article className={`${card} gap-1 p-4`} key={metric.label}>
             <small className="text-xs text-muted">{metric.label}</small>
-            <strong className="text-xl font-semibold text-slate-100">{metric.value}</strong>
+            <strong className="text-xl font-semibold tabular-nums text-slate-100">{metric.value}</strong>
           </article>
         ))}
       </div>
@@ -66,7 +66,7 @@ export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Pro
                     <span className={statusBadge(service.status)}>{service.status}</span>
                   </td>
                   <td className="px-2 py-2.5 text-muted">{service.detail}</td>
-                  <td className="px-2 py-2.5">{service.latencyMs !== undefined ? `${service.latencyMs} ms` : "—"}</td>
+                  <td className="px-2 py-2.5 tabular-nums">{service.latencyMs !== undefined ? `${service.latencyMs} ms` : "—"}</td>
                 </tr>
               ))}
             </tbody>

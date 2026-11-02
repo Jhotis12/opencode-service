@@ -900,7 +900,7 @@ export function ProjectPage() {
         inert={!chatOpen}
       >
         <div
-          className={`chat-backdrop absolute inset-0 bg-[#020617]/55 ${chatOpen ? "opacity-100" : "opacity-0"}`}
+          className={`chat-backdrop absolute inset-0 bg-ink/55 ${chatOpen ? "opacity-100" : "opacity-0"}`}
           onClick={() => setChatOpen(false)}
         />
         <div
@@ -927,7 +927,7 @@ export function ProjectPage() {
       {!chatOpen && (chatBusy || chatUnread) && (
         <button
           type="button"
-          className="agent-status-pill fixed bottom-28 right-4 z-40 flex max-w-[280px] items-center gap-2.5 rounded-full border border-accent/40 bg-[#0b1220]/95 px-3.5 py-2 text-left text-xs text-slate-100 shadow-2xl"
+          className="agent-status-pill fixed bottom-28 right-4 z-40 flex max-w-[280px] items-center gap-2.5 rounded-full border border-accent/40 bg-well/95 px-3.5 py-2 text-left text-xs text-slate-100 shadow-2xl"
           onClick={() => {
             setChatOpen(true);
             setChatUnread(false);
@@ -941,7 +941,7 @@ export function ProjectPage() {
           />
           <span className="min-w-0">
             <strong className="block text-[11px]">{chatBusy ? "Agente trabajando" : "Respuesta lista"}</strong>
-            <span className="block truncate text-[10px] text-muted">
+            <span className="block truncate text-[11px] text-muted">
               {chatBusy ? (chatActivity ?? "Preparando respuesta…") : "Abre el chat para verla"}
             </span>
           </span>

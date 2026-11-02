@@ -21,10 +21,10 @@ export type PlatformNodeData = {
 export type PlatformFlowNode = Node<PlatformNodeData, "platform">;
 
 const statusColor: Record<string, string> = {
-  succeeded: "#22c55e",
-  failed: "#fb7185",
-  timed_out: "#fb7185",
-  running: "#38bdf8",
+  succeeded: "var(--color-ok)",
+  failed: "var(--color-danger)",
+  timed_out: "var(--color-danger)",
+  running: "var(--color-accent)",
 };
 
 function ToolbarIcon({ kind }: { kind: "duplicate" | "connect" | "delete" }) {
@@ -113,13 +113,13 @@ export function PlatformNode({ id, data, selected }: NodeProps<PlatformFlowNode>
 
   const borderColor =
     selected
-      ? "#f8fafc"
+      ? "var(--color-selection)"
       : data.issue
-        ? "#f59e0b"
+        ? "var(--color-warn)"
         : data.status === "running"
-          ? "#38bdf8"
+          ? "var(--color-accent)"
           : data.status === "failed" || data.status === "timed_out"
-            ? "#fb7185"
+            ? "var(--color-danger)"
             : meta.color;
   const connectClass =
     data.connectRole === "valid"
@@ -132,7 +132,7 @@ export function PlatformNode({ id, data, selected }: NodeProps<PlatformFlowNode>
 
   return (
     <div
-      className={`relative h-[88px] w-[240px] text-slate-200 transition ${
+      className={`relative h-[96px] w-[252px] text-slate-200 transition ${
         data.status === "running" ? "run-node-running" : ""
       } ${connectClass}`}
       data-node-shape={data.nodeType}
@@ -141,7 +141,7 @@ export function PlatformNode({ id, data, selected }: NodeProps<PlatformFlowNode>
       onMouseLeave={hideToolbarSoon}
     >
       {data.agentTouched && (
-        <div className="agent-touch-layer absolute -inset-[3px]" style={{ ...shape, background: "#a78bfa" } as CSSProperties} />
+        <div className="agent-touch-layer absolute -inset-[3px]" style={{ ...shape, background: "var(--color-violet)" } as CSSProperties} />
       )}
       <div className="absolute inset-0" style={{ ...shape, background: borderColor } as CSSProperties} />
       <div
@@ -149,26 +149,26 @@ export function PlatformNode({ id, data, selected }: NodeProps<PlatformFlowNode>
         style={
           {
             ...shape,
-            background: `linear-gradient(135deg, color-mix(in srgb, ${meta.color} 18%, #0f172a), #0b1220)`,
+            background: `linear-gradient(135deg, color-mix(in srgb, ${meta.color} 18%, var(--color-panel-2)), var(--color-well))`,
           } as CSSProperties
         }
       >
         <div className={`relative flex h-full min-w-0 items-center gap-2.5 ${data.nodeType === "transform" ? "px-3.5 pr-7" : "px-4"}`}>
           <div
             className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px]"
-            style={{ background: `color-mix(in srgb, ${meta.color} 22%, #0b1220)`, color: meta.color }}
+            style={{ background: `color-mix(in srgb, ${meta.color} 22%, var(--color-well))`, color: meta.color }}
           >
             <NodeIcon type={data.nodeType} />
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="truncate text-[9px] uppercase tracking-wider" style={{ color: meta.color }}>
+            <span className="truncate text-[11px] uppercase tracking-wider" style={{ color: meta.color }}>
               {meta.title}
             </span>
-            <strong className="truncate text-[13px]" title={data.label}>
+            <strong className="truncate text-[14px]" title={data.label}>
               {data.label}
             </strong>
             {data.subtitle && (
-              <small className="truncate text-[10px] text-muted" title={data.subtitle}>
+              <small className="truncate text-[11px] text-muted" title={data.subtitle}>
                 {data.subtitle}
               </small>
             )}
@@ -187,7 +187,7 @@ export function PlatformNode({ id, data, selected }: NodeProps<PlatformFlowNode>
                 role="status"
                 aria-label={`Estado: ${data.status}`}
                 className={`h-2 w-2 rounded-full ${data.status === "running" ? "animate-pulse motion-reduce:animate-none" : ""}`}
-                style={{ background: statusColor[data.status] ?? "#64748b" }}
+                style={{ background: statusColor[data.status] ?? "var(--color-faint)" }}
                 title={data.status}
               />
             )}
@@ -199,7 +199,7 @@ export function PlatformNode({ id, data, selected }: NodeProps<PlatformFlowNode>
         <Handle
           type="target"
           position={Position.Left}
-          className="!h-2.5 !w-2.5 !border-2 !border-[#0b1220]"
+          className="!h-2.5 !w-2.5 !border-2 !border-well"
           style={{ background: meta.color }}
         />
       )}
@@ -210,31 +210,31 @@ export function PlatformNode({ id, data, selected }: NodeProps<PlatformFlowNode>
             id="true"
             type="source"
             position={Position.Right}
-            className="!h-2.5 !w-2.5 !border-2 !border-[#0b1220]"
-            style={{ top: "34%", background: "#34d399" }}
+            className="!h-2.5 !w-2.5 !border-2 !border-well"
+            style={{ top: "34%", background: "var(--color-node-logic)" }}
           />
           <Handle
             id="false"
             type="source"
             position={Position.Right}
-            className="!h-2.5 !w-2.5 !border-2 !border-[#0b1220]"
-            style={{ top: "66%", background: "#fb7185" }}
+            className="!h-2.5 !w-2.5 !border-2 !border-well"
+            style={{ top: "66%", background: "var(--color-danger)" }}
           />
-          <span className="absolute -right-6 top-[28%] text-[9px] text-muted">sí</span>
-          <span className="absolute -right-6 top-[60%] text-[9px] text-muted">no</span>
+          <span className="absolute -right-6 top-[28%] text-[11px] text-muted">sí</span>
+          <span className="absolute -right-6 top-[60%] text-[11px] text-muted">no</span>
         </>
       ) : (
         <Handle
           type="source"
           position={Position.Right}
-          className="!h-2.5 !w-2.5 !border-2 !border-[#0b1220]"
+          className="!h-2.5 !w-2.5 !border-2 !border-well"
           style={{ background: meta.color }}
         />
       )}
 
       <NodeToolbar position={Position.Top} offset={10} isVisible={selected || hovered}>
         <div
-          className="flex items-center gap-0.5 rounded-lg border border-line bg-[#0b1220]/95 p-1 shadow-xl"
+          className="flex items-center gap-0.5 rounded-lg border border-line bg-well/95 p-1 shadow-xl"
           onMouseEnter={showToolbar}
           onMouseLeave={hideToolbarSoon}
         >

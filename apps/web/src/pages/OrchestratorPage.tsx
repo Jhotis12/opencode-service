@@ -50,7 +50,7 @@ export function OrchestratorPage() {
             ].map((item) => (
               <div className="flex min-w-[120px] flex-col gap-1" key={item.label}>
                 <small className="text-xs text-muted">{item.label}</small>
-                <strong className="text-lg text-slate-100">{item.value}</strong>
+                <strong className="text-lg tabular-nums text-slate-100">{item.value}</strong>
               </div>
             ))}
           </div>
@@ -71,7 +71,7 @@ export function OrchestratorPage() {
             <h2 className="text-base font-semibold text-slate-100">Fallos recientes</h2>
             <div className="flex flex-col gap-2">
               {failedRuns.map((run) => (
-                <article className="rounded-lg border border-line bg-[#0a1120] p-3" key={run.id}>
+                <article className="rounded-lg border border-line bg-well p-3" key={run.id}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <strong className="text-sm">
                       {run.projectSlug} · {run.workflowId}

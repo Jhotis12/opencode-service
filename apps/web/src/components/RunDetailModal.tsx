@@ -58,7 +58,7 @@ export function RunDetailModal({
       <section className="flex flex-col gap-2">
         <h3 className="text-sm font-semibold text-slate-100">Pasos ({run.steps.length})</h3>
         {run.steps.map((step, index) => (
-          <article className="flex flex-col gap-2 rounded-lg border border-line bg-[#0a1120] p-3" key={step.id}>
+          <article className="flex flex-col gap-2 rounded-lg border border-line bg-well p-3" key={step.id}>
             <header className="flex items-center justify-between gap-3">
               <strong className="text-sm text-slate-100">
                 {index + 1}. {nodeLabels?.[step.nodeId] ?? step.nodeId}

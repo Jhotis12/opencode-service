@@ -153,7 +153,7 @@ export function NodeInspectorModal({
       <div className="flex flex-wrap items-center gap-2">
         <span
           className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
-          style={{ background: `color-mix(in srgb, ${meta.color} 20%, #0b1220)`, color: meta.color }}
+          style={{ background: `color-mix(in srgb, ${meta.color} 20%, var(--color-well))`, color: meta.color }}
         >
           <NodeIcon type={node.type} />
         </span>
@@ -286,7 +286,7 @@ export function NodeInspectorModal({
             <strong className="text-xs uppercase tracking-wide text-muted">Salidas ({outgoing.length})</strong>
             {outgoing.length === 0 && <p className="text-xs text-muted">Este nodo todavía no tiene salidas.</p>}
             {outgoing.map((edge) => (
-              <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-[#0a1120] p-2">
+              <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2">
                 <span className="min-w-0 flex-1 truncate text-xs text-slate-200">
                   → {edgeTargetLabel(graph, edge)}
                 </span>
@@ -317,7 +317,7 @@ export function NodeInspectorModal({
             <strong className="text-xs uppercase tracking-wide text-muted">Entradas ({incoming.length})</strong>
             {incoming.length === 0 && <p className="text-xs text-muted">Este nodo todavía no tiene entradas.</p>}
             {incoming.map((edge) => (
-              <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-[#0a1120] p-2">
+              <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2">
                 <span className="min-w-0 flex-1 truncate text-xs text-slate-200">
                   ← {edgeSourceLabel(graph, edge)}
                   {graph.nodes.find((source) => source.id === edge.source)?.type === "decision" &&

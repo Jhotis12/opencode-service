@@ -163,8 +163,12 @@ export function ProjectsPage() {
                   {project.description || "Sin descripción. Puedes agregarla en los ajustes del proyecto."}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  <span className={badge}>Agente: {project.primaryAgent ?? "sin definir"}</span>
-                  <span className={badge}>Modelo: {project.defaultModel ?? "global"}</span>
+                  <span className={`${badge} max-w-full`} title={project.primaryAgent ?? "sin definir"}>
+                    <span className="truncate">Agente: {project.primaryAgent ?? "sin definir"}</span>
+                  </span>
+                  <span className={`${badge} max-w-full`} title={project.defaultModel ?? "global"}>
+                    <span className="truncate">Modelo: {project.defaultModel ?? "global"}</span>
+                  </span>
                 </div>
               </div>
               <div className="flex items-center justify-between gap-2 border-t border-line pt-3">

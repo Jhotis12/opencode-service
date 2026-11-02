@@ -130,6 +130,15 @@ describe("WorkflowCanvas", () => {
     expect(screen.getByRole("button", { name: "Duplicar nodo" })).toBeInTheDocument();
   });
 
+  it("uses the readable node footprint and title size", async () => {
+    const { container } = renderCanvas({ graph: graph([node("code", "code", { label: "Consultar" })]) });
+    const wrapper = container.querySelector('[data-node-id="code"]')!;
+    expect(wrapper.className).toContain("h-[96px]");
+    expect(wrapper.className).toContain("w-[252px]");
+    expect(screen.getByText("Consultar").className).toContain("text-[14px]");
+    expect(screen.getByText("Código").className).toContain("text-[11px]");
+  });
+
   it("selects a node on click and keeps long labels in a truncated element", async () => {
     const onSelect = vi.fn();
     const { container } = renderCanvas({

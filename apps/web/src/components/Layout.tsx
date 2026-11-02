@@ -60,7 +60,7 @@ export function Layout() {
 
   return (
     <div className={`min-h-dvh lg:grid ${collapsed ? "lg:grid-cols-[64px_1fr]" : "lg:grid-cols-[240px_1fr]"}`}>
-      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-line bg-[#080d18]/95 px-4 lg:hidden">
+      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-line bg-ink/95 px-4 lg:hidden">
         <button
           type="button"
           className={buttonGhost}
@@ -74,14 +74,14 @@ export function Layout() {
 
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 bg-[#020617]/65 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-ink/65 backdrop-blur-sm lg:hidden"
           onClick={() => setMobileOpen(false)}
           aria-hidden
         />
       )}
 
       <aside
-        className={`nav-drawer fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col gap-6 border-r border-line bg-[#080d18]/95 p-4 lg:static lg:z-auto lg:h-dvh lg:translate-x-0 ${
+        className={`nav-drawer fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col gap-6 border-r border-line bg-ink/95 p-4 lg:static lg:z-auto lg:h-dvh lg:translate-x-0 ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         } ${collapsed ? "lg:w-16 lg:gap-4 lg:p-3" : "lg:w-60 lg:p-5"}`}
         aria-label="Navegación lateral"

@@ -46,7 +46,7 @@ async function copyText(text: string): Promise<void> {
 
 function MarkdownMessage({ text }: { text: string }) {
   return (
-    <div className="prose-chat flex flex-col gap-2 text-[13px] leading-relaxed">
+    <div className="prose-chat flex flex-col gap-2 text-sm leading-relaxed">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -74,7 +74,7 @@ function MarkdownMessage({ text }: { text: string }) {
               <div className="relative">
                 <button
                   type="button"
-                  className="absolute right-2 top-2 z-10 rounded border border-line bg-panel px-2 py-1 text-[10px] text-muted hover:text-slate-100"
+                  className="absolute right-2 top-2 z-10 rounded border border-line bg-panel px-2 py-1 text-[11px] text-muted hover:text-slate-100"
                   onClick={() => void copyText(raw)}
                 >
                   Copiar
@@ -84,7 +84,7 @@ function MarkdownMessage({ text }: { text: string }) {
             );
           },
           code: ({ children, className }) => (
-            <code className={className ? "block" : "rounded border border-line bg-[#0b1220] px-1 py-0.5 text-[0.85em]"}>
+            <code className={className ? "block" : "rounded border border-line bg-well px-1 py-0.5 text-[0.85em]"}>
               {children}
             </code>
           ),
@@ -238,7 +238,7 @@ export function ChatPanel({
       >
         <BrandMark size={16} />
         {title}
-        {messages.length > 1 && <span className="rounded-full bg-accent px-1.5 text-[10px] text-ink">{messages.length}</span>}
+        {messages.length > 1 && <span className="rounded-full bg-accent px-1.5 text-[11px] text-ink">{messages.length}</span>}
       </button>
     );
   }
@@ -289,25 +289,25 @@ export function ChatPanel({
         {messages.map((message, index) => (
           <article
             key={index}
-            className={`whitespace-pre-wrap rounded-[10px] px-3 py-2 text-[13px] leading-relaxed ${
+            className={`whitespace-pre-wrap rounded-[10px] px-3 py-2 text-sm leading-relaxed ${
               message.role === "user"
                 ? "ml-auto max-w-[90%] border border-accent/30 bg-accent/10"
                 : message.role === "system"
                   ? "border border-danger/35 bg-danger/10 text-rose-200"
-                  : "border border-line bg-[#0b1220]"
+                  : "border border-line bg-well"
             }`}
           >
             {message.role === "agent" ? <MarkdownMessage text={message.text} /> : message.text}
           </article>
         ))}
         {busy && (
-          <article className="flex flex-col gap-2 rounded-[10px] border border-accent/25 bg-[#0b1220] px-3 py-2.5 text-[13px]">
+          <article className="flex flex-col gap-2 rounded-[10px] border border-accent/25 bg-well px-3 py-2.5 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="flex items-center gap-1.5 text-[11px] font-medium text-accent">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
                 Agente trabajando
               </span>
-              <small className="text-[10px] text-muted">{elapsed > 0 ? formatElapsed(elapsed) : "ahora"}</small>
+              <small className="text-[11px] text-muted">{elapsed > 0 ? formatElapsed(elapsed) : "ahora"}</small>
             </div>
             {activities.length > 0 && (
               <ul className="flex flex-col gap-1 text-[11px] text-muted" aria-label="Actividad del agente">

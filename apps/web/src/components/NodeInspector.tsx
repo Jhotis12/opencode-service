@@ -7,7 +7,7 @@ function InputFieldsEditor({ fields, onChange }: { fields: InputField[]; onChang
   return (
     <div className="flex flex-col gap-2">
       {fields.map((field, index) => (
-        <div className="grid gap-1.5 rounded-lg border border-line bg-[#0a1120] p-2 sm:grid-cols-[1fr_100px_70px_auto]" key={index}>
+        <div className="grid gap-1.5 rounded-lg border border-line bg-well p-2 sm:grid-cols-[1fr_100px_70px_auto]" key={index}>
           <input
             value={field.name}
             placeholder="tema"
@@ -57,7 +57,7 @@ function ValidateRulesEditor({ rules, onChange }: { rules: ValidateRule[]; onCha
   return (
     <div className="flex flex-col gap-2">
       {rules.map((rule, index) => (
-        <div className="grid gap-1.5 rounded-lg border border-line bg-[#0a1120] p-2" key={index}>
+        <div className="grid gap-1.5 rounded-lg border border-line bg-well p-2" key={index}>
           <div className="grid gap-1.5 sm:grid-cols-[1fr_100px_70px_auto]">
             <input
               value={rule.name}

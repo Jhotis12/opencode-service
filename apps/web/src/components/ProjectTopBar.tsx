@@ -58,7 +58,7 @@ export function ProjectTopBar({
 
   return (
     <>
-      <header className="flex flex-wrap items-center gap-2 border-b border-line bg-[#080d18]/90 px-3 py-2 lg:px-4">
+      <header className="flex flex-wrap items-center gap-2 border-b border-line bg-ink/90 px-3 py-2 lg:px-4">
         <div className="flex min-w-0 items-center gap-2">
           <Link className="shrink-0 text-xs text-accent hover:underline" to="/projects">
             ← Proyectos
@@ -189,7 +189,7 @@ export function ProjectTopBar({
               {versions.map((item) => (
                 <div
                   key={item.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-[#0a1120] p-2.5"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-well p-2.5"
                 >
                   <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-2">

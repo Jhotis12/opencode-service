@@ -116,12 +116,12 @@ function toEdges(
           : undefined;
     const stroke =
       edgeIssue
-        ? "#f59e0b"
+        ? "var(--color-warn)"
         : runState === "active"
-          ? "#38bdf8"
+          ? "var(--color-accent)"
           : runState === "completed"
-            ? "#22c55e"
-            : "#475569";
+            ? "var(--color-ok)"
+            : "var(--color-line-strong)";
     return {
       id: edge.id,
       source: edge.source,
@@ -291,7 +291,7 @@ export function WorkflowCanvas({
 
   return (
     <CanvasActionsContext.Provider value={actions}>
-      <div className={`${className ?? "h-full"} relative overflow-hidden bg-[#060b15]`} data-testid="workflow-canvas">
+      <div className={`${className ?? "h-full"} relative overflow-hidden bg-ink`} data-testid="workflow-canvas">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -324,11 +324,11 @@ export function WorkflowCanvas({
           deleteKeyCode={["Backspace", "Delete"]}
           proOptions={{ hideAttribution: true }}
         >
-          <Background gap={18} color="#1e293b" />
+          <Background gap={18} color="var(--color-line)" />
           <Panel position="top-left">
             <button
               type="button"
-              className="rounded-lg border border-line bg-[#0b1220]/90 px-3 py-2 text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent"
+              className="rounded-lg border border-line bg-well/90 px-3 py-2 text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent"
               onClick={onOpenPalette}
             >
               + Nodo
@@ -336,7 +336,7 @@ export function WorkflowCanvas({
           </Panel>
           {connecting && (
             <Panel position="top-center">
-              <div className="flex items-center gap-2 rounded-lg border border-accent/40 bg-[#0b1220]/95 px-3 py-2 text-xs text-slate-200 shadow-lg">
+              <div className="flex items-center gap-2 rounded-lg border border-accent/40 bg-well/95 px-3 py-2 text-xs text-slate-200 shadow-lg">
                 Elige el destino
                 {connecting.condition && <span className="rounded bg-panel-2 px-1.5 py-0.5">{connecting.condition === "true" ? "sí" : "no"}</span>}
                 <span className="text-muted">· Esc para cancelar</span>
@@ -351,19 +351,19 @@ export function WorkflowCanvas({
               <div className="flex flex-col gap-2">
                 {agentStatus?.busy && (
                   <div
-                    className="flex min-w-[230px] items-center gap-2.5 rounded-xl border border-violet/40 bg-[#0b1220]/95 px-3 py-2 text-xs shadow-xl"
+                    className="flex min-w-[230px] items-center gap-2.5 rounded-xl border border-violet/40 bg-well/95 px-3 py-2 text-xs shadow-xl"
                     data-testid="agent-progress"
                     aria-live="polite"
                   >
                     <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-violet motion-reduce:animate-none" />
                     <div className="min-w-0 flex-1">
                       <strong className="block text-[11px] text-slate-100">Agente trabajando</strong>
-                      <span className="block truncate text-[10px] text-muted">
+                      <span className="block truncate text-[11px] text-muted">
                         {agentStatus.activity ?? "Preparando respuesta…"}
                       </span>
                     </div>
                     {onOpenChat && (
-                      <button type="button" className="shrink-0 text-[10px] text-accent hover:underline" onClick={onOpenChat}>
+                      <button type="button" className="shrink-0 text-[11px] text-accent hover:underline" onClick={onOpenChat}>
                         Abrir chat
                       </button>
                     )}
@@ -371,7 +371,7 @@ export function WorkflowCanvas({
                 )}
                 {runProgress && (
                   <div
-                    className="flex min-w-[230px] items-center gap-2.5 rounded-xl border border-line bg-[#0b1220]/95 px-3 py-2 text-xs shadow-xl"
+                    className="flex min-w-[230px] items-center gap-2.5 rounded-xl border border-line bg-well/95 px-3 py-2 text-xs shadow-xl"
                     data-testid="run-progress"
                     aria-live="polite"
                   >
@@ -384,15 +384,15 @@ export function WorkflowCanvas({
                       <strong className="block text-[11px] text-slate-100">
                         {runProgress.status === "paused" ? "Ejecución pausada" : "Ejecutando"}
                       </strong>
-                      <span className="block truncate text-[10px] text-muted">
+                      <span className="block truncate text-[11px] text-muted">
                         {runProgress.currentNodeLabel ?? "Preparando nodo…"}
                       </span>
                     </div>
-                    <span className="shrink-0 rounded bg-panel-2 px-2 py-0.5 text-[10px] text-muted">
+                    <span className="shrink-0 rounded bg-panel-2 px-2 py-0.5 text-[11px] text-muted">
                       {runProgress.completedSteps} pasos
                     </span>
                     {onOpenRuns && (
-                      <button type="button" className="shrink-0 text-[10px] text-accent hover:underline" onClick={onOpenRuns}>
+                      <button type="button" className="shrink-0 text-[11px] text-accent hover:underline" onClick={onOpenRuns}>
                         Ejecuciones
                       </button>
                     )}
@@ -405,10 +405,10 @@ export function WorkflowCanvas({
           <MiniMap
             pannable
             zoomable
-            style={{ background: "#0b1220", width: 140, height: 100 }}
-            maskColor="rgba(2, 6, 23, 0.72)"
-            nodeColor={(node) => NODE_META[(node.data as PlatformFlowNode["data"])?.nodeType]?.color ?? "#475569"}
-            nodeStrokeColor={() => "#94a3b8"}
+            style={{ background: "var(--color-well)", width: 140, height: 100 }}
+            maskColor="rgba(7, 11, 20, 0.72)"
+            nodeColor={(node) => NODE_META[(node.data as PlatformFlowNode["data"])?.nodeType]?.color ?? "var(--color-line-strong)"}
+            nodeStrokeColor={() => "var(--color-muted)"}
           />
         </ReactFlow>
       </div>

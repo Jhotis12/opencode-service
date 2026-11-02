@@ -1,0 +1,105 @@
+# project-isolation Specification
+
+## Purpose
+
+Garantiza que cada proyecto tenga su propia sesión de chat e historial persistente, y que el agente de un proyecto solo pueda leer, editar y operar sobre su propio directorio, workflows, sub-agentes y ejecuciones. El orquestador global es la única vista transversal.
+
+## Requirements
+
+### Requirement: Per-project chat session and persistent history
+The system SHALL keep separate chat threads and persistent message history per project and per global control scope, storing user, agent, and system messages with timestamps and linking each thread to its OpenCode session and optional integration.
+
+#### Scenario: Leaving and re-entering a project
+- **WHEN** a user sends messages in a project, navigates away and returns
+- **THEN** the chat panel loads the previous user, agent and system messages from the database and reuses the same project thread and session
+
+#### Scenario: Two projects have independent sessions
+- **WHEN** the user chats in project A and then in project B
+- **THEN** each project uses a different thread and `opencodeSessionId` and never shares conversation context
+
+#### Scenario: Project and global conversations are separate
+- **WHEN** the user chats with a project agent and then with the global orchestrator
+- **THEN** the messages, thread, and OpenCode session are distinct and neither conversation appears in the other's history
+
+#### Scenario: Channel conversation maps to a thread
+- **WHEN** a Telegram, WhatsApp, or external application integration receives a message from the same external thread
+- **THEN** the system reuses the mapped chat thread and session for that integration and external thread
+
+### Requirement: Long-running project chat with SSE heartbeats
+The system SHALL stream project chat over SSE with periodic heartbeats and a configurable timeout (15 minutes by default), persisting timeout errors in the chat history.
+
+#### Scenario: Long agent construction keeps the connection alive
+- **WHEN** the agent takes several minutes to build nodes or run tools
+- **THEN** the server sends heartbeat events so the connection stays open and the UI shows the elapsed time
+
+#### Scenario: Chat timeout is persisted
+- **WHEN** the agent exceeds `AGENT_CHAT_TIMEOUT_MS`
+- **THEN** the request ends with an error, the error is stored as a system message and the user can retry without losing prior messages
+
+### Requirement: Project file isolation
+The system SHALL restrict project file tools to the project directory via default `opencode.jsonc` permissions and reject traversal or symlink escapes outside it.
+
+#### Scenario: Sibling project read is denied
+- **WHEN** an agent session in project A attempts to read or edit a file under project B
+- **THEN** OpenCode denies the operation according to the project permissions and the platform logs the rejected access
+
+#### Scenario: Workspace traversal is blocked
+- **WHEN** a node or API request resolves a path outside `/data/workspaces/<project-slug>/` after symlink resolution
+- **THEN** the system rejects it with `403 FORBIDDEN_PATH`
+
+### Requirement: Project-scoped tool and API access
+The system SHALL scope every project tool and API call to an explicit project, filter project listings, and reject cross-project reads, writes, runs, notebook access, integration access, and secret resolution with HTTP `403`; global control-plane access SHALL require a separate global credential or claim.
+
+#### Scenario: Project agent lists only its project
+- **WHEN** the OpenCode plugin calls `platform_workflow_list` from a project location
+- **THEN** the platform returns only that project, not its siblings
+
+#### Scenario: Cross-project run access is rejected
+- **WHEN** a scoped request tries to read or replay a run belonging to another project
+- **THEN** the server responds with `403 project scope mismatch`
+
+#### Scenario: Cross-project resource access is rejected
+- **WHEN** a project-scoped request tries to read or mutate another project's integration, secret, notebook, connection, or chat thread
+- **THEN** the server responds with HTTP `403` and records the rejected resource and scope
+
+#### Scenario: Global orchestrator sees all projects
+- **WHEN** the global orchestrator authenticates with its global control credential and lists projects
+- **THEN** the platform returns all projects so the administrator can request cross-project reports
+
+#### Scenario: Missing scope cannot be used to escalate
+- **WHEN** a request originates from a project location without a valid project scope
+- **THEN** the platform rejects it instead of treating it as an unscoped global request
+
+### Requirement: Project-owned asset isolation
+The system SHALL treat integrations, secrets, notebooks and their sources, chat threads, and workflow runs as project-owned assets and SHALL prevent any project-scoped request from reading or mutating another project's assets.
+
+#### Scenario: Sibling integration is invisible
+- **WHEN** a project lists or resolves integrations
+- **THEN** it sees only integrations whose scope is that project and never global or sibling integrations
+
+#### Scenario: Sibling secret is invisible
+- **WHEN** a project lists or resolves vault aliases
+- **THEN** it sees only aliases owned by that project and cannot resolve a sibling alias by guessing its name
+
+#### Scenario: Sibling notebook is invisible
+- **WHEN** a project lists, searches, or binds notebooks
+- **THEN** it sees only notebooks owned by that project and cannot cite or ingest into a sibling notebook
+
+#### Scenario: Sibling chat history is invisible
+- **WHEN** a project reads chat history or a channel thread mapping
+- **THEN** it receives only threads owned by that project and never the global control history or a sibling project's threads
+
+### Requirement: Separate project and global authorization scopes
+The system SHALL distinguish project-scoped calls from global control-plane calls using separate credentials or signed claims, and SHALL audit every rejected scope escalation attempt.
+
+#### Scenario: Project credential cannot call global tools
+- **WHEN** a project-scoped credential is used for a global tool or global channel operation
+- **THEN** the system rejects the request with HTTP `403` and records the credential scope and attempted action
+
+#### Scenario: Global credential cannot edit a project
+- **WHEN** the global control credential is used for a mutating project operation
+- **THEN** the system rejects the mutation unless the operation is explicitly allowlisted for the orchestrator and confirmed by an administrator
+
+#### Scenario: Scope violation is auditable
+- **WHEN** any scope violation is rejected
+- **THEN** the system records the requesting scope, target scope, resource, action, and outcome without recording secret values or message bodies

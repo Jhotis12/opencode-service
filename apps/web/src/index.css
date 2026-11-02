@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #070b14;
+  --color-panel: #0d1424;
+  --color-panel-2: #111a2e;
+  --color-line: #1e293b;
+  --color-muted: #94a3b8;
+  --color-accent: #38bdf8;
+  --color-violet: #a78bfa;
+  --color-ok: #22c55e;
+  --color-warn: #f59e0b;
+  --color-danger: #fb7185;
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply min-h-screen bg-ink font-sans text-slate-200 antialiased;
+    background-image:
+      radial-gradient(1100px 600px at 10% -10%, rgba(56, 189, 248, 0.08), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(167, 139, 250, 0.08), transparent 55%);
+    background-attachment: fixed;
+  }
+
+  input,
+  textarea,
+  select {
+    @apply w-full rounded-lg border border-line bg-[#0a1120] px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30;
+  }
+
+  textarea {
+    @apply resize-y;
+  }
+
+  label {
+    @apply flex flex-col gap-1.5 text-xs text-muted;
+  }
+
+  button {
+    @apply cursor-pointer;
+  }
+
+  code {
+    @apply rounded border border-line bg-[#0b1220] px-1.5 py-0.5 text-[0.85em];
+  }
+
+  pre {
+    @apply overflow-auto rounded-lg border border-line bg-[#050a13] p-3 text-xs;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+.react-flow__controls {
+  box-shadow: none;
+}
+
+.react-flow__controls-button {
+  background: #0f172a !important;
+  border-bottom: 1px solid #1e293b !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #1e293b !important;
+}
+
+.react-flow__controls-button svg {
+  fill: #e2e8f0;
+}
+
+.react-flow__minimap {
+  background: #0b1220 !important;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+}
+
+.react-flow__minimap-mask {
+  fill: rgba(2, 6, 23, 0.72);
+}
+
+.react-flow__edge-text {
+  fill: #94a3b8;
+}

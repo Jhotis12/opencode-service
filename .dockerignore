@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-web
+data
+.git
+.env
+.env.*
+!.env.example
+test-results
+playwright-report
+e2e
+openspec
+*.db
+*.db-wal
+*.db-shm

@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-web
+.env
+.env.*
+!.env.example
+data
+*.db
+*.db-wal
+*.db-shm
+test-results
+playwright-report
+.DS_Store
+openspec/changes/*/specs/**/spec.md.bak

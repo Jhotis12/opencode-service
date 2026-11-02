@@ -1,5 +1,13 @@
 schema: review-gated-delivery
 
+context: |
+  Codebase exploration should use the Graphify knowledge graph in graphify-out/
+  when it exists: prefer `graphify query`, `graphify path`, and `graphify explain`
+  before broad grep or source reads, then read the exact lines the graph points
+  to. After code changes, run `graphify update .` (or `bun run graph:update`).
+  The project-scoped skill is in `.opencode/skills/graphify` and the OpenCode hook
+  is in `.opencode/plugins/graphify.js`.
+
 # Project context (optional)
 # Add only constraints that should guide OpenSpec artifacts and workflows.
 # Include constraints an agent cannot infer by reading the code.

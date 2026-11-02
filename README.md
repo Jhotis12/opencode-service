@@ -175,6 +175,19 @@ bun run test:e2e           # Playwright: first boot, canvas, recursos, chat, orq
 
 La suite E2E arranca el servidor con `OPENCODE_MODE=fake` y un `/data` limpio en `/tmp`.
 
+## Graphify (knowledge graph)
+
+El repositorio tiene una integración project-scoped de [Graphify](https://github.com/Graphify-Labs/graphify): el CLI `graphify`, la skill `.opencode/skills/graphify`, el hook `.opencode/plugins/graphify.js` y las instrucciones de `AGENTS.md`.
+
+```bash
+bun run graph:build          # grafo local de código, sin API key
+bun run graph:update         # actualización incremental tras cambios
+graphify query "¿cómo funciona el canvas?"
+graphify path "WorkflowCanvas" "ProjectPage"
+```
+
+El grafo vive en `graphify-out/` y OpenSpec lo consulta antes de explorar código a través de `openspec/config.yaml`. Guía completa: `docs/graphify.md`.
+
 ## Arquitectura
 
 ```text

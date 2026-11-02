@@ -6,10 +6,12 @@ import { qk } from "../query.ts";
 import { Modal } from "../components/Modal.tsx";
 import { ControlChannelsPanel } from "../components/ControlChannelsPanel.tsx";
 import { badge, button, buttonPrimary, card, pageTitle, statusBadge } from "../ui.ts";
+import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 type ModalKey = "model" | "provider" | "vault" | "telemetry";
 
 export function SettingsPage() {
+  useDocumentTitle("Ajustes");
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({ queryKey: qk.settings, queryFn: () => api.getSettings().then((result) => result.data) });
   const secretsQuery = useQuery({ queryKey: qk.secrets, queryFn: () => api.listSecrets().then((result) => result.data) });

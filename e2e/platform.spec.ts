@@ -79,6 +79,23 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   expect(minimapColor).not.toBe("rgb(255, 255, 255)");
   expect(controlsColor).not.toBe("rgb(255, 255, 255)");
 
+  // The desktop top bar keeps every tab label inside the strip at 1440 and 1280.
+  const assertTabsFit = async () => {
+    const nav = page.locator('nav[aria-label="Secciones del proyecto"]');
+    const navBox = await nav.boundingBox();
+    expect(navBox).not.toBeNull();
+    for (const name of [/^Canvas$/, /^Ejecuciones/, /^Agentes/, /^Conocimiento$/, /^Recursos/, /^Ajustes$/]) {
+      const box = await page.getByRole("button", { name }).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(navBox!.x - 1);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(navBox!.x + navBox!.width + 1);
+    }
+  };
+  await assertTabsFit();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await assertTabsFit();
+  await page.setViewportSize({ width: 1440, height: 960 });
+
   // Delete the edge through its toolbar and recreate the connection.
   await page.locator(".react-flow__edge-interaction").first().click({ force: true });
   await expect(page.getByRole("button", { name: "Eliminar conexión" })).toBeVisible();
@@ -155,11 +172,18 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await expect(page.getByText("Preparar datos", { exact: true })).toBeVisible();
 
   // Workflow versions modal lists snapshots and allows rolling back.
-  await page.getByRole("button", { name: "Versiones del flujo" }).click();
+  await page.getByRole("button", { name: "Más acciones del flujo" }).click();
+  await page.getByRole("menuitem", { name: /Versiones del flujo/ }).click();
   const versionsModal = page.getByRole("dialog", { name: "Versiones del flujo" });
   await expect(versionsModal).toBeVisible();
   await expect(versionsModal.getByRole("button", { name: "Restaurar v1" })).toBeVisible();
   await versionsModal.getByRole("button", { name: "Cerrar" }).click();
+
+  await page.getByRole("button", { name: "Más acciones del flujo" }).click();
+  await page.getByRole("menuitem", { name: "Ajustes del flujo" }).click();
+  const flowSettings = page.getByRole("dialog", { name: "Ajustes del flujo" });
+  await expect(flowSettings).toBeVisible();
+  await flowSettings.getByRole("button", { name: "Cerrar" }).click();
 
   await page.getByRole("button", { name: /Agentes/ }).click();
   await page.getByLabel("Categoría").fill("ventas");

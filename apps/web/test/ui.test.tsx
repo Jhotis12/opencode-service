@@ -57,6 +57,7 @@ describe("LoginPage", () => {
       </MemoryRouter>,
     );
 
+    expect(screen.getByRole("heading", { name: "Agentic Platform" })).toBeInTheDocument();
     await userEvent.type(await screen.findByLabelText("Contraseña"), "admin123!");
     await userEvent.click(screen.getByRole("button", { name: "Entrar" }));
     expect(login).toHaveBeenCalledWith("admin", "admin123!");

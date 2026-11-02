@@ -32,6 +32,7 @@ describe("Layout", () => {
 
   it("collapses the navigation rail, keeps accessible labels and persists the preference", async () => {
     const first = renderLayout();
+    expect(screen.getAllByRole("link", { name: /Agentic Platform/i }).length).toBeGreaterThan(0);
     await userEvent.click(screen.getByRole("button", { name: "Contraer navegación" }));
     expect(screen.getByRole("button", { name: "Expandir navegación" })).toBeInTheDocument();
     expect(localStorage.getItem("platform.nav.collapsed")).toBe("1");

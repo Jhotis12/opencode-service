@@ -4,8 +4,10 @@ import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { ChatPanel } from "../components/ChatPanel.tsx";
 import { badge, card, pageTitle, statusBadge } from "../ui.ts";
+import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 export function OrchestratorPage() {
+  useDocumentTitle("Orchestrator global");
   const queryClient = useQueryClient();
   const overviewQuery = useQuery({
     queryKey: qk.controlOverview,

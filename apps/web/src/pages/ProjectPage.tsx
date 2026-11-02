@@ -24,6 +24,7 @@ import { ProjectResourcesPanel } from "../components/ProjectResourcesPanel.tsx";
 import { ProjectSettingsPanel } from "../components/ProjectSettingsPanel.tsx";
 import { NODE_META } from "../components/nodes/node-catalog.ts";
 import { badge, buttonDanger, buttonGhost, buttonPrimary, card, statusBadge } from "../ui.ts";
+import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 const DEFAULT_CODE = `export default async function run(input: unknown, ctx: any) {
   ctx.log("nodo ejecutado", { input });
@@ -88,6 +89,7 @@ export function ProjectPage() {
   const versions = versionsQuery.data ?? [];
 
   const [graph, setGraph] = useState<WorkflowGraph>();
+  useDocumentTitle(graph?.name ?? "Proyecto");
   const [dirty, setDirty] = useState(false);
   const [selectedId, setSelectedId] = useState<string>();
   const [nodeCode, setNodeCode] = useState("");

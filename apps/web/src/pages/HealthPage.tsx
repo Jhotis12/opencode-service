@@ -2,8 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { api, type HealthPayload } from "../api.ts";
 import { qk } from "../query.ts";
 import { badge, card, pageTitle, statusBadge } from "../ui.ts";
+import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Promise<HealthPayload> } = {}) {
+  useDocumentTitle("Salud del sistema");
   const healthQuery = useQuery({ queryKey: qk.health, queryFn: loadHealth, refetchInterval: 5000 });
   const health = healthQuery.data;
 

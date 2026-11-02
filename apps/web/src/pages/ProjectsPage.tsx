@@ -5,6 +5,7 @@ import { api, type ProjectSummary } from "../api.ts";
 import { qk } from "../query.ts";
 import { Modal } from "../components/Modal.tsx";
 import { badge, button, buttonDanger, buttonGhost, buttonPrimary, card, pageTitle } from "../ui.ts";
+import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 function slugify(value: string): string {
   return value
@@ -21,6 +22,7 @@ function formatDate(value: string): string {
 }
 
 export function ProjectsPage() {
+  useDocumentTitle("Proyectos");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const projectsQuery = useQuery({ queryKey: qk.projects, queryFn: () => api.listProjects().then((result) => result.data) });

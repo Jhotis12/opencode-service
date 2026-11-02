@@ -24,14 +24,14 @@ Desktop-only frontend change. Do not edit `apps/server`, `packages/shared`, data
 
 ## 3. Desktop shell and project top bar
 
-- [ ] 3.1 Refactor `ProjectTopBar` to a single desktop row with breadcrumb, scrollable tab strip, active-tab visibility, unsaved dot, Save, Run, Agent and overflow trigger; verify a component test renders all six tabs and primary actions at 1440 px.
-- [ ] 3.2 Add the `...` overflow menu with Versiones and Ajustes del flujo, keyboard traversal, Escape and click-outside close; verify a component test opens it by keyboard, activates an item and closes with Escape.
-- [ ] 3.3 Add left/right fade affordances to the tab strip and keep the active tab fully visible when the strip scrolls; verify a Playwright check at 1280 and 1440 shows no clipped tab label and the active tab is in view.
-- [ ] 3.4 Update `Layout.tsx` to use the brand lockup, replace the `OpenCode V2 · Hexagonal` subtitle with the approved descriptor and keep the collapsed rail accessible; verify `layout.test.tsx` covers the brand link and collapsed state.
-- [ ] 3.5 Update `LoginPage.tsx` with the brand lockup and the same descriptor; verify the login test still submits credentials and renders the new heading and mark.
-- [ ] 3.6 Add a small document-title hook so `/projects`, `/projects/:slug`, `/orchestrator`, `/settings` and `/system/health` set a descriptive title; verify Playwright observes the expected title on each route.
-- [ ] 3.7 Update the Playwright project-shell flow for the new top bar and overflow menu; verify the test opens Versiones and Ajustes from the menu and finds Save, Run and Agent directly.
-- [ ] 3.8 Add the desktop shell rules to `docs/design-standard.md`, including the one-row constraint and overflow behavior; verify the document is linked from the proposal's referenced docs.
+- [x] 3.1 Refactor `ProjectTopBar` to a single desktop row with breadcrumb, scrollable tab strip, active-tab visibility, unsaved dot, Save, Run, Agent and overflow trigger; verify a component test renders all six tabs and primary actions at 1440 px.
+- [x] 3.2 Add the `...` overflow menu with Versiones and Ajustes del flujo, keyboard traversal, Escape and click-outside close; verify a component test opens it by keyboard, activates an item and closes with Escape.
+- [x] 3.3 Add left/right fade affordances to the tab strip and keep the active tab fully visible when the strip scrolls; verify a Playwright check at 1280 and 1440 shows no clipped tab label and the active tab is in view.
+- [x] 3.4 Update `Layout.tsx` to use the brand lockup, replace the `OpenCode V2 · Hexagonal` subtitle with the approved descriptor and keep the collapsed rail accessible; verify `layout.test.tsx` covers the brand link and collapsed state.
+- [x] 3.5 Update `LoginPage.tsx` with the brand lockup and the same descriptor; verify the login test still submits credentials and renders the new heading and mark.
+- [x] 3.6 Add a small document-title hook so `/projects`, `/projects/:slug`, `/orchestrator`, `/settings` and `/system/health` set a descriptive title; verify Playwright observes the expected title on each route.
+- [x] 3.7 Update the Playwright project-shell flow for the new top bar and overflow menu; verify the test opens Versiones and Ajustes from the menu and finds Save, Run and Agent directly.
+- [x] 3.8 Add the desktop shell rules to `docs/design-standard.md`, including the one-row constraint and overflow behavior; verify the document is linked from the proposal's referenced docs.
 
 ## 4. Canvas legibility
 

@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import type { WorkflowGraph, WorkflowVersion } from "@platform/shared";
 import { Modal } from "./Modal.tsx";
-import { NavIcon } from "./NavIcon.tsx";
 import { badge, button, buttonGhost, buttonPrimary, statusBadge } from "../ui.ts";
 
 export type ProjectTab = "canvas" | "runs" | "agents" | "knowledge" | "resources" | "settings";
@@ -55,71 +54,207 @@ export function ProjectTopBar({
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+
+  const updateTabOverflow = useCallback(() => {
+    const element = navRef.current;
+    if (!element) return;
+    const left = element.scrollLeft > 4;
+    const right = element.scrollLeft + element.clientWidth < element.scrollWidth - 4;
+    setTabOverflow((current) => (current.left === left && current.right === right ? current : { left, right }));
+  }, []);
+
+  useEffect(() => {
+    const element = navRef.current;
+    if (!element) return;
+    updateTabOverflow();
+    element.addEventListener("scroll", updateTabOverflow, { passive: true });
+    window.addEventListener("resize", updateTabOverflow);
+    return () => {
+      element.removeEventListener("scroll", updateTabOverflow);
+      window.removeEventListener("resize", updateTabOverflow);
+    };
+  }, [updateTabOverflow]);
+
+  useEffect(() => {
+    const active = navRef.current?.querySelector<HTMLElement>('[data-active="true"]');
+    if (active && typeof active.scrollIntoView === "function") {
+      active.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    updateTabOverflow();
+  }, [tab, updateTabOverflow]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
+  function focusFirstMenuItem() {
+    requestAnimationFrame(() => {
+      menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    });
+  }
+
+  function onMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
+    if (items.length === 0) return;
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      const next = (current + delta + items.length) % items.length;
+      items[next]?.focus();
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      items[event.key === "Home" ? 0 : items.length - 1]?.focus();
+    }
+  }
+
+  function closeVersions() {
+    setVersionsOpen(false);
+    menuButtonRef.current?.focus();
+  }
+
+  function closeSettings() {
+    setSettingsOpen(false);
+    menuButtonRef.current?.focus();
+  }
 
   return (
     <>
-      <header className="flex flex-wrap items-center gap-2 border-b border-line bg-ink/90 px-3 py-2 lg:px-4">
-        <div className="flex min-w-0 items-center gap-2">
+      <header className="flex h-14 items-center gap-2 border-b border-line bg-ink/90 px-3 lg:px-4">
+        <div className="flex min-w-0 shrink-0 items-center gap-2">
           <Link className="shrink-0 text-xs text-accent hover:underline" to="/projects">
             ← Proyectos
           </Link>
           <span className="text-xs text-muted">/</span>
-          <strong className="max-w-[240px] truncate text-sm text-slate-100" title={graph.name}>
+          <strong className="max-w-[160px] truncate text-sm text-slate-100 2xl:max-w-[240px]" title={graph.name}>
             {graph.name}
           </strong>
           <span className="hidden text-[11px] text-muted 2xl:inline">{slug}</span>
         </div>
 
-        <nav
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1"
-          aria-label="Secciones del proyecto"
-        >
-          {TABS.map(([key, label]) => {
-            const count = key === "runs" ? counts.runs : key === "agents" ? counts.agents : key === "resources" ? counts.integrations : undefined;
-            const showCount = count !== undefined && count > 0;
-            return (
-              <button
-                key={key}
-                type="button"
-                className={`shrink-0 rounded-md border px-2.5 py-1.5 text-xs transition ${
-                  tab === key
-                    ? "border-line bg-panel-2 text-slate-100"
-                    : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
-                }`}
-                onClick={() => onTab(key)}
-              >
-                {label}
-                {showCount ? ` (${count})` : ""}
-              </button>
-            );
-          })}
-        </nav>
+        <div className="relative min-w-0 flex-1">
+          <nav
+            ref={navRef}
+            className="flex min-w-0 items-center gap-1 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            aria-label="Secciones del proyecto"
+          >
+            {TABS.map(([key, label]) => {
+              const count = key === "runs" ? counts.runs : key === "agents" ? counts.agents : key === "resources" ? counts.integrations : undefined;
+              const showCount = count !== undefined && count > 0;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  data-active={tab === key}
+                  className={`shrink-0 rounded-md border px-2.5 py-1.5 text-xs transition ${
+                    tab === key
+                      ? "border-line bg-panel-2 text-slate-100"
+                      : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
+                  }`}
+                  onClick={() => onTab(key)}
+                >
+                  {label}
+                  {showCount ? ` (${count})` : ""}
+                </button>
+              );
+            })}
+          </nav>
+          {tabOverflow.left && (
+            <span className="pointer-events-none absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-ink to-transparent" />
+          )}
+          {tabOverflow.right && (
+            <span className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-ink to-transparent" />
+          )}
+        </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           {issueCount > 0 && (
             <span className={statusBadge("paused")} title="Hay conexiones o nodos que requieren atención">
               {issueCount} {issueCount === 1 ? "problema" : "problemas"}
             </span>
           )}
-          {dirty && <span className={statusBadge("paused")}>Cambios sin guardar</span>}
-          <button
-            type="button"
-            className={`${buttonGhost} !px-2`}
-            aria-label="Versiones del flujo"
-            title="Versiones del flujo"
-            onClick={() => setVersionsOpen(true)}
-          >
-            Versiones{versions.length > 0 ? ` (v${versions[0]!.version})` : ""}
-          </button>
-          <button
-            type="button"
-            className={`${buttonGhost} !px-2`}
-            aria-label="Ajustes del flujo"
-            title="Ajustes del flujo"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <NavIcon name="settings" />
-          </button>
+          {dirty && (
+            <span
+              role="status"
+              aria-label="Cambios sin guardar"
+              title="Cambios sin guardar"
+              className="grid h-5 w-5 place-items-center rounded-full border border-warn/40 bg-warn/10 text-[11px] font-semibold text-warn"
+            >
+              !
+            </span>
+          )}
+          <div ref={menuRef} className="relative">
+            <button
+              ref={menuButtonRef}
+              type="button"
+              className={`${buttonGhost} !px-2`}
+              aria-label="Más acciones del flujo"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              title="Más acciones del flujo"
+              onClick={() => setMenuOpen((open) => !open)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setMenuOpen(true);
+                  focusFirstMenuItem();
+                }
+              }}
+            >
+              ...
+            </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                aria-label="Más acciones del flujo"
+                className="absolute right-0 top-full z-50 mt-2 flex min-w-[210px] flex-col gap-1 rounded-xl border border-line bg-panel p-1.5 shadow-2xl"
+                onKeyDown={onMenuKeyDown}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 focus:outline-none"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setVersionsOpen(true);
+                  }}
+                >
+                  Versiones del flujo{versions.length > 0 ? ` (v${versions[0]!.version})` : ""}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 focus:outline-none"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setSettingsOpen(true);
+                  }}
+                >
+                  Ajustes del flujo
+                </button>
+              </div>
+            )}
+          </div>
           <button type="button" className={button} onClick={onSave} disabled={saving}>
             Guardar flujo
           </button>
@@ -145,7 +280,7 @@ export function ProjectTopBar({
       </header>
 
       {settingsOpen && (
-        <Modal title="Ajustes del flujo" onClose={() => setSettingsOpen(false)} size="md">
+        <Modal title="Ajustes del flujo" onClose={closeSettings} size="md">
           <label>
             Descripción
             <textarea
@@ -173,7 +308,7 @@ export function ProjectTopBar({
             Estos cambios forman parte del flujo y se persisten con <strong>Guardar flujo</strong>.
           </p>
           <div className="flex justify-end">
-            <button type="button" className={button} onClick={() => setSettingsOpen(false)}>
+            <button type="button" className={button} onClick={closeSettings}>
               Listo
             </button>
           </div>
@@ -181,7 +316,7 @@ export function ProjectTopBar({
       )}
 
       {versionsOpen && (
-        <Modal title="Versiones del flujo" onClose={() => setVersionsOpen(false)} size="md">
+        <Modal title="Versiones del flujo" onClose={closeVersions} size="md">
           {versions.length === 0 ? (
             <p className="text-xs text-muted">Todavía no hay snapshots registrados para este flujo.</p>
           ) : (

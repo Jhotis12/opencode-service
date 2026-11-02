@@ -20,7 +20,7 @@
 
 ## 5. Agent Tool Permissions Enforcement (`platform_*`)
 
-- [ ] 5.1 Enforce per-agent `permissions` rules (`allow`/`deny`) and execution context (`chat`, `workflow`, `external_channel`) in `packages/opencode-plugin/src/tools.ts` and `apps/server/src/app.ts` so workflow steps and untrusted external channels cannot call `workflow_upsert` or `subagent_upsert` by default and respect `deny` rules on `db_query`, `notify`, and `workflow_trigger`; verify in `packages/opencode-plugin/test/tools.test.ts` and `apps/server/test/app.http.test.ts`.
+- [x] 5.1 Enforce per-agent `permissions` rules (`allow`/`deny`) and execution context (`chat`, `workflow`, `external_channel`) in `packages/opencode-plugin/src/tools.ts` and `apps/server/src/app.ts` so workflow steps and untrusted external channels cannot call `workflow_upsert` or `subagent_upsert` by default and respect `deny` rules on `db_query`, `notify`, and `workflow_trigger`; verify in `packages/opencode-plugin/test/tools.test.ts` and `apps/server/test/app.http.test.ts`.
 
 ## 6. Reference Vertical Project Template (`triaje-operativo`) & Web UI Modals
 

@@ -469,4 +469,64 @@ describe("application HTTP surface", () => {
     const secondRunId = secondTick.find((r) => r.projectSlug === "auto-bot")?.id;
     if (secondRunId && firstRunId) expect(secondRunId).toBe(firstRunId);
   });
+
+  it("enforces per-agent tool permissions and blocks design mutations in workflow/external_channel context", async () => {
+    await json("/api/projects/ventas-bot/agents/ventas/restringido", {
+      method: "PUT",
+      body: JSON.stringify({
+        description: "Agente con permisos restringidos",
+        mode: "subagent",
+        body: "Solo lectura.",
+        permissions: [
+          { action: "tool", resource: "db_query", effect: "deny" },
+          { action: "tool", resource: "notify", effect: "deny" },
+        ],
+        notebooks: [],
+      }),
+    });
+
+    const wf = (await (await json("/api/projects/ventas-bot/workflow")).json()) as WorkflowGraph;
+
+    // Workflow step context cannot mutate workflow definition by default
+    const blockedUpsert = await app.request("/api/projects/ventas-bot/workflow", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-platform-token": serviceToken,
+        "x-platform-project": "ventas-bot",
+        "x-platform-agent": "ventas/calificador",
+        "x-platform-context": "workflow",
+      },
+      body: JSON.stringify(wf),
+    });
+    expect(blockedUpsert.status).toBe(403);
+
+    // Deny rule on notify is enforced even in chat context
+    const blockedNotify = await app.request("/api/projects/ventas-bot/integrations/any-id/notify", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-platform-token": serviceToken,
+        "x-platform-project": "ventas-bot",
+        "x-platform-agent": "ventas/restringido",
+        "x-platform-context": "chat",
+      },
+      body: JSON.stringify({ text: "hola" }),
+    });
+    expect(blockedNotify.status).toBe(403);
+
+    // Primary agent in chat context without deny rules can still update workflow
+    const allowedPrimary = await app.request("/api/projects/ventas-bot/workflow", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-platform-token": serviceToken,
+        "x-platform-project": "ventas-bot",
+        "x-platform-agent": "principal/agente",
+        "x-platform-context": "chat",
+      },
+      body: JSON.stringify(wf),
+    });
+    expect(allowedPrimary.status).toBe(200);
+  });
 });

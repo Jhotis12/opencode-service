@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { WorkflowGraphSchema } from "@platform/shared";
+import {
+  WorkflowGraphSchema,
+  evaluateToolPermission,
+  type AgentExecutionContext,
+  type PermissionRule,
+} from "@platform/shared";
 
 export interface PlatformClient {
   listProjects(): Promise<unknown>;
@@ -21,6 +26,9 @@ export interface PlatformClient {
 export interface PlatformClientScope {
   projectSlug?: string;
   global?: boolean;
+  agentId?: string;
+  executionContext?: AgentExecutionContext;
+  permissions?: PermissionRule[];
 }
 
 export class HttpPlatformClient implements PlatformClient {
@@ -38,6 +46,8 @@ export class HttpPlatformClient implements PlatformClient {
         ...(this.token ? { "x-platform-token": this.token } : {}),
         ...(this.scope.projectSlug ? { "x-platform-project": this.scope.projectSlug } : {}),
         ...(this.scope.global ? { "x-platform-scope": "global" } : {}),
+        ...(this.scope.agentId ? { "x-platform-agent": this.scope.agentId } : {}),
+        ...(this.scope.executionContext ? { "x-platform-context": this.scope.executionContext } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(60_000),
@@ -122,7 +132,7 @@ export function createPlatformTools(client: PlatformClient, scope: PlatformClien
   const projectSlug = { type: "string", description: "Project/automation slug" };
   const currentProject = scope.projectSlug;
 
-  return [
+  const rawTools: PlatformTool[] = [
     {
       name: "workflow_list",
       description: "Lista los proyectos/automatizaciones visibles para este scope.",
@@ -349,4 +359,19 @@ export function createPlatformTools(client: PlatformClient, scope: PlatformClien
       },
     },
   ];
+
+  return rawTools.map((tool) => ({
+    ...tool,
+    async execute(input: unknown) {
+      const verdict = evaluateToolPermission({
+        tool: tool.name,
+        context: scope.executionContext,
+        permissions: scope.permissions,
+      });
+      if (!verdict.allowed) {
+        throw new Error(`FORBIDDEN: ${verdict.reason}`);
+      }
+      return tool.execute(input);
+    },
+  }));
 }

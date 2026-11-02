@@ -4,7 +4,13 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { streamSSE } from "hono/streaming";
-import { apiError, type ChatProgressEvent, type WorkflowGraph } from "@platform/shared";
+import {
+  apiError,
+  evaluateToolPermission,
+  type AgentExecutionContext,
+  type ChatProgressEvent,
+  type WorkflowGraph,
+} from "@platform/shared";
 import type { IntegrationRecord, UserRecord } from "./domain/entities.ts";
 import { InMemoryMetrics } from "./domain/telemetry/metrics.ts";
 import type { Logger } from "./domain/telemetry/index.ts";
@@ -106,6 +112,19 @@ type AppEnv = {
     serviceProject?: string;
   };
 };
+
+function resolveProjectRouteTool(method: string, path: string): string | undefined {
+  if (method === "PUT" && (/\/workflow$/.test(path) || /\/nodes\//.test(path))) return "workflow_upsert";
+  if (method === "POST" && /\/workflow\/versions\/\d+\/rollback$/.test(path)) return "workflow_upsert";
+  if ((method === "PUT" || method === "DELETE") && /\/agents\/[^/]+\/[^/]+$/.test(path)) return "subagent_upsert";
+  if (method === "POST" && /\/integrations\/[^/]+\/database\/query$/.test(path)) return "db_query";
+  if (method === "POST" && /\/integrations\/[^/]+\/notify$/.test(path)) return "notify";
+  if (method === "POST" && /\/runs$/.test(path)) return "workflow_trigger";
+  if (method === "POST" && (/\/notebooks\/[^/]+\/search$/.test(path) || /\/knowledge\/search$/.test(path))) {
+    return "kb_search";
+  }
+  return undefined;
+}
 
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
@@ -346,9 +365,39 @@ export async function createApplication(config: AppConfig): Promise<Application>
 
   app.use("/api/projects/:slug/*", async (c, next) => {
     const scope = c.get("serviceScope");
+    const slug = c.req.param("slug");
     if (scope === "project") {
-      if (c.get("serviceProject") !== c.req.param("slug")) {
+      if (c.get("serviceProject") !== slug) {
         return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
+      }
+      const agentHeader = c.req.header("x-platform-agent")?.trim();
+      const contextHeader = (c.req.header("x-platform-context")?.trim() as AgentExecutionContext | undefined) ?? "chat";
+      const toolName = resolveProjectRouteTool(c.req.method, c.req.path);
+      if (toolName && (agentHeader || contextHeader !== "chat")) {
+        let permissions: Array<{ action: string; resource: string; effect: "allow" | "deny" | "ask" }> | undefined;
+        if (agentHeader && agentHeader.includes("/")) {
+          const [category, role] = agentHeader.split("/");
+          if (category && role) {
+            const profile = await agents.get(slug, category, role).catch(() => undefined);
+            permissions = profile?.frontmatter.permissions;
+          }
+        }
+        const verdict = evaluateToolPermission({
+          tool: toolName,
+          context: contextHeader,
+          permissions,
+        });
+        if (!verdict.allowed) {
+          logger.warn({
+            event: "agent_tool_permission_denied",
+            entryPoint: "worker",
+            projectSlug: slug,
+            agentId: agentHeader,
+            tool: toolName,
+            reason: verdict.reason,
+          });
+          return c.json(apiError("FORBIDDEN", verdict.reason ?? "tool permission denied"), 403);
+        }
       }
       return next();
     }
@@ -356,7 +405,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
       return c.json(apiError("FORBIDDEN", "global orchestrator is read-only for project data"), 403);
     }
     const scoped = c.req.header("x-platform-project");
-    if (scoped && c.req.param("slug") !== scoped) {
+    if (scoped && slug !== scoped) {
       return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
     }
     await next();

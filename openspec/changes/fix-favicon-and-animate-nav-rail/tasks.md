@@ -2,8 +2,8 @@
 
 ## 1. Serve public brand assets
 
-- [ ] 1.1 Replace the `/assets/*`-only static registration in `apps/server/src/app.ts` with a catch-all `serveStatic({ root: webDist })` before the SPA fallback, so `/favicon.svg` and `/brand/*.svg` resolve while missing client routes still reach `index.html`; verify with `bun run --cwd apps/server typecheck`.
-- [ ] 1.2 Add `apps/server/test/static-assets.test.ts` using a temporary `webDist` with `index.html` and `favicon.svg`; assert `/favicon.svg` returns `200` with `image/svg+xml` and the SVG body, and a client route still returns the HTML; verify with `bun run --cwd apps/server test`.
+- [x] 1.1 Replace the `/assets/*`-only static registration in `apps/server/src/app.ts` with a catch-all `serveStatic({ root: webDist })` before the SPA fallback, so `/favicon.svg` and `/brand/*.svg` resolve while missing client routes still reach `index.html`; verify with `bun run --cwd apps/server typecheck`.
+- [x] 1.2 Add `apps/server/test/static-assets.test.ts` using a temporary `webDist` with `index.html` and `favicon.svg`; assert `/favicon.svg` returns `200` with `image/svg+xml` and the SVG body, and a client route still returns the HTML; verify with `bun run --cwd apps/server test`.
 
 ## 2. Animate the desktop navigation rail
 

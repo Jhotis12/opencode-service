@@ -1312,7 +1312,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const indexHtmlPath = join(webDist, "index.html");
   if (existsSync(indexHtmlPath)) {
     const indexHtml = await Bun.file(indexHtmlPath).text();
-    app.use("/assets/*", serveStatic({ root: webDist }));
+    app.use("*", serveStatic({ root: webDist }));
     app.get("*", (c) =>
       c.req.path.startsWith("/api/") ? c.json(apiError("NOT_FOUND", "route not found"), 404) : c.html(indexHtml),
     );

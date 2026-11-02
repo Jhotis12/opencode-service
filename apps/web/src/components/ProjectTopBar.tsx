@@ -146,7 +146,7 @@ export function ProjectTopBar({
             ← Proyectos
           </Link>
           <span className="text-xs text-muted">/</span>
-          <strong className="max-w-[160px] truncate text-sm text-slate-100 2xl:max-w-[240px]" title={graph.name}>
+          <strong className="max-w-[120px] truncate text-sm text-slate-100 min-[1400px]:max-w-[240px]" title={graph.name}>
             {graph.name}
           </strong>
           <span className="hidden text-[11px] text-muted 2xl:inline">{slug}</span>
@@ -166,7 +166,7 @@ export function ProjectTopBar({
                   key={key}
                   type="button"
                   data-active={tab === key}
-                  className={`shrink-0 rounded-md border px-2.5 py-1.5 text-xs transition ${
+                  className={`shrink-0 rounded-md border px-2 py-1.5 text-xs transition ${
                     tab === key
                       ? "border-line bg-panel-2 text-slate-100"
                       : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
@@ -256,7 +256,7 @@ export function ProjectTopBar({
             )}
           </div>
           <button type="button" className={button} onClick={onSave} disabled={saving}>
-            Guardar flujo
+            Guardar<span className="hidden min-[1400px]:inline"> flujo</span>
           </button>
           <button type="button" className={buttonPrimary} onClick={onRun}>
             Ejecutar

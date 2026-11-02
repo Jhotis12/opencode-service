@@ -18,12 +18,14 @@ export function Modal({
   onClose,
   children,
   actions,
+  footer,
   size = "md",
 }: {
   title: string;
   onClose(): void;
   children: ReactNode;
   actions?: ReactNode;
+  footer?: ReactNode;
   size?: ModalSize;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -126,6 +128,7 @@ export function Modal({
         <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
           <div className="flex flex-col gap-3">{children}</div>
         </div>
+        {footer && <div className="shrink-0 border-t border-line bg-panel px-5 py-3">{footer}</div>}
       </div>
     </div>,
     document.body,

@@ -137,7 +137,8 @@ reachable while the body scrolls.
 One row at 1280 px and 1440 px. Left: breadcrumb and project name. Center:
 scrollable six-tab strip with fade affordances. Right: unsaved dot, Save, Run,
 Agent and an overflow menu containing Versiones and Ajustes del flujo. The
-project name truncates before any tab label is clipped.
+project name truncates before any tab label is clipped. At 1280 px the save
+action reads `Guardar`; from 1400 px it expands to `Guardar flujo`.
 
 ### Canvas
 

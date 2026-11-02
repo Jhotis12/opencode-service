@@ -99,15 +99,33 @@ export function AgentEditorModal({
     setForm((current) => ({ ...current, ...patch }));
   }
 
+  function submit() {
+    setError(undefined);
+    if (!canSave) return;
+    save.mutate();
+  }
+
   return (
-    <Modal title={editing ? "Editar agente" : "Nuevo agente"} onClose={onClose} size="lg">
+    <Modal
+      title={editing ? "Editar agente" : "Nuevo agente"}
+      onClose={onClose}
+      size="lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button type="button" className={buttonGhost} onClick={onClose}>
+            Cancelar
+          </button>
+          <button type="button" className={buttonPrimary} disabled={!canSave || save.isPending} onClick={submit}>
+            {save.isPending ? "Guardando…" : "Guardar agente"}
+          </button>
+        </div>
+      }
+    >
       <form
         className="flex flex-col gap-5"
         onSubmit={(event) => {
           event.preventDefault();
-          setError(undefined);
-          if (!canSave) return;
-          save.mutate();
+          submit();
         }}
         aria-label={editing ? "Editar agente" : "Nuevo agente"}
       >
@@ -233,14 +251,6 @@ export function AgentEditorModal({
           </p>
         )}
 
-        <div className="sticky bottom-0 -mx-5 -mb-4 flex justify-end gap-2 border-t border-line bg-panel px-5 py-3">
-          <button type="button" className={buttonGhost} onClick={onClose}>
-            Cancelar
-          </button>
-          <button type="submit" className={buttonPrimary} disabled={!canSave || save.isPending}>
-            {save.isPending ? "Guardando…" : "Guardar agente"}
-          </button>
-        </div>
       </form>
     </Modal>
   );

@@ -11,6 +11,7 @@ export function isSessionNotFoundError(error: unknown): boolean {
 export interface ChatSessionFactory {
   create(): Promise<{ id: string }>;
   agentId?: string;
+  model?: string;
   logger?: Logger;
 }
 
@@ -29,6 +30,7 @@ export async function ensureChatSession(
   if (existing) {
     try {
       if (factory.agentId) await agent.switchAgent(existing, factory.agentId);
+      if (factory.model) await agent.switchModel(existing, factory.model);
       return existing;
     } catch (error) {
       if (!isSessionNotFoundError(error)) throw error;

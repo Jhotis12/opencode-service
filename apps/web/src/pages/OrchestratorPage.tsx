@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import type { ChatProgressEvent } from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { ChatPanel } from "../components/ChatPanel.tsx";
@@ -19,7 +20,8 @@ export function OrchestratorPage() {
     queryFn: () => api.controlChatHistory().then((result) => result.data),
   });
   const chat = useMutation({
-    mutationFn: (message: string) => api.controlChat(message),
+    mutationFn: ({ message, onEvent }: { message: string; onEvent?: (event: ChatProgressEvent) => void }) =>
+      api.controlChat(message, onEvent),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: qk.controlChat }),
@@ -109,7 +111,7 @@ export function OrchestratorPage() {
 
         <aside className="flex flex-col gap-3 xl:sticky xl:top-5 xl:max-h-[calc(100vh-40px)] xl:overflow-auto">
           <ChatPanel
-            onSend={(message) => chat.mutateAsync(message).then((result) => result.reply)}
+            onSend={(message, onEvent) => chat.mutateAsync({ message, onEvent }).then((result) => result.reply)}
             hint="Pregunta por fallos, estado de proyectos o conocimiento. El orquestador consulta datos reales y no edita proyectos."
             initialMessages={chatQuery.data ?? []}
             title="Orquestador global"

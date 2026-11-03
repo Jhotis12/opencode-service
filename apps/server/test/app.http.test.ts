@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createApplication, type Application } from "../src/app.ts";
-import { createLogger } from "../src/infrastructure/out/telemetry/logger.ts";
+import type { Logger, LogBindings } from "../src/domain/telemetry/index.ts";
 import type { WorkflowGraph } from "@platform/shared";
 
 let dir: string;
@@ -14,6 +14,24 @@ let app: Application["app"];
 let cookie = "";
 const serviceToken = "service-token-test";
 const globalServiceToken = "global-token-test";
+const logEntries: Array<{ level: string; bindings: LogBindings }> = [];
+const testLogger: Logger = {
+  debug(bindings) {
+    logEntries.push({ level: "debug", bindings });
+  },
+  info(bindings) {
+    logEntries.push({ level: "info", bindings });
+  },
+  warn(bindings) {
+    logEntries.push({ level: "warn", bindings });
+  },
+  error(bindings) {
+    logEntries.push({ level: "error", bindings });
+  },
+  child() {
+    return testLogger;
+  },
+};
 
 async function json(path: string, init: RequestInit = {}, useCookie = true) {
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -25,10 +43,10 @@ beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "platform-http-"));
   application = await createApplication({
     dataDir: dir,
-    env: { ...process.env, OPENCODE_MODE: "fake" },
+    env: { ...process.env, OPENCODE_MODE: "fake", ORCHESTRATOR_MODEL: "opencode-go/fast" },
     serviceToken,
     globalServiceToken,
-    logger: createLogger({ level: "silent", destination: { write() {} } }),
+    logger: testLogger,
   });
   app = application.app;
   const login = await app.request("/api/auth/login", {
@@ -75,6 +93,7 @@ describe("application HTTP surface", () => {
       body: JSON.stringify({}),
     });
     expect(globalMutation.status).toBe(403);
+    expect(logEntries.some((entry) => entry.bindings.event === "global_mutation_rejected")).toBe(true);
     const projectVault = await app.request("/api/vault/secrets", {
       headers: { "x-platform-token": serviceToken, "x-platform-project": "ventas-bot" },
     });
@@ -528,5 +547,86 @@ describe("application HTTP surface", () => {
       body: JSON.stringify(wf),
     });
     expect(allowedPrimary.status).toBe(200);
+  });
+
+  it("streams control-chat progress and a non-empty reply", async () => {
+    const originalPrompt = application.agent.prompt;
+    const originalSubscribe = application.agent.subscribe;
+    let handler: ((event: unknown, sessionId: string) => void) | undefined;
+    application.agent.subscribe = async (next) => {
+      handler = next as (event: unknown, sessionId: string) => void;
+      return () => undefined;
+    };
+    application.agent.prompt = async (sessionId: string) => {
+      handler?.({ type: "session.text.delta", data: { sessionID: sessionId, delta: "respuesta " } }, sessionId);
+      handler?.(
+        {
+          type: "session.tool.called",
+          data: { sessionID: sessionId, id: "t1", name: "platform_workflow_get", input: {} },
+        },
+        sessionId,
+      );
+      handler?.({ type: "session.tool.success", data: { sessionID: sessionId, id: "t1" } }, sessionId);
+      return "respuesta de prueba";
+    };
+    try {
+      const response = await app.request("/api/control/chat", {
+        method: "POST",
+        headers: {
+          accept: "text/event-stream",
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ message: "hola" }),
+      });
+      const body = await response.text();
+      expect(body).toContain("event: delta");
+      expect(body).toContain("event: activity");
+      expect(body).toContain("Revisando el flujo");
+      expect(body).toContain("event: done");
+      expect(body).toContain("respuesta de prueba");
+      expect(body).not.toContain('"reply":""');
+    } finally {
+      application.agent.prompt = originalPrompt;
+      application.agent.subscribe = originalSubscribe;
+    }
+  });
+
+  it("returns 502 and a visible error for an empty control-chat reply", async () => {
+    const originalPrompt = application.agent.prompt;
+    application.agent.prompt = async () => "";
+    try {
+      const response = await json("/api/control/chat", {
+        method: "POST",
+        body: JSON.stringify({ message: "consulta vacía" }),
+      });
+      expect(response.status).toBe(502);
+      const payload = (await response.json()) as { error?: { message?: string } };
+      expect(payload.error?.message).toContain("empty response");
+
+      const stream = await app.request("/api/control/chat", {
+        method: "POST",
+        headers: {
+          accept: "text/event-stream",
+          cookie,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ message: "consulta vacía SSE" }),
+      });
+      const body = await stream.text();
+      expect(body).toContain("event: error");
+      expect(body).not.toContain('"reply":""');
+
+      const historyResponse = await json("/api/control/chat?limit=20");
+      const history = (await historyResponse.json()) as {
+        data: Array<{ role: string; content: string }>;
+      };
+      expect(history.data.some((message) => message.role === "system" && message.content.includes("empty response"))).toBe(
+        true,
+      );
+      expect(history.data.some((message) => message.role === "agent" && message.content.trim() === "")).toBe(false);
+    } finally {
+      application.agent.prompt = originalPrompt;
+    }
   });
 });

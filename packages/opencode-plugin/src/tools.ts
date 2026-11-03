@@ -128,6 +128,16 @@ export interface PlatformTool {
   execute(input: unknown): Promise<{ content: string }>;
 }
 
+const GLOBAL_READ_ONLY_TOOLS = new Set([
+  "workflow_list",
+  "workflow_get",
+  "workflow_runs",
+  "project_overview",
+  "subagent_list",
+  "kb_search",
+  "health_summary",
+]);
+
 export function createPlatformTools(client: PlatformClient, scope: PlatformClientScope = {}): PlatformTool[] {
   const projectSlug = { type: "string", description: "Project/automation slug" };
   const currentProject = scope.projectSlug;
@@ -360,7 +370,11 @@ export function createPlatformTools(client: PlatformClient, scope: PlatformClien
     },
   ];
 
-  return rawTools.map((tool) => ({
+  const scopedTools = scope.global
+    ? rawTools.filter((tool) => GLOBAL_READ_ONLY_TOOLS.has(tool.name))
+    : rawTools;
+
+  return scopedTools.map((tool) => ({
     ...tool,
     async execute(input: unknown) {
       const verdict = evaluateToolPermission({

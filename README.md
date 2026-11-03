@@ -30,6 +30,7 @@ Abre `http://localhost:3001` (el contenedor escucha en `3000`; el host usa `3001
 | `PLATFORM_SERVICE_TOKEN` | Token de llamadas con scope de proyecto. |
 | `PLATFORM_GLOBAL_TOKEN` | Token del plano de control (orquestador global). |
 | `AGENT_CHAT_TIMEOUT_MS` | Timeout del chat (15 min por defecto). |
+| `ORCHESTRATOR_MODEL` | Modelo del orquestador global; si se omite usa el modelo por defecto de la plataforma. |
 | `OPENCODE_MODE=fake` | Runtime simulado para desarrollo y E2E. |
 
 ## Dos planos
@@ -93,6 +94,8 @@ Con `Accept: text/event-stream` responde por SSE; con `webhookUrl` entrega el re
 - Se configura en **Ajustes > Canales del orquestador global**.
 - Puede recibir alertas de `run.failed`, `integration.down` y `health.degraded`; las alertas son deterministas, deduplicadas y con throttle.
 - El chat del orquestador está en la página **Orquestador global** y usa herramientas `platform_*` con scope global.
+- Solo recibe herramientas de lectura: proyectos, flujos, ejecuciones, errores, salud y conocimiento. Las tools de mutación o efectos secundarios no se registran en su inventario.
+- Usa `ORCHESTRATOR_MODEL` si está definido; si no, el modelo por defecto de la plataforma.
 - Sus credenciales son distintas de las de proyecto: `PLATFORM_GLOBAL_TOKEN` vs `PLATFORM_SERVICE_TOKEN`.
 - No edita proyectos; si en el futuro se habilitan acciones, requieren confirmación explícita y auditoría.
 

@@ -7,7 +7,7 @@ await rm(dataDir, { recursive: true, force: true });
 
 const application = await createApplication({
   dataDir,
-  env: { ...process.env, OPENCODE_MODE: "fake" },
+  env: { ...process.env, OPENCODE_MODE: "fake", ORCHESTRATOR_MODEL: "opencode-go/fast" },
   webDist: join(import.meta.dir, "..", "apps", "web", "dist"),
 });
 

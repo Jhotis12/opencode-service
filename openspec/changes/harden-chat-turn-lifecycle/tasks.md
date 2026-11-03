@@ -20,7 +20,7 @@ Supuestos de planificación: el hilo web sigue siendo por proyecto/scope (no por
 - [x] 3.1 Extender `AgentRuntimePort` con `sendPrompt` (id/metadata/delivery), `openSessionLog`/`waitForTurn`, `getSession`, `listActive`, `listInbox`, `getMessages`, `getMessage` e `interrupt`; verificar que el fake runtime y los tests existentes compilan y que el helper `runPrompt` de workflow mantiene su contrato.
 - [x] 3.2 Implementar las primitivas en `OpenCodeV2Adapter` con correlación por `turnId`/metadata y extracción del mensaje assistant exacto del turno, incluyendo el caso sin texto; verificar con tests de mensaje normal, tool-only, múltiples turnos y respuesta vacía.
 - [x] 3.3 Hacer que el adapter invalide y recree el cliente ante fallos de transporte y que reconecte el log/event stream desde el cursor con backoff; verificar con un fake client que simula caída, endpoint nuevo y replay sin duplicados.
-- [ ] 3.4 Configurar el fetch del stream de larga duración (idle timeout mayor que el turno o keepalives validados) y el fetch corto de polling con timeout/reintento; verificar con un servidor fake que un stream silencioso de 6+ minutos simulados no se corta y que un poll colgado reintenta.
+- [x] 3.4 Configurar el fetch del stream de larga duración (idle timeout mayor que el turno o keepalives validados) y el fetch corto de polling con timeout/reintento; verificar con un servidor fake que un stream silencioso de 6+ minutos simulados no se corta y que un poll colgado reintenta.
 - [x] 3.5 Añadir tests de contrato para `session.log`/`session.active`/`session.get`/inbox/message/interrupt con el fake client y con el adapter real contra un servicio fake local; verificar `bun test --cwd apps/server` para el grupo.
 
 ## 4. ChatTurnService
@@ -74,7 +74,7 @@ Supuestos de planificación: el hilo web sigue siendo por proyecto/scope (no por
 
 - [x] 11.1 Añadir el feature flag `CHAT_TURN_ENGINE=legacy|v2`, cablear la recuperación al arranque y el shutdown del supervisor; verificar que `legacy` sigue funcionando y que `v2` puede activarse por entorno.
 - [x] 11.2 Ejecutar la verificación completa: `bun run typecheck`, `bun test`, `bun run build`, `bun run test:e2e`, `graphify update .`; corregir cualquier regresión antes de cerrar el grupo.
-- [ ] 11.3 Ejecutar la prueba manual/controlada con un turno de 6+ minutos (tool larga o tarea real) en un proyecto de prueba: verificar que no aparece `Transport: The operation timed out.`, que el agente completa, que la respuesta se persiste, que recargar/reconectar funciona y que health muestra el turno recuperado.
+- [x] 11.3 Ejecutar la prueba manual/controlada con un turno de 6+ minutos (tool larga o tarea real) en un proyecto de prueba: verificar que no aparece `Transport: The operation timed out.`, que el agente completa, que la respuesta se persiste, que recargar/reconectar funciona y que health muestra el turno recuperado.
 - [x] 11.4 Verificar el rollback a `legacy` sin pérdida de historial y documentar el procedimiento de activación/rollback; confirmar que los turnos nuevos quedan inspeccionables en `chat_turns`.
 
 ## Workflow follow-up

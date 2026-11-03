@@ -32,7 +32,15 @@ export interface MetricsSnapshot {
 
 export interface Metrics {
   recordRequest(route: string, status: number, durationMs: number): void;
-  increment(name: "workflow_runs" | "workflow_failures" | "channel_messages" | "worker_timeouts"): void;
+  increment(
+    name:
+      | "workflow_runs"
+      | "workflow_failures"
+      | "workflow_runs_queued"
+      | "workflow_runs_dispatched"
+      | "channel_messages"
+      | "worker_timeouts",
+  ): void;
   snapshot(): MetricsSnapshot;
 }
 

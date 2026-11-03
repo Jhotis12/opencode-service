@@ -37,6 +37,8 @@ export interface ProjectRecord {
   description: string;
   defaultModel?: string;
   primaryAgent?: string;
+  approvalIntegrationId?: string;
+  approvalRecipient?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -74,6 +76,7 @@ export interface WorkflowRunRecord {
   versionId?: string;
   integrationId?: string;
   sourceDetail?: string;
+  parentRunId?: string;
   startedAt: string;
   finishedAt?: string;
 }
@@ -113,6 +116,70 @@ export interface ApprovalRecord {
   createdAt: string;
   decidedAt?: string;
   decidedBy?: string;
+}
+
+export type DeliveryStatus = "pending" | "delivered" | "failed";
+
+export interface WorkflowDeliveryRecord {
+  id: string;
+  projectSlug: string;
+  runId?: string;
+  nodeId?: string;
+  integrationId: string;
+  actionKey: string;
+  recipient?: string;
+  status: DeliveryStatus;
+  providerMessageId?: string;
+  attempts: number;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkflowScheduleStateRecord {
+  id: string;
+  projectSlug: string;
+  workflowId: string;
+  nodeId: string;
+  timezone: string;
+  enabled: boolean;
+  overlapPolicy: "skip" | "allow";
+  catchUp: boolean;
+  catchUpWindowMinutes: number;
+  lastWindowAt?: string;
+  nextWindowAt?: string;
+  lastRunId?: string;
+  updatedAt: string;
+}
+
+export interface SessionContextRecord {
+  sessionId: string;
+  scope: EntityScope;
+  projectSlug?: string;
+  agentId?: string;
+  context: "chat" | "workflow" | "external_channel";
+  runId?: string;
+  integrationId?: string;
+  externalThreadId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkflowTimerRecord {
+  id: string;
+  runId: string;
+  nodeId: string;
+  dueAt: string;
+  status: "pending" | "running" | "fired";
+  payload?: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QueuedRunRecord {
+  runId: string;
+  projectSlug: string;
+  createdAt: string;
 }
 
 export interface ChatThreadRecord {

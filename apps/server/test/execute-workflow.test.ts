@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,13 +7,20 @@ import type { SseEvent, WorkflowGraph } from "@platform/shared";
 import { SafeFsWorkspaceAdapter } from "../src/infrastructure/out/workspace-fs/safe-workspace.ts";
 import { BunWorkerPoolAdapter } from "../src/infrastructure/out/worker-sandbox/bun-worker-pool.ts";
 import { SqliteStore } from "../src/infrastructure/out/persistence/sqlite-store.ts";
+import { Aes256GcmVaultAdapter } from "../src/infrastructure/out/vault/aes-vault.ts";
+import { DynamicDatabaseClientAdapter } from "../src/infrastructure/out/external-db/dynamic-adapter.ts";
+import { ExecuteDatabaseActionUseCase } from "../src/application/use-cases/database-actions.ts";
+import { SendNotificationUseCase } from "../src/application/use-cases/send-notification.ts";
+import type { EgressSendResult, IntegrationEgressPort } from "../src/application/ports/channels.ts";
 import { InMemoryMetrics } from "../src/domain/telemetry/metrics.ts";
 import { NoopErrorTracker } from "../src/infrastructure/out/telemetry/sentry.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
 import type { AgentModelInfo, AgentRuntimePort } from "../src/application/ports/runtime.ts";
+import { AgentPromptTimeoutError } from "../src/application/ports/runtime.ts";
 import type { EventBus } from "../src/application/ports/events.ts";
 import {
   ExecuteWorkflowRunUseCase,
+  executeHttpNode,
   type ExecutorDeps,
 } from "../src/application/use-cases/execute-workflow.ts";
 import {
@@ -43,6 +51,7 @@ class FakeAgent implements AgentRuntimePort {
   prompts: string[] = [];
   switchedModels: string[] = [];
   switchedAgents: string[] = [];
+  interrupted: string[] = [];
   async ensureReady() { return { url: "http://fake" }; }
   async health() { return { ok: true, detail: "fake" }; }
   async listModels() { return this.models; }
@@ -56,6 +65,7 @@ class FakeAgent implements AgentRuntimePort {
     this.prompts.push(text);
     return "respuesta-agente";
   }
+  async interrupt(sessionId: string) { this.interrupted.push(sessionId); }
   async switchModel(_sessionId: string, model: string) { this.switchedModels.push(model); }
   async switchAgent(_sessionId: string, agent: string) { this.switchedAgents.push(agent); }
   async reloadLocation() {}
@@ -65,6 +75,14 @@ class FakeAgent implements AgentRuntimePort {
 class FakeEvents implements EventBus {
   events: SseEvent[] = [];
   publish(event: SseEvent) { this.events.push(event); }
+}
+
+class RecordingEgress implements IntegrationEgressPort {
+  sent: Array<{ integrationId: string; text: string; recipient?: string }> = [];
+  async send(integrationId: string, text: string, recipient?: string): Promise<EgressSendResult> {
+    this.sent.push({ integrationId, text, recipient });
+    return { providerMessageId: `msg-${this.sent.length}` };
+  }
 }
 
 async function setup(graph: WorkflowGraph, nodes: Record<string, string>, extraDeps: Partial<ExecutorDeps> = {}) {
@@ -109,6 +127,427 @@ function baseGraph(): WorkflowGraph {
 }
 
 describe("workflow execution", () => {
+  it("executes database nodes and passes their result downstream", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "platform-db-node-"));
+    dirs.push(dir);
+    const filename = join(dir, "client.sqlite");
+    const seed = new Database(filename, { create: true });
+    seed.exec("CREATE TABLE leads (id INTEGER PRIMARY KEY, name TEXT);");
+    seed.close();
+    const now = new Date().toISOString();
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "db-flow",
+      name: "DB flow",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "write",
+          type: "database",
+          position: { x: 100, y: 0 },
+          config: {
+            integrationId: "db1",
+            mode: "write",
+            statements: [{ sql: "INSERT INTO leads (name) VALUES (?)", params: ["{{input.name}}"] }],
+          },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "read",
+          type: "database",
+          position: { x: 200, y: 0 },
+          config: {
+            integrationId: "db1",
+            mode: "read",
+            statements: [{ sql: "SELECT name FROM leads ORDER BY id" }],
+          },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [
+        { id: "e1", source: "start", target: "write" },
+        { id: "e2", source: "write", target: "read" },
+      ],
+      updatedAt: now,
+    };
+    const { store, deps } = await setup(graph, {});
+    store.integrations.create({
+      id: "db1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "sqlite",
+      name: "Local",
+      slug: "local",
+      config: { kind: "sqlite", filename },
+      secretRefs: {},
+      capabilities: ["query"],
+      status: "disconnected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const databaseAction = new ExecuteDatabaseActionUseCase(
+      store,
+      new Aes256GcmVaultAdapter(Buffer.alloc(32, 4)),
+      new DynamicDatabaseClientAdapter(),
+    );
+    const executor = new ExecuteWorkflowRunUseCase({ ...deps, databaseAction });
+    const run = await executor.execute({
+      projectSlug: "p1",
+      graph,
+      payload: { name: "Ana" },
+      entryPoint: "web_ui",
+    });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toMatchObject({ rows: [{ name: "Ana" }], rowCount: 1 });
+    expect(store.runs.listSteps(run.id).map((step) => step.nodeId)).toEqual(["start", "write", "read"]);
+    store.close();
+  });
+
+  it("executes notify nodes for telegram and external chat", async () => {
+    const now = new Date().toISOString();
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "notify-flow",
+      name: "Notify flow",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "telegram",
+          type: "notify",
+          position: { x: 100, y: 0 },
+          config: { integrationId: "tg1", recipient: "123", text: "Hola {{input.nombre}}" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "chat",
+          type: "notify",
+          position: { x: 200, y: 0 },
+          config: { integrationId: "chat1", text: "Fin: {{input.providerMessageId}}" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [
+        { id: "e1", source: "start", target: "telegram" },
+        { id: "e2", source: "telegram", target: "chat" },
+      ],
+      updatedAt: now,
+    };
+    const { store, deps } = await setup(graph, {});
+    const base = {
+      scope: "project" as const,
+      projectSlug: "p1",
+      config: {},
+      secretRefs: {},
+      capabilities: ["inbound_message" as const, "outbound_message" as const],
+      status: "connected" as const,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.integrations.create({ ...base, id: "tg1", kind: "telegram", name: "TG", slug: "tg" });
+    store.integrations.create({ ...base, id: "chat1", kind: "external_chat", name: "Chat", slug: "chat" });
+    const egress = new RecordingEgress();
+    const executor = new ExecuteWorkflowRunUseCase({
+      ...deps,
+      notification: new SendNotificationUseCase(store, egress),
+    });
+    const run = await executor.execute({
+      projectSlug: "p1",
+      graph,
+      payload: { nombre: "Ana" },
+      entryPoint: "web_ui",
+    });
+    expect(run.status).toBe("succeeded");
+    expect(egress.sent[0]).toEqual({ integrationId: "tg1", text: "Hola Ana", recipient: "123" });
+    expect(egress.sent[1]).toEqual({ integrationId: "chat1", text: "Fin: msg-1", recipient: undefined });
+    expect(store.deliveries.listByRun(run.id)).toHaveLength(2);
+    store.close();
+  });
+
+  it("marks an agent timeout as timed_out", async () => {
+    class TimeoutAgent extends FakeAgent {
+      async prompt(_sessionId: string, _text: string): Promise<string> {
+        throw new AgentPromptTimeoutError(10);
+      }
+    }
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "timeout-flow",
+      name: "Timeout flow",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "agent",
+          type: "agent",
+          agentId: "ventas/calificador",
+          position: { x: 100, y: 0 },
+          config: {},
+          notebookIds: [],
+          timeoutMs: 10,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "agent" }],
+      updatedAt: new Date().toISOString(),
+    };
+    const { executor, store } = await setup(graph, {}, { agent: new TimeoutAgent() });
+    const run = await executor.execute({
+      projectSlug: "p1",
+      graph,
+      payload: {},
+      entryPoint: "web_ui",
+    });
+    expect(run.status).toBe("timed_out");
+    expect(store.runs.listSteps(run.id).at(-1)?.status).toBe("timed_out");
+    store.close();
+  });
+
+  it("retries HTTP nodes with backoff and records exhaustion", async () => {
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "http-retry",
+      name: "HTTP retry",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "http",
+          type: "http",
+          position: { x: 100, y: 0 },
+          config: { method: "GET", url: "https://example.test/data" },
+          notebookIds: [],
+          timeoutMs: 1_000,
+          retryPolicy: { maxRetries: 1, backoffMs: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "http" }],
+      updatedAt: new Date().toISOString(),
+    };
+    const { executor, store } = await setup(graph, {});
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      if (calls === 1) return new Response("fail", { status: 500 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    try {
+      const run = await executor.execute({ projectSlug: "p1", graph, payload: {}, entryPoint: "web_ui" });
+      expect(run.status).toBe("succeeded");
+      expect(calls).toBe(2);
+      expect(run.output).toEqual({ ok: true });
+
+      calls = 0;
+      globalThis.fetch = (async () => {
+        calls += 1;
+        return new Response("down", { status: 500 });
+      }) as unknown as typeof fetch;
+      const failed = await executor.execute({ projectSlug: "p1", graph, payload: {}, entryPoint: "web_ui" });
+      expect(failed.status).toBe("failed");
+      expect(calls).toBe(2);
+      expect(store.runs.listSteps(failed.id).at(-1)?.status).toBe("failed");
+    } finally {
+      globalThis.fetch = originalFetch;
+      store.close();
+    }
+  });
+
+  it("follows continue and route error strategies", async () => {
+    const now = new Date().toISOString();
+    const baseNodes = [
+      {
+        id: "start",
+        type: "trigger" as const,
+        position: { x: 0, y: 0 },
+        config: { kind: "manual" as const },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "http",
+        type: "http" as const,
+        position: { x: 100, y: 0 },
+        config: { method: "GET", url: "https://example.test/fail" },
+        notebookIds: [],
+        timeoutMs: 1_000,
+        retryPolicy: { maxRetries: 0, backoffMs: 0 },
+        onError: { strategy: "continue" as const },
+      },
+      {
+        id: "after",
+        type: "transform" as const,
+        position: { x: 200, y: 0 },
+        config: { template: '{"failed":"{{input.error.nodeId}}"}' },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+    ];
+    const continueGraph: WorkflowGraph = {
+      version: 1,
+      id: "continue-flow",
+      name: "Continue flow",
+      description: "",
+      nodes: baseNodes,
+      edges: [
+        { id: "e1", source: "start", target: "http" },
+        { id: "e2", source: "http", target: "after" },
+      ],
+      updatedAt: now,
+    };
+    const { executor, store } = await setup(continueGraph, {});
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("down", { status: 500 })) as unknown as typeof fetch;
+    try {
+      const run = await executor.execute({ projectSlug: "p1", graph: continueGraph, payload: {}, entryPoint: "web_ui" });
+      expect(run.status).toBe("succeeded");
+      expect(run.output).toEqual({ failed: "http" });
+      expect(store.runs.listSteps(run.id).map((step) => [step.nodeId, step.status])).toEqual([
+        ["start", "succeeded"],
+        ["http", "failed"],
+        ["after", "succeeded"],
+      ]);
+
+      const routeGraph: WorkflowGraph = {
+        ...continueGraph,
+        id: "route-flow",
+        nodes: [
+          baseNodes[0]!,
+          {
+            ...baseNodes[1]!,
+            onError: { strategy: "route" as const, target: "fallback" },
+          },
+          {
+            id: "fallback",
+            type: "transform" as const,
+            position: { x: 200, y: 0 },
+            config: { template: '{"route":"{{input.error.message}}"}' },
+            notebookIds: [],
+            timeoutMs: 30_000,
+            retryPolicy: { maxRetries: 0 },
+          },
+        ],
+        edges: [{ id: "e1", source: "start", target: "http" }],
+      };
+      const routed = await executor.execute({ projectSlug: "p1", graph: routeGraph, payload: {}, entryPoint: "web_ui" });
+      expect(routed.status).toBe("succeeded");
+      expect((routed.output as { route: string }).route).toContain("HTTP 500");
+      expect(store.runs.listSteps(routed.id).map((step) => step.nodeId)).toEqual(["start", "http", "fallback"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      store.close();
+    }
+  });
+
+  it("resolves HTTP integration base URLs and vault secrets", async () => {
+    const store = new SqliteStore(":memory:");
+    const vault = new Aes256GcmVaultAdapter(Buffer.alloc(32, 9));
+    const now = new Date().toISOString();
+    store.integrations.create({
+      id: "http1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "http",
+      name: "API",
+      slug: "api",
+      config: { kind: "http", baseUrl: "https://api.example.com/v1" },
+      secretRefs: {},
+      capabilities: [],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.vault.upsert({
+      id: "s1",
+      scope: "project",
+      projectSlug: "p1",
+      alias: "token",
+      kind: "generic",
+      ciphertext: vault.encrypt("s3cret"),
+      createdAt: now,
+    });
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      requests.push({ url, init });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    try {
+      const result = await executeHttpNode(
+        {
+          id: "http",
+          type: "http",
+          position: { x: 0, y: 0 },
+          config: {
+            integrationId: "http1",
+            method: "POST",
+            url: "/leads",
+            headers: { authorization: "secret:token" },
+            body: { token: "{{secret.token}}" },
+          },
+          notebookIds: [],
+          timeoutMs: 1_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {},
+        { projectSlug: "p1", store, vault },
+      );
+      expect(result).toEqual({ ok: true });
+      expect(requests[0]?.url).toBe("https://api.example.com/v1/leads");
+      expect((requests[0]?.init?.headers as Record<string, string>).authorization).toBe("s3cret");
+      expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ token: "s3cret" });
+    } finally {
+      globalThis.fetch = originalFetch;
+      store.close();
+    }
+  });
+
   it("runs code and agent nodes, checkpointing every step", async () => {
     const graph = baseGraph();
     graph.nodes.push({ id: "reply", type: "agent", agentId: "ventas/cotizador", position: { x: 2, y: 0 }, config: {}, notebookIds: [], timeoutMs: 30000, retryPolicy: { maxRetries: 0 } });
@@ -228,6 +667,238 @@ describe("workflow execution", () => {
     expect(resumed.status).toBe("succeeded");
     expect(resumed.output).toBe("done");
     expect(store.runs.findApproval(paused.id, "review")?.status).toBe("approved");
+  });
+
+  it("honors autoApprove without creating a pending approval", async () => {
+    const graph = baseGraph();
+    graph.nodes.push(
+      {
+        id: "review",
+        type: "approval",
+        position: { x: 2, y: 0 },
+        config: { autoApprove: true },
+        notebookIds: [],
+        timeoutMs: 5000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "after",
+        type: "code",
+        codeFile: "nodes/after.ts",
+        position: { x: 3, y: 0 },
+        config: {},
+        notebookIds: [],
+        timeoutMs: 5000,
+        retryPolicy: { maxRetries: 0 },
+      },
+    );
+    graph.edges.push({ id: "e2", source: "double", target: "review" }, { id: "e3", source: "review", target: "after" });
+    const { executor, store } = await setup(graph, {
+      "nodes/double.ts": `export default async (input: { n: number }) => ({ doubled: input.n * 2 });`,
+      "nodes/after.ts": `export default async () => "done";`,
+    });
+    const run = await executor.execute({ projectSlug: "p1", graph, payload: { n: 2 }, entryPoint: "web_ui" });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toBe("done");
+    expect(store.runs.pendingApproval(run.id)).toBeUndefined();
+    expect(store.runs.findApproval(run.id, "review")).toMatchObject({ status: "approved", decidedBy: "autoApprove" });
+    expect(store.runs.listSteps(run.id).find((step) => step.nodeId === "review")?.status).toBe("succeeded");
+  });
+
+  it("persists durable delays and resumes from a timer", async () => {
+    const graph = baseGraph();
+    graph.nodes.push(
+      {
+        id: "wait",
+        type: "delay",
+        position: { x: 2, y: 0 },
+        config: { waitUntil: new Date(Date.now() + 3_600_000).toISOString() },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "after",
+        type: "code",
+        codeFile: "nodes/after.ts",
+        position: { x: 3, y: 0 },
+        config: {},
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+    );
+    graph.edges.push({ id: "e2", source: "double", target: "wait" }, { id: "e3", source: "wait", target: "after" });
+    const { executor, store } = await setup(graph, {
+      "nodes/double.ts": `export default async (input: { n: number }) => ({ doubled: input.n * 2 });`,
+      "nodes/after.ts": `export default async () => "done";`,
+    });
+    const paused = await executor.execute({ projectSlug: "p1", graph, payload: { n: 2 }, entryPoint: "web_ui" });
+    expect(paused.status).toBe("paused");
+    const timers = store.timers.listByRun(paused.id);
+    expect(timers).toHaveLength(1);
+    expect(timers[0]?.nodeId).toBe("wait");
+    const resumed = await executor.resumeFromTimer(paused.id, "wait");
+    expect(resumed.status).toBe("succeeded");
+    expect(resumed.output).toBe("done");
+    store.close();
+  });
+
+  it("executes a subworkflow by immutable version and rejects cycles", async () => {
+    const childGraph: WorkflowGraph = {
+      version: 1,
+      id: "child",
+      name: "Child",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "echo",
+          type: "transform",
+          position: { x: 100, y: 0 },
+          config: { template: '{"value":"{{input.value}}"}' },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "echo" }],
+      updatedAt: new Date().toISOString(),
+    };
+    const mainGraph = baseGraph();
+    mainGraph.nodes.push({
+      id: "sub",
+      type: "subworkflow",
+      position: { x: 2, y: 0 },
+      config: { versionId: "version-placeholder" },
+      notebookIds: [],
+      timeoutMs: 30_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    mainGraph.edges.push({ id: "e2", source: "double", target: "sub" });
+    const { executor, store } = await setup(mainGraph, {
+      "nodes/double.ts": `export default async (input: { n: number }) => ({ value: input.n });`,
+    });
+    const version = store.versions.record({
+      projectSlug: "p1",
+      graphHash: "child-hash",
+      graph: childGraph,
+      codeBundle: {},
+    });
+    mainGraph.nodes[mainGraph.nodes.length - 1] = {
+      ...mainGraph.nodes[mainGraph.nodes.length - 1]!,
+      config: { versionId: version.id },
+    };
+    const run = await executor.execute({ projectSlug: "p1", graph: mainGraph, payload: { n: 7 }, entryPoint: "web_ui" });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toEqual({ value: "7" });
+    expect(store.runs.listRecent(10).some((item) => item.parentRunId === run.id)).toBe(true);
+
+    const cyclic = { ...mainGraph, id: "child" };
+    const cyclicRun = await executor.execute({ projectSlug: "p1", graph: cyclic, payload: {}, entryPoint: "web_ui" });
+    expect(cyclicRun.status).toBe("failed");
+    expect(cyclicRun.error).toMatch(/subworkflow cycle/);
+    store.close();
+  });
+
+  it("runs a foreach batch with bounded concurrency", async () => {
+    const childGraph: WorkflowGraph = {
+      version: 1,
+      id: "foreach-child",
+      name: "Child",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "echo",
+          type: "transform",
+          position: { x: 100, y: 0 },
+          config: { template: '{"item":"{{input.item}}"}' },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "echo" }],
+      updatedAt: new Date().toISOString(),
+    };
+    const mainGraph = baseGraph();
+    mainGraph.nodes.push({
+      id: "batch",
+      type: "foreach",
+      position: { x: 2, y: 0 },
+      config: { versionId: "placeholder", itemsPath: "items", maxConcurrency: 2, onItemError: "stop" },
+      notebookIds: [],
+      timeoutMs: 30_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    mainGraph.edges.push({ id: "e2", source: "double", target: "batch" });
+    const { executor, store } = await setup(mainGraph, {
+      "nodes/double.ts": `export default async (input: { items: unknown[] }) => ({ items: input.items });`,
+    });
+    const version = store.versions.record({
+      projectSlug: "p1",
+      graphHash: "foreach-child",
+      graph: childGraph,
+      codeBundle: {},
+    });
+    mainGraph.nodes[mainGraph.nodes.length - 1] = {
+      ...mainGraph.nodes[mainGraph.nodes.length - 1]!,
+      config: { versionId: version.id, itemsPath: "items", maxConcurrency: 2, onItemError: "stop" },
+    };
+    const run = await executor.execute({
+      projectSlug: "p1",
+      graph: mainGraph,
+      payload: { items: ["a", "b", "c"] },
+      entryPoint: "web_ui",
+    });
+    expect(run.status).toBe("succeeded");
+    const result = run.output as { items: Array<{ status: string; output: unknown }> };
+    expect(result.items).toHaveLength(3);
+    expect(result.items.map((item) => item.output)).toEqual([
+      { item: "a" },
+      { item: "b" },
+      { item: "c" },
+    ]);
+    store.close();
+  });
+
+  it("queues runs over the project concurrency limit and dispatches them", async () => {
+    const graph = baseGraph();
+    const { executor, store } = await setup(
+      graph,
+      { "nodes/double.ts": `export default async (input: { n: number }) => { await new Promise((r) => setTimeout(r, 30)); return { doubled: input.n * 2 }; };` },
+      { maxConcurrentRuns: 1 },
+    );
+    const first = await executor.start({ projectSlug: "p1", graph, payload: { n: 1 }, entryPoint: "web_ui" });
+    const second = await executor.start({ projectSlug: "p1", graph, payload: { n: 2 }, entryPoint: "web_ui" });
+    expect(second.status).toBe("queued");
+    expect(store.queue.depth("p1")).toBe(1);
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (store.runs.findById(first.id)?.status === "succeeded") break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(store.runs.findById(first.id)?.status).toBe("succeeded");
+    const dispatched = await executor.dispatchQueued();
+    expect(dispatched[0]?.id).toBe(second.id);
+    expect(store.runs.findById(second.id)?.status).toBe("succeeded");
+    store.close();
   });
 
   it("routes decision nodes down the matching branch", async () => {

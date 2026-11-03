@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { createServer } from "node:http";
 
 test("first boot, project canvas, project resources, sub-agent, external chat and health", async ({ page }) => {
   const consoleErrors: string[] = [];
@@ -310,3 +311,317 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
 
   expect(consoleErrors).toEqual([]);
 });
+
+async function authenticate(page: Page) {
+  let login = await page.request.post("/api/auth/login", {
+    data: { username: "admin", password: "plataforma-segura-2026" },
+  });
+  if (!login.ok()) {
+    login = await page.request.post("/api/auth/login", {
+      data: { username: "admin", password: "admin123!" },
+    });
+    expect(login.ok()).toBeTruthy();
+    const changed = await page.request.post("/api/auth/change-password", {
+      data: { currentPassword: "admin123!", newPassword: "plataforma-segura-2026" },
+    });
+    expect(changed.ok()).toBeTruthy();
+  }
+}
+
+async function waitForRun(
+  page: Page,
+  slug: string,
+  predicate: (run: Record<string, unknown>) => boolean,
+  timeoutMs = 75_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const response = await page.request.get(`/api/projects/${slug}/runs?limit=10`);
+    const body = (await response.json()) as { data: Array<Record<string, unknown>> };
+    const found = body.data.find(predicate);
+    if (found) return found;
+    await page.waitForTimeout(1_500);
+  }
+  throw new Error(`run not found for ${slug}`);
+}
+
+async function waitForApproval(page: Page, slug: string, runId: string) {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const response = await page.request.get(`/api/projects/${slug}/runs/${runId}/approvals`);
+    const body = (await response.json()) as { data: Array<{ nodeId: string; status: string }> };
+    if (body.data.length > 0) return body.data[0]!;
+    await page.waitForTimeout(100);
+  }
+  throw new Error("approval did not appear");
+}
+
+test("P0: scheduled notification delivers once and is visible in the run detail", async ({ page }) => {
+  test.setTimeout(150_000);
+  await authenticate(page);
+  const slug = "e2e-notify";
+  expect((await page.request.post("/api/projects", { data: { slug, name: "Notify E2E" } })).status()).toBe(201);
+
+  const received: string[] = [];
+  const receiver = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => {
+      body += String(chunk);
+    });
+    request.on("end", () => {
+      received.push(body);
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"ok":true}');
+    });
+  });
+  await new Promise<void>((resolve) => receiver.listen(0, "127.0.0.1", resolve));
+  const address = receiver.address();
+  if (!address || typeof address === "string") throw new Error("receiver did not bind");
+  try {
+    const integrationResponse = await page.request.post(`/api/projects/${slug}/integrations`, {
+      data: {
+        kind: "external_chat",
+        name: "E2E hook",
+        slug: "e2e-hook",
+        config: {
+          webhookUrl: `http://127.0.0.1:${address.port}/hook`,
+          routing: { mode: "workflow", allowlist: [], public: false },
+        },
+      },
+    });
+    expect(integrationResponse.status()).toBe(201);
+    const integration = (await integrationResponse.json()) as { integration: { id: string } };
+    expect(
+      (await page.request.post(`/api/projects/${slug}/integrations/${integration.integration.id}/connect`)).ok(),
+    ).toBeTruthy();
+
+    const workflow = {
+      version: 1,
+      id: slug,
+      name: "Notify E2E",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "schedule", cron: "* * * * *", timezone: "UTC", enabled: true, overlapPolicy: "skip" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "notify",
+          type: "notify",
+          position: { x: 200, y: 0 },
+          config: { integrationId: integration.integration.id, text: "Hola E2E" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "notify" }],
+      updatedAt: new Date().toISOString(),
+    };
+    expect(
+      (await page.request.put(`/api/projects/${slug}/workflow`, { data: workflow })).ok(),
+    ).toBeTruthy();
+
+    const run = await waitForRun(page, slug, (item) => item.entryPoint === "schedule" && item.status === "succeeded");
+    await expect.poll(() => received.length, { timeout: 15_000 }).toBeGreaterThan(0);
+    expect(received[0]).toContain("Hola E2E");
+    const deliveries = await page.request.get(`/api/projects/${slug}/runs/${run.id}/deliveries`);
+    const deliveryBody = (await deliveries.json()) as { data: Array<{ status: string; nodeId: string }> };
+    expect(deliveryBody.data).toHaveLength(1);
+    expect(deliveryBody.data[0]).toMatchObject({ status: "delivered", nodeId: "notify" });
+
+    await page.goto(`/projects/${slug}`);
+    await page.getByRole("button", { name: /^Ejecuciones/ }).first().click();
+    const runArticle = page.locator("article").filter({ hasText: String(run.id).slice(0, 8) });
+    await runArticle.getByRole("button", { name: "Ver detalle" }).click();
+    const detail = page.getByRole("dialog", { name: /Ejecución/ });
+    await expect(detail.getByRole("heading", { name: "Entregas" })).toBeVisible();
+    await expect(detail.getByText("Entregado")).toBeVisible();
+  } finally {
+    await new Promise<void>((resolve) => receiver.close(() => resolve()));
+  }
+});
+
+test("P0: webhook approval writes the database once and rejection leaves no changes", async ({ page }) => {
+  test.setTimeout(120_000);
+  await authenticate(page);
+  const slug = "e2e-actions";
+  expect((await page.request.post("/api/projects", { data: { slug, name: "Actions E2E" } })).status()).toBe(201);
+  expect(
+    (
+      await page.request.post(`/api/projects/${slug}/secrets`, {
+        data: { alias: "wh-secret", value: "e2e-secret" },
+      })
+    ).status(),
+  ).toBe(201);
+
+  const integrationResponse = await page.request.post(`/api/projects/${slug}/integrations`, {
+    data: {
+      kind: "sqlite",
+      name: "E2E DB",
+      slug: "e2e-db",
+      config: { kind: "sqlite", filename: "/tmp/opencode-agentic-platform-e2e/e2e-actions.sqlite" },
+    },
+  });
+  expect(integrationResponse.status()).toBe(201);
+  const integration = (await integrationResponse.json()) as {
+    integration: { id: string; config: Record<string, unknown> };
+  };
+  expect(
+    (
+      await page.request.patch(`/api/projects/${slug}/integrations/${integration.integration.id}`, {
+        data: {
+          config: { ...integration.integration.config, access: "write", maxRows: 1000, allowDdl: true },
+        },
+      })
+    ).ok(),
+  ).toBeTruthy();
+  const dbQuery = async (sql: string, params: unknown[] = []) => {
+    const response = await page.request.post(
+      `/api/projects/${slug}/integrations/${integration.integration.id}/database/query`,
+      { data: { sql, params } },
+    );
+    expect(response.ok()).toBeTruthy();
+    return (await response.json()) as { data: Array<Record<string, unknown>> };
+  };
+  await dbQuery("CREATE TABLE IF NOT EXISTS leads (id INTEGER PRIMARY KEY, name TEXT)");
+
+  const workflow = {
+    version: 1,
+    id: slug,
+    name: "Actions E2E",
+    description: "",
+    nodes: [
+      {
+        id: "start",
+        type: "trigger",
+        position: { x: 0, y: 0 },
+        config: { kind: "webhook", secretAlias: "wh-secret" },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "review",
+        type: "approval",
+        position: { x: 150, y: 0 },
+        config: { message: "Revisar escritura" },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "write",
+        type: "database",
+        position: { x: 300, y: 0 },
+        config: {
+          integrationId: integration.integration.id,
+          mode: "write",
+          statements: [{ sql: "INSERT INTO leads (name) VALUES (?)", params: ["E2E"] }],
+        },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+    ],
+    edges: [
+      { id: "e1", source: "start", target: "review" },
+      { id: "e2", source: "review", target: "write" },
+    ],
+    updatedAt: new Date().toISOString(),
+  };
+  expect((await page.request.put(`/api/projects/${slug}/workflow`, { data: workflow })).ok()).toBeTruthy();
+
+  const startRun = async () => {
+    const response = await page.request.post(`/api/v1/webhooks/${slug}/start`, {
+      headers: { "x-webhook-secret": "e2e-secret", "content-type": "application/json" },
+      data: { source: "e2e" },
+    });
+    expect(response.status()).toBe(202);
+    return ((await response.json()) as { runId: string }).runId;
+  };
+
+  const approvedRun = await startRun();
+  await waitForApproval(page, slug, approvedRun);
+  const approved = await page.request.post(`/api/projects/${slug}/runs/${approvedRun}/approvals/review`, {
+    data: { decision: "approve" },
+  });
+  expect(approved.ok()).toBeTruthy();
+  expect(((await approved.json()) as { status: string }).status).toBe("succeeded");
+  const afterApprove = await dbQuery("SELECT COUNT(*) AS total FROM leads");
+  expect(Number(afterApprove.data[0]?.total)).toBe(1);
+
+  const rejectedRun = await startRun();
+  await waitForApproval(page, slug, rejectedRun);
+  const rejected = await page.request.post(`/api/projects/${slug}/runs/${rejectedRun}/approvals/review`, {
+    data: { decision: "reject" },
+  });
+  expect(rejected.ok()).toBeTruthy();
+  expect(((await rejected.json()) as { status: string }).status).toBe("failed");
+  const afterReject = await dbQuery("SELECT COUNT(*) AS total FROM leads");
+  expect(Number(afterReject.data[0]?.total)).toBe(1);
+});
+
+test("P0: an error route receives a failed HTTP node", async ({ page }) => {
+  test.setTimeout(60_000);
+  await authenticate(page);
+  const slug = "e2e-error-route";
+  expect((await page.request.post("/api/projects", { data: { slug, name: "Error route E2E" } })).status()).toBe(201);
+  const workflow = {
+    version: 1,
+    id: slug,
+    name: "Error route E2E",
+    description: "",
+    nodes: [
+      {
+        id: "start",
+        type: "trigger",
+        position: { x: 0, y: 0 },
+        config: { kind: "manual" },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "http",
+        type: "http",
+        position: { x: 100, y: 0 },
+        config: { method: "GET", url: "http://127.0.0.1:1/fail" },
+        notebookIds: [],
+        timeoutMs: 1_000,
+        retryPolicy: { maxRetries: 0 },
+        onError: { strategy: "route", target: "fallback" },
+      },
+      {
+        id: "fallback",
+        type: "transform",
+        position: { x: 200, y: 0 },
+        config: { template: '{"route":"{{input.error.nodeId}}"}' },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+    ],
+    edges: [{ id: "e1", source: "start", target: "http" }],
+    updatedAt: new Date().toISOString(),
+  };
+  expect((await page.request.put(`/api/projects/${slug}/workflow`, { data: workflow })).ok()).toBeTruthy();
+  const launched = await page.request.post(`/api/projects/${slug}/runs`, { data: { payload: {} } });
+  expect(launched.status()).toBe(202);
+  const run = (await launched.json()) as { id: string };
+  await expect
+    .poll(async () => {
+      const response = await page.request.get(`/api/runs/${run.id}`);
+      return ((await response.json()) as { status: string }).status;
+    }, { timeout: 15_000 })
+    .toBe("succeeded");
+  const final = (await (await page.request.get(`/api/runs/${run.id}`)).json()) as {
+    output: { route?: string };
+  };
+  expect(final.output.route).toBe("http");
+});
+

@@ -1,5 +1,9 @@
+export interface EgressSendResult {
+  providerMessageId?: string;
+}
+
 export interface IntegrationEgressPort {
-  send(integrationId: string, text: string, recipient?: string): Promise<void>;
+  send(integrationId: string, text: string, recipient?: string): Promise<EgressSendResult>;
 }
 
 export interface IncomingIntegrationMessage {
@@ -15,7 +19,7 @@ export interface IncomingIntegrationMessage {
 export interface IntegrationTransport {
   readonly type: "telegram" | "whatsapp";
   start(handler: (message: { senderId: string; text: string }) => void, onQr?: (qr: string) => void): Promise<void>;
-  send(senderId: string, text: string): Promise<void>;
+  send(senderId: string, text: string): Promise<EgressSendResult | void>;
   stop(): Promise<void>;
   status(): string;
 }

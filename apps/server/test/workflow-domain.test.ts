@@ -10,7 +10,7 @@ import {
   topologicalOrder,
   validateWorkflowGraph,
 } from "../src/domain/workflow/graph.ts";
-import { isValidCronExpression, matchesCron } from "../src/domain/workflow/cron.ts";
+import { isValidCronExpression, matchesCron, matchesCronInTimeZone, cronWindowsBetween, nextCronDate } from "../src/domain/workflow/cron.ts";
 
 function graph(overrides: Partial<WorkflowGraph> = {}): WorkflowGraph {
   return {
@@ -77,6 +77,45 @@ describe("workflow graph validation", () => {
     const bad = graph();
     bad.edges.push({ id: "e2", source: "fetch", target: "ghost" });
     expect(() => validateWorkflowGraph(bad)).toThrow(/unknown target/);
+  });
+
+  it("validates error routes and rejects unknown, self and cyclic targets", () => {
+    const routed = graph();
+    routed.nodes.push({
+      id: "fallback",
+      type: "code",
+      codeFile: "nodes/fallback.ts",
+      position: { x: 2, y: 0 },
+      config: {},
+      notebookIds: [],
+      timeoutMs: 30_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    routed.nodes[1] = { ...routed.nodes[1]!, onError: { strategy: "route", target: "fallback" } };
+    expect(() => validateWorkflowGraph(routed)).not.toThrow();
+
+    const unknown = graph();
+    unknown.nodes[1] = { ...unknown.nodes[1]!, onError: { strategy: "route", target: "ghost" } };
+    expect(() => validateWorkflowGraph(unknown)).toThrow(/unknown node/);
+
+    const self = graph();
+    self.nodes[1] = { ...self.nodes[1]!, onError: { strategy: "route", target: "fetch" } };
+    expect(() => validateWorkflowGraph(self)).toThrow(/itself/);
+
+    const cyclic = graph();
+    cyclic.nodes.push({
+      id: "fallback",
+      type: "code",
+      codeFile: "nodes/fallback.ts",
+      position: { x: 2, y: 0 },
+      config: {},
+      notebookIds: [],
+      timeoutMs: 30_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    cyclic.nodes[1] = { ...cyclic.nodes[1]!, onError: { strategy: "route", target: "fallback" } };
+    cyclic.edges.push({ id: "e2", source: "fallback", target: "fetch" });
+    expect(() => validateWorkflowGraph(cyclic)).toThrow(/cycle/);
   });
 
   it("rejects cycles", () => {
@@ -203,5 +242,32 @@ describe("graph helpers", () => {
     const monday915 = new Date("2026-11-02T09:15:00.000Z"); // 2026-11-02 is Monday
     expect(matchesCron("*/15 9-17 * * 1-5", monday915)).toBe(true);
     expect(matchesCron("0 9 * * 1-5", monday915)).toBe(false);
+  });
+
+  it("matches schedules in an IANA timezone across DST", () => {
+    const newYork = "America/New_York";
+    expect(matchesCronInTimeZone("0 9 * * *", new Date("2026-01-15T14:00:00.000Z"), newYork)).toBe(true);
+    expect(matchesCronInTimeZone("0 9 * * *", new Date("2026-07-15T13:00:00.000Z"), newYork)).toBe(true);
+    expect(matchesCronInTimeZone("0 9 * * *", new Date("2026-07-15T14:00:00.000Z"), newYork)).toBe(false);
+
+    const repeated = cronWindowsBetween(
+      "30 1 * * *",
+      new Date("2026-11-01T05:00:00.000Z"),
+      new Date("2026-11-01T07:00:00.000Z"),
+      newYork,
+    );
+    expect(repeated).toHaveLength(1);
+
+    const skipped = cronWindowsBetween(
+      "30 2 * * *",
+      new Date("2026-03-08T06:00:00.000Z"),
+      new Date("2026-03-08T08:00:00.000Z"),
+      newYork,
+    );
+    expect(skipped).toHaveLength(0);
+
+    expect(nextCronDate("0 9 * * *", new Date("2026-01-15T14:00:00.000Z"), newYork)?.toISOString()).toBe(
+      "2026-01-16T14:00:00.000Z",
+    );
   });
 });

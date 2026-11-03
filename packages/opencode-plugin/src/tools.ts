@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   WorkflowGraphSchema,
   evaluateToolPermission,
@@ -6,8 +7,22 @@ import {
   type PermissionRule,
 } from "@platform/shared";
 
+export interface PlatformToolContext {
+  sessionID: string;
+  agent: string;
+  messageID?: string;
+  id?: string;
+}
+
+const toolContext = new AsyncLocalStorage<PlatformToolContext | undefined>();
+
+function withToolContext<T>(context: PlatformToolContext | undefined, fn: () => Promise<T>): Promise<T> {
+  return toolContext.run(context, fn);
+}
+
 export interface PlatformClient {
   listProjects(): Promise<unknown>;
+  listIntegrations(projectSlug: string): Promise<unknown>;
   getWorkflow(projectSlug: string): Promise<unknown>;
   upsertWorkflow(projectSlug: string, graph: unknown): Promise<unknown>;
   triggerWorkflow(projectSlug: string, payload: unknown, idempotencyKey?: string): Promise<unknown>;
@@ -39,6 +54,7 @@ export class HttpPlatformClient implements PlatformClient {
   ) {}
 
   private async request(method: string, path: string, body?: unknown): Promise<unknown> {
+    const context = toolContext.getStore();
     const response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${path}`, {
       method,
       headers: {
@@ -48,6 +64,8 @@ export class HttpPlatformClient implements PlatformClient {
         ...(this.scope.global ? { "x-platform-scope": "global" } : {}),
         ...(this.scope.agentId ? { "x-platform-agent": this.scope.agentId } : {}),
         ...(this.scope.executionContext ? { "x-platform-context": this.scope.executionContext } : {}),
+        ...(context?.sessionID ? { "x-platform-session": context.sessionID } : {}),
+        ...(context?.agent ? { "x-platform-agent": context.agent } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(60_000),
@@ -70,6 +88,9 @@ export class HttpPlatformClient implements PlatformClient {
 
   listProjects() {
     return this.request("GET", "/api/projects");
+  }
+  listIntegrations(projectSlug: string) {
+    return this.request("GET", this.projectPath(projectSlug, "/integrations"));
   }
   getWorkflow(projectSlug: string) {
     return this.request("GET", this.projectPath(projectSlug, "/workflow"));
@@ -125,7 +146,7 @@ export interface PlatformTool {
   name: string;
   description: string;
   input: Record<string, unknown>;
-  execute(input: unknown): Promise<{ content: string }>;
+  execute(input: unknown, context?: PlatformToolContext): Promise<{ content: string }>;
 }
 
 const GLOBAL_READ_ONLY_TOOLS = new Set([
@@ -149,6 +170,32 @@ export function createPlatformTools(client: PlatformClient, scope: PlatformClien
       input: objectSchema({}, []),
       async execute() {
         return { content: JSON.stringify(await client.listProjects(), null, 2) };
+      },
+    },
+    {
+      name: "integration_list",
+      description: "Lista las integraciones del proyecto con id, tipo, capacidades, estado y nombre, sin secretos.",
+      input: objectSchema({ projectSlug }, []),
+      async execute(input) {
+        const parsed = z.object({ projectSlug: slug.optional() }).parse(input);
+        const project = parsed.projectSlug ?? currentProject;
+        if (!project) throw new Error("projectSlug is required for integration_list");
+        const result = (await client.listIntegrations(project)) as {
+          data: Array<Record<string, unknown>>;
+        };
+        return {
+          content: JSON.stringify(
+            result.data.map((integration) => ({
+              id: integration.id,
+              kind: integration.kind,
+              name: integration.name,
+              capabilities: integration.capabilities,
+              status: integration.status,
+            })),
+            null,
+            2,
+          ),
+        };
       },
     },
     {
@@ -376,7 +423,7 @@ export function createPlatformTools(client: PlatformClient, scope: PlatformClien
 
   return scopedTools.map((tool) => ({
     ...tool,
-    async execute(input: unknown) {
+    async execute(input: unknown, context?: PlatformToolContext) {
       const verdict = evaluateToolPermission({
         tool: tool.name,
         context: scope.executionContext,
@@ -385,7 +432,7 @@ export function createPlatformTools(client: PlatformClient, scope: PlatformClien
       if (!verdict.allowed) {
         throw new Error(`FORBIDDEN: ${verdict.reason}`);
       }
-      return tool.execute(input);
+      return withToolContext(context, () => tool.execute(input));
     },
   }));
 }

@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS projects (
   description TEXT NOT NULL DEFAULT '',
   default_model TEXT,
   primary_agent TEXT,
+  approval_integration_id TEXT,
+  approval_recipient TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT
 );
@@ -85,6 +87,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   version_id TEXT,
   integration_id TEXT,
   source_detail TEXT,
+  parent_run_id TEXT,
   started_at TEXT NOT NULL,
   finished_at TEXT
 );
@@ -128,6 +131,73 @@ CREATE TABLE IF NOT EXISTS workflow_approvals (
   decided_by TEXT
 );
 CREATE INDEX IF NOT EXISTS workflow_approvals_run ON workflow_approvals(run_id);
+CREATE TABLE IF NOT EXISTS workflow_deliveries (
+  id TEXT PRIMARY KEY,
+  project_slug TEXT NOT NULL,
+  run_id TEXT,
+  node_id TEXT,
+  integration_id TEXT NOT NULL,
+  action_key TEXT NOT NULL,
+  recipient TEXT,
+  status TEXT NOT NULL,
+  provider_message_id TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_deliveries_action
+  ON workflow_deliveries(action_key, integration_id);
+CREATE INDEX IF NOT EXISTS workflow_deliveries_project ON workflow_deliveries(project_slug);
+CREATE INDEX IF NOT EXISTS workflow_deliveries_run ON workflow_deliveries(run_id);
+CREATE TABLE IF NOT EXISTS workflow_schedule_state (
+  id TEXT PRIMARY KEY,
+  project_slug TEXT NOT NULL,
+  workflow_id TEXT NOT NULL,
+  node_id TEXT NOT NULL,
+  timezone TEXT NOT NULL DEFAULT 'UTC',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  overlap_policy TEXT NOT NULL DEFAULT 'skip',
+  catch_up INTEGER NOT NULL DEFAULT 0,
+  catch_up_window_minutes INTEGER NOT NULL DEFAULT 60,
+  last_window_at TEXT,
+  next_window_at TEXT,
+  last_run_id TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_schedule_state_key
+  ON workflow_schedule_state(project_slug, workflow_id, node_id);
+CREATE INDEX IF NOT EXISTS workflow_schedule_state_workflow ON workflow_schedule_state(workflow_id);
+CREATE TABLE IF NOT EXISTS session_context (
+  session_id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  project_slug TEXT NOT NULL DEFAULT '',
+  agent_id TEXT,
+  context TEXT NOT NULL,
+  run_id TEXT,
+  integration_id TEXT,
+  external_thread_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workflow_timers (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  node_id TEXT NOT NULL,
+  due_at TEXT NOT NULL,
+  status TEXT NOT NULL,
+  payload TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS workflow_timers_due ON workflow_timers(status, due_at);
+CREATE INDEX IF NOT EXISTS workflow_timers_run ON workflow_timers(run_id);
+CREATE TABLE IF NOT EXISTS workflow_run_queue (
+  run_id TEXT PRIMARY KEY,
+  project_slug TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS workflow_run_queue_project ON workflow_run_queue(project_slug, created_at);
 CREATE TABLE IF NOT EXISTS chat_threads (
   id TEXT PRIMARY KEY,
   scope TEXT NOT NULL,
@@ -205,6 +275,32 @@ function addColumnIfMissing(sqlite: Database, table: string, column: string, def
   }
 }
 
+function backfillDatabasePolicies(sqlite: Database): void {
+  const rows = sqlite
+    .query("SELECT id, config FROM integrations WHERE kind IN ('postgres','mysql','mssql','sqlite')")
+    .all() as Array<{ id: string; config: string }>;
+  for (const row of rows) {
+    let config: Record<string, unknown>;
+    try {
+      config = JSON.parse(row.config) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (config.access !== undefined && config.allowDdl !== undefined && config.maxRows !== undefined) continue;
+    sqlite
+      .query("UPDATE integrations SET config = ? WHERE id = ?")
+      .run(
+        JSON.stringify({
+          ...config,
+          access: config.access ?? "write",
+          maxRows: config.maxRows ?? 1_000,
+          allowDdl: config.allowDdl ?? true,
+        }),
+        row.id,
+      );
+  }
+}
+
 /**
  * Clean-cut schema migration. The previous global channel/database/notebook
  * model is removed; resources are rebuilt from the new project-scoped model.
@@ -239,15 +335,19 @@ export function migrate(sqlite: Database): void {
 
     addColumnIfMissing(sqlite, "projects", "default_model", "TEXT");
     addColumnIfMissing(sqlite, "projects", "primary_agent", "TEXT");
+    addColumnIfMissing(sqlite, "projects", "approval_integration_id", "TEXT");
+    addColumnIfMissing(sqlite, "projects", "approval_recipient", "TEXT");
     addColumnIfMissing(sqlite, "projects", "updated_at", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "launched_by", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "graph_hash", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "version_id", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "integration_id", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "source_detail", "TEXT");
+    addColumnIfMissing(sqlite, "workflow_runs", "parent_run_id", "TEXT");
     addColumnIfMissing(sqlite, "integrations", "key_hash", "TEXT");
     addColumnIfMissing(sqlite, "workflow_step_runs", "agent_id", "TEXT");
     addColumnIfMissing(sqlite, "workflow_step_runs", "logs", "TEXT");
+    backfillDatabasePolicies(sqlite);
 
     // Preserve old vault values as global secrets. Provider/Sentry keys used to
     // be global and remain usable from the platform scope.

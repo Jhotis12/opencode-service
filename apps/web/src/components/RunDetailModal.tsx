@@ -1,7 +1,10 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { RunRecord } from "../api.ts";
+import { api } from "../api.ts";
+import { qk } from "../query.ts";
 import { Modal } from "./Modal.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
-import { badge, buttonGhost } from "../ui.ts";
+import { badge, button, buttonDanger, buttonGhost } from "../ui.ts";
 
 function formatValue(value: unknown): string {
   if (value === undefined) return "—";
@@ -29,6 +32,26 @@ export function RunDetailModal({
   onClose(): void;
   onReplay(fromNodeId?: string): void;
 }) {
+  const queryClient = useQueryClient();
+  const approvalsQuery = useQuery({
+    queryKey: ["approvals", run.id],
+    queryFn: () => api.listApprovals(run.projectSlug, run.id).then((result) => result.data),
+    enabled: run.status === "paused",
+  });
+  const pending = approvalsQuery.data?.find((approval) => approval.status === "pending");
+  const deliveriesQuery = useQuery({
+    queryKey: ["deliveries", run.id],
+    queryFn: () => api.listDeliveries(run.projectSlug, run.id).then((result) => result.data),
+  });
+  const decide = useMutation({
+    mutationFn: (decision: "approve" | "reject") =>
+      api.decideApproval(run.projectSlug, run.id, pending!.nodeId, decision),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: qk.runs(run.projectSlug) });
+      await queryClient.invalidateQueries({ queryKey: ["approvals", run.id] });
+    },
+  });
+
   return (
     <Modal title={`Ejecución ${run.id.slice(0, 8)}`} onClose={onClose} size="lg">
       <div className="flex flex-wrap items-center gap-3">
@@ -49,9 +72,61 @@ export function RunDetailModal({
       </div>
       {run.error && <p className="text-sm text-danger">{run.error}</p>}
 
+      {run.status === "paused" && (
+        <section className="flex flex-col gap-2 rounded-lg border border-warn/40 bg-warn/5 p-3">
+          <h3 className="text-sm font-semibold text-slate-100">Aprobación pendiente</h3>
+          {pending ? (
+            <>
+              <p className="text-xs text-muted">
+                Nodo: <strong className="text-slate-200">{nodeLabels?.[pending.nodeId] ?? pending.nodeId}</strong>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button className={button} disabled={decide.isPending} onClick={() => decide.mutate("approve")}>
+                  Aprobar
+                </button>
+                <button className={buttonDanger} disabled={decide.isPending} onClick={() => decide.mutate("reject")}>
+                  Rechazar
+                </button>
+              </div>
+              {decide.error && (
+                <p className="text-xs text-danger">
+                  {decide.error instanceof Error ? decide.error.message : "No se pudo registrar la decisión"}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-muted">
+              {approvalsQuery.isLoading
+                ? "Cargando aprobación…"
+                : "No hay una aprobación pendiente. Si el flujo continúa pausado, revisa la configuración del canal de aprobación."}
+            </p>
+          )}
+        </section>
+      )}
+
       <section className="flex flex-col gap-2">
         <h3 className="text-sm font-semibold text-slate-100">Resultado final</h3>
         <pre>{formatValue(run.output)}</pre>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h3 className="text-sm font-semibold text-slate-100">Entregas</h3>
+        {(deliveriesQuery.data ?? []).length === 0 ? (
+          <p className="text-xs text-muted">Esta ejecución no registró entregas de notificación.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {deliveriesQuery.data!.map((delivery) => (
+              <li key={delivery.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2 text-xs">
+                <StatusBadge status={delivery.status} />
+                <span className="text-slate-200">{delivery.nodeId ?? "nodo"}</span>
+                <span className="text-muted">{delivery.integrationId}</span>
+                {delivery.providerMessageId && <code className="text-muted">{delivery.providerMessageId}</code>}
+                <span className="text-muted">{delivery.attempts} intento(s)</span>
+                {delivery.lastError && <span className="text-danger">{delivery.lastError}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="flex flex-col gap-2">

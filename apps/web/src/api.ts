@@ -58,6 +58,8 @@ export interface ProjectSummary {
   description: string;
   defaultModel?: string;
   primaryAgent?: string;
+  approvalIntegrationId?: string;
+  approvalRecipient?: string;
   createdAt: string;
 }
 
@@ -91,6 +93,45 @@ export interface RunRecord {
   startedAt: string;
   finishedAt?: string;
   steps: StepRun[];
+}
+
+export interface ScheduleState {
+  nodeId: string;
+  workflowId: string;
+  timezone: string;
+  enabled: boolean;
+  overlapPolicy: "skip" | "allow";
+  catchUp: boolean;
+  catchUpWindowMinutes: number;
+  lastWindowAt?: string;
+  nextWindowAt?: string;
+  lastRunId?: string;
+}
+
+export interface ApprovalRecord {
+  id: string;
+  runId: string;
+  nodeId: string;
+  status: "pending" | "approved" | "rejected";
+  createdAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+}
+
+export interface DeliveryRecord {
+  id: string;
+  projectSlug: string;
+  runId?: string;
+  nodeId?: string;
+  integrationId: string;
+  actionKey: string;
+  recipient?: string;
+  status: "pending" | "delivered" | "failed";
+  providerMessageId?: string;
+  attempts: number;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ModelInfo {
@@ -248,13 +289,22 @@ export const api = {
   getProjectSettings: (slug: string) => request<ProjectSettingsView>(`/api/projects/${slug}/settings`),
   updateProjectSettings: (
     slug: string,
-    input: { name?: string; description?: string; defaultModel?: string | null; primaryAgent?: string | null },
+    input: {
+      name?: string;
+      description?: string;
+      defaultModel?: string | null;
+      primaryAgent?: string | null;
+      approvalIntegrationId?: string | null;
+      approvalRecipient?: string | null;
+    },
   ) =>
     request<ProjectSummary>(`/api/projects/${slug}/settings`, {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
   getWorkflow: (slug: string) => request<WorkflowGraph>(`/api/projects/${slug}/workflow`),
+  listSchedules: (slug: string) =>
+    request<{ data: ScheduleState[] }>(`/api/projects/${slug}/workflow/schedule`),
   saveWorkflow: (slug: string, graph: WorkflowGraph) =>
     request<WorkflowGraph>(`/api/projects/${slug}/workflow`, { method: "PUT", body: JSON.stringify(graph) }),
   listWorkflowVersions: (slug: string) =>
@@ -276,6 +326,15 @@ export const api = {
     chatStream(`/api/projects/${slug}/chat`, message, onEvent),
   chatHistory: (slug: string) => request<{ data: ChatHistoryMessage[] }>(`/api/projects/${slug}/chat?limit=200`),
   getRun: (id: string) => request<RunRecord>(`/api/runs/${id}`),
+  listApprovals: (slug: string, runId: string) =>
+    request<{ data: ApprovalRecord[] }>(`/api/projects/${slug}/runs/${runId}/approvals`),
+  listDeliveries: (slug: string, runId: string) =>
+    request<{ data: DeliveryRecord[] }>(`/api/projects/${slug}/runs/${runId}/deliveries`),
+  decideApproval: (slug: string, runId: string, nodeId: string, decision: "approve" | "reject") =>
+    request<RunRecord>(`/api/projects/${slug}/runs/${runId}/approvals/${nodeId}`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    }),
   readNode: (slug: string, file: string) =>
     request<{ code: string }>(`/api/projects/${slug}/nodes/${file.replace(/^nodes\//, "")}`),
   writeNode: (slug: string, file: string, code: string) =>

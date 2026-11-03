@@ -52,9 +52,17 @@ export class UpdateProjectSettingsUseCase {
     patch: Partial<Pick<ProjectRecord, "name" | "description">> & {
       defaultModel?: string | null;
       primaryAgent?: string | null;
+      approvalIntegrationId?: string | null;
+      approvalRecipient?: string | null;
     },
   ): ProjectRecord {
     if (!this.store.projects.findBySlug(slug)) throw new Error(`project not found: ${slug}`);
+    if (patch.approvalIntegrationId) {
+      const integration = this.store.integrations.findById(patch.approvalIntegrationId);
+      if (!integration || integration.scope !== "project" || integration.projectSlug !== slug) {
+        throw new Error("approval integration must belong to the project");
+      }
+    }
     this.store.projects.update(slug, patch);
     const project = this.store.projects.findBySlug(slug)!;
     this.events.publish({ type: "agent.updated", projectSlug: slug, agentId: "project-settings" });
@@ -75,6 +83,8 @@ export function readinessFor(
   const missingIntegrations = integrationTriggers
     .map((node) => String(node.config.integrationId ?? ""))
     .filter((id) => !id || !available.has(id));
+  const hasApproval = graph?.nodes.some((node) => node.type === "approval") ?? false;
+  const approvalReady = !hasApproval || Boolean(project.approvalIntegrationId) || integrationTriggers.length > 0;
   return [
     {
       id: "primary-agent",
@@ -93,6 +103,14 @@ export function readinessFor(
       label: "Las integraciones del flujo existen",
       ready: missingIntegrations.length === 0,
       detail: missingIntegrations.length === 0 ? undefined : "Hay triggers que apuntan a integraciones inexistentes.",
+    },
+    {
+      id: "approval-channel",
+      label: "Canal de aprobación configurado",
+      ready: approvalReady,
+      detail: approvalReady
+        ? undefined
+        : "El flujo tiene aprobaciones y no hay un canal de origen ni un canal de aprobación del proyecto.",
     },
     {
       id: "knowledge",

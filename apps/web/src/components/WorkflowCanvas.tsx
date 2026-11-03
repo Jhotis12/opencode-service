@@ -42,6 +42,14 @@ function subtitle(node: NodeSpec): string | undefined {
       return node.config.mode === "condition" ? "Condición visual" : node.codeFile;
     case "http":
       return `${String(node.config.method ?? "GET")} ${String(node.config.url ?? "")}`.trim();
+    case "database":
+      return `${String(node.config.mode ?? "read")} · ${String(node.config.integrationId ?? "sin integración")}`;
+    case "notify":
+      return `${String(node.config.recipient ?? "canal")} · ${String(node.config.integrationId ?? "sin integración")}`;
+    case "subworkflow":
+      return String(node.config.versionId ?? "sin versión");
+    case "foreach":
+      return `${String(node.config.itemsPath ?? "items")} · ${String(node.config.maxConcurrency ?? 1)}`;
     case "delay":
       return `${Number(node.config.ms ?? 0)} ms`;
     case "transform":
@@ -102,7 +110,7 @@ function toEdges(
   runningNodeId: string | undefined,
   nodeStatuses: Record<string, string> | undefined,
 ): PlatformFlowEdge[] {
-  return graph.edges.map((edge) => {
+  const edges: PlatformFlowEdge[] = graph.edges.map((edge) => {
     const sourceNode = graph.nodes.find((node) => node.id === edge.source);
     const isDecision = sourceNode?.type === "decision";
     const edgeIssue = issues.find((issue) => issue.edgeId === edge.id);
@@ -134,6 +142,21 @@ function toEdges(
       data: { condition: edge.condition, isDecision, issue: edgeIssue?.message, runState },
     };
   });
+  const errorEdges: PlatformFlowEdge[] = graph.nodes
+    .filter((node) => node.onError?.strategy === "route" && node.onError.target)
+    .map((node) => ({
+      id: `error:${node.id}:${node.onError!.target}`,
+      source: node.id,
+      target: node.onError!.target!,
+      type: "platform",
+      animated: false,
+      selectable: false,
+      deletable: false,
+      style: { stroke: "var(--color-warn)", strokeDasharray: "6 4" },
+      markerEnd: { type: MarkerType.ArrowClosed, color: "var(--color-warn)", width: 16, height: 16 },
+      data: { condition: "error", isDecision: false },
+    }));
+  return [...edges, ...errorEdges];
 }
 
 export interface WorkflowCanvasProps {

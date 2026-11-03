@@ -30,6 +30,7 @@ class FakeEgress implements IntegrationEgressPort {
   sent: string[] = [];
   async send(_integrationId: string, text: string) {
     this.sent.push(text);
+    return {};
   }
 }
 

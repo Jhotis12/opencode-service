@@ -33,6 +33,10 @@ import { DocumentExtractor, KnowledgeError } from "./infrastructure/out/knowledg
 import { createEmbeddingAdapter } from "./infrastructure/out/knowledge/embeddings.ts";
 import { DynamicDatabaseClientAdapter } from "./infrastructure/out/external-db/dynamic-adapter.ts";
 import { ExecuteWorkflowRunUseCase } from "./application/use-cases/execute-workflow.ts";
+import { ExecuteDatabaseActionUseCase } from "./application/use-cases/database-actions.ts";
+import { SendNotificationUseCase } from "./application/use-cases/send-notification.ts";
+import { DecideApprovalUseCase, ApprovalDecisionError } from "./application/use-cases/approvals.ts";
+import { NotifyApprovalUseCase } from "./application/use-cases/notify-approval.ts";
 import { ManageSubagentsUseCase } from "./application/use-cases/manage-subagents.ts";
 import { IngestKnowledgeUseCase } from "./application/use-cases/ingest-knowledge.ts";
 import { SearchKnowledgeUseCase, buildGroundedContext } from "./application/use-cases/search-knowledge.ts";
@@ -201,8 +205,11 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const codec = new SessionCodec(masterKey.toString("base64"));
   const egress = new IntegrationEgressRouter();
   const externalDb = new DynamicDatabaseClientAdapter();
-  const queryDatabase = new QueryDatabaseIntegrationUseCase(store, vault, externalDb);
+  const queryDatabase = new QueryDatabaseIntegrationUseCase(store, vault, externalDb, logger);
   const testDatabase = new TestDatabaseIntegrationUseCase(store, vault, externalDb);
+  const databaseAction = new ExecuteDatabaseActionUseCase(store, vault, externalDb, logger);
+  const notification = new SendNotificationUseCase(store, egress, logger);
+  const notifyApproval = new NotifyApprovalUseCase(store, notification, logger);
   const embeddings = createEmbeddingAdapter(env);
   const knowledgeFiles = new KnowledgeFileStore(workspacesDir);
   const ingest = new IngestKnowledgeUseCase({
@@ -222,15 +229,19 @@ export async function createApplication(config: AppConfig): Promise<Application>
     metrics,
     errors: errorTracker,
     logger,
+    vault,
+    databaseAction,
+    notification,
+    notifyApproval: (run, nodeId) => notifyApproval.execute(run, nodeId),
     workerHandlers: {
       db: ({ projectSlug, integrationId, sql, params }) =>
         queryDatabase.execute(integrationId, { scope: "project", projectSlug }, sql, params),
-      notify: async ({ projectSlug, integrationId, text }) => {
+      notify: async ({ projectSlug, integrationId, text, recipient }) => {
         const integration = store.integrations.findById(integrationId);
         if (!integration || integration.scope !== "project" || integration.projectSlug !== projectSlug) {
           throw new IntegrationValidationError("FORBIDDEN", "integration scope mismatch");
         }
-        await egress.send(integrationId, text);
+        await egress.send(integrationId, text, recipient);
       },
     },
     defaultModel: () => store.settings.get("default_model") || undefined,
@@ -248,6 +259,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
       return buildGroundedContext(results, strict);
     },
   });
+
+  const decideApproval = new DecideApprovalUseCase(store, executor);
 
   const projectRouter = new RouteProjectIntegrationMessageUseCase({
     store,
@@ -319,6 +332,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const alerts = new AlertService({ store, egress, events, logger });
   alerts.start();
   const scheduler = new WorkflowScheduler({ store, workspace, executor, logger });
+  await scheduler.syncFromWorkspaces();
   scheduler.start();
 
   const app = new Hono<AppEnv>();
@@ -371,10 +385,14 @@ export async function createApplication(config: AppConfig): Promise<Application>
       if (c.get("serviceProject") !== slug) {
         return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
       }
-      const agentHeader = c.req.header("x-platform-agent")?.trim();
-      const contextHeader = (c.req.header("x-platform-context")?.trim() as AgentExecutionContext | undefined) ?? "chat";
+      const sessionId = c.req.header("x-platform-session")?.trim();
+      const session = sessionId ? store.sessionContexts.find(sessionId) : undefined;
+      const agentHeader = session?.agentId ?? c.req.header("x-platform-agent")?.trim();
+      const headerContext = c.req.header("x-platform-context")?.trim() as AgentExecutionContext | undefined;
+      const contextHeader: AgentExecutionContext =
+        session?.context ?? (sessionId && !session ? "external_channel" : (headerContext ?? "chat"));
       const toolName = resolveProjectRouteTool(c.req.method, c.req.path);
-      if (toolName && (agentHeader || contextHeader !== "chat")) {
+      if (toolName && (agentHeader || contextHeader !== "chat" || sessionId)) {
         let permissions: Array<{ action: string; resource: string; effect: "allow" | "deny" | "ask" }> | undefined;
         if (agentHeader && agentHeader.includes("/")) {
           const [category, role] = agentHeader.split("/");
@@ -388,15 +406,18 @@ export async function createApplication(config: AppConfig): Promise<Application>
           context: contextHeader,
           permissions,
         });
+        logger.info({
+          event: "agent_tool_permission",
+          entryPoint: "worker",
+          projectSlug: slug,
+          agentId: agentHeader,
+          sessionId,
+          context: contextHeader,
+          tool: toolName,
+          decision: verdict.allowed ? "allowed" : "denied",
+          reason: verdict.reason,
+        });
         if (!verdict.allowed) {
-          logger.warn({
-            event: "agent_tool_permission_denied",
-            entryPoint: "worker",
-            projectSlug: slug,
-            agentId: agentHeader,
-            tool: toolName,
-            reason: verdict.reason,
-          });
           return c.json(apiError("FORBIDDEN", verdict.reason ?? "tool permission denied"), 403);
         }
       }
@@ -760,6 +781,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
       description: string;
       defaultModel: string | null;
       primaryAgent: string | null;
+      approvalIntegrationId: string | null;
+      approvalRecipient: string | null;
     }>;
     try {
       return c.json(
@@ -768,6 +791,10 @@ export async function createApplication(config: AppConfig): Promise<Application>
           ...(body.description !== undefined ? { description: body.description } : {}),
           ...(body.defaultModel !== undefined ? { defaultModel: body.defaultModel } : {}),
           ...(body.primaryAgent !== undefined ? { primaryAgent: body.primaryAgent } : {}),
+          ...(body.approvalIntegrationId !== undefined
+            ? { approvalIntegrationId: body.approvalIntegrationId }
+            : {}),
+          ...(body.approvalRecipient !== undefined ? { approvalRecipient: body.approvalRecipient } : {}),
         }),
       );
     } catch (error) {
@@ -835,6 +862,17 @@ export async function createApplication(config: AppConfig): Promise<Application>
     } catch (error) {
       return c.json(apiError("NOT_FOUND", error instanceof Error ? error.message : "project not found"), 404);
     }
+  });
+
+  app.get("/api/projects/:slug/workflow/schedule", async (c) => {
+    const projectSlug = c.req.param("slug");
+    if (!store.projects.findBySlug(projectSlug)) {
+      return c.json(apiError("NOT_FOUND", "project not found"), 404);
+    }
+    await scheduler.syncFromWorkspaces();
+    return c.json({
+      data: store.scheduleStates.listAll().filter((state) => state.projectSlug === projectSlug),
+    });
   });
 
   app.get("/api/projects/:slug/workflow", async (c) => {
@@ -914,6 +952,44 @@ export async function createApplication(config: AppConfig): Promise<Application>
       if (error instanceof WorkflowValidationError) return c.json(apiError("INVALID_WORKFLOW", error.message, error.issues), 422);
       if (error instanceof IdempotencyMismatchError) return c.json(apiError("IDEMPOTENCY_MISMATCH", error.message), 422);
       if (error instanceof RunInFlightError) return c.json(apiError("RUN_IN_FLIGHT", error.message, { runId: error.runId }), 409);
+      throw error;
+    }
+  });
+
+  app.get("/api/projects/:slug/runs/:runId/approvals", (c) => {
+    const run = store.runs.findById(c.req.param("runId"));
+    if (!run || run.projectSlug !== c.req.param("slug")) {
+      return c.json(apiError("NOT_FOUND", "run not found"), 404);
+    }
+    return c.json({ data: store.runs.listApprovals(run.id) });
+  });
+
+  app.get("/api/projects/:slug/runs/:runId/deliveries", (c) => {
+    const run = store.runs.findById(c.req.param("runId"));
+    if (!run || run.projectSlug !== c.req.param("slug")) {
+      return c.json(apiError("NOT_FOUND", "run not found"), 404);
+    }
+    return c.json({ data: store.deliveries.listByRun(run.id) });
+  });
+
+  app.post("/api/projects/:slug/runs/:runId/approvals/:nodeId", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { decision?: "approve" | "reject" };
+    if (body.decision !== "approve" && body.decision !== "reject") {
+      return c.json(apiError("VALIDATION_ERROR", "decision must be approve or reject"), 422);
+    }
+    try {
+      const run = await decideApproval.execute({
+        projectSlug: c.req.param("slug"),
+        runId: c.req.param("runId"),
+        nodeId: c.req.param("nodeId"),
+        decision: body.decision,
+        decidedBy: c.get("user")?.username ?? "service",
+      });
+      return c.json({ ...run, steps: store.runs.listSteps(run.id) });
+    } catch (error) {
+      if (error instanceof ApprovalDecisionError) {
+        return c.json(apiError(error.code, error.message), error.code === "NOT_FOUND" ? 404 : 409);
+      }
       throw error;
     }
   });

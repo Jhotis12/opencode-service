@@ -35,6 +35,7 @@ class FakeRuntime implements AgentRuntimePort {
   async registerProviderKey(providerID: string, apiKey: string) { this.registered.push({ providerID, apiKey }); }
   async createSession() { return { id: "s1" }; }
   async prompt() { return "ok"; }
+  async interrupt() {}
   async switchModel() {}
   async switchAgent() {}
   async reloadLocation() {}
@@ -116,6 +117,34 @@ describe("project database integrations", () => {
         "SELECT 1",
       ),
     ).rejects.toThrow(/scope/);
+
+    const committed = await adapter.transaction({ driver: "sqlite", filename: file }, [
+      { sql: "INSERT INTO leads (name) VALUES (?)", params: ["Luis"] },
+      { sql: "INSERT INTO leads (name) VALUES (?)", params: ["Marta"] },
+      { sql: "SELECT name FROM leads ORDER BY id" },
+    ]);
+    expect(committed[0]?.affectedRows).toBe(1);
+    expect(committed[2]?.rows).toEqual([{ name: "Ana" }, { name: "Luis" }, { name: "Marta" }]);
+
+    await expect(
+      adapter.transaction({ driver: "sqlite", filename: file }, [
+        { sql: "INSERT INTO leads (name) VALUES (?)", params: ["Pedro"] },
+        { sql: "INSERT INTO missing_table (name) VALUES (?)", params: ["Error"] },
+      ]),
+    ).rejects.toThrow();
+    const afterRollback = await adapter.query({ driver: "sqlite", filename: file }, "SELECT name FROM leads ORDER BY id");
+    expect(afterRollback).toEqual([{ name: "Ana" }, { name: "Luis" }, { name: "Marta" }]);
+
+    store.integrations.update("db1", {
+      config: { kind: "sqlite", filename: file, access: "read", maxRows: 1_000, allowDdl: false },
+    });
+    await expect(
+      new QueryDatabaseIntegrationUseCase(store, vault, adapter).execute(
+        "db1",
+        { scope: "project", projectSlug: "ventas" },
+        "INSERT INTO leads (name) VALUES ('ReadOnly')",
+      ),
+    ).rejects.toThrow(/read-only/);
     store.close();
   });
 

@@ -8,6 +8,7 @@ import type { IntegrationRecord } from "../../domain/entities.ts";
 import {
   IntegrationValidationError,
   validateIntegrationInput,
+  withDatabaseDefaults,
   type ValidatedIntegrationInput,
 } from "../../domain/integrations/validation.ts";
 import { TestDatabaseIntegrationUseCase } from "./connections.ts";
@@ -119,8 +120,9 @@ export class ManageIntegrationsUseCase {
       return { integration, apiKey, webhookSecret };
     }
 
+    const normalized = withDatabaseDefaults(command);
     const validated = validateIntegrationInput(
-      { ...command, secretRefs },
+      { ...normalized, secretRefs },
       { expectedScope: command.scope, expectedProjectSlug: command.projectSlug },
     );
     this.persistSecrets(id, validated, generatedSecrets);

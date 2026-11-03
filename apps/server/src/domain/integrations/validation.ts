@@ -18,6 +18,15 @@ export class IntegrationValidationError extends Error {
 }
 
 const SLUG = /^[a-z0-9][a-z0-9-]{1,60}$/;
+const DATABASE_KINDS = new Set<IntegrationKind>(["postgres", "mysql", "mssql", "sqlite"]);
+
+export function withDatabaseDefaults<T extends { kind: IntegrationKind; config: Record<string, unknown> }>(input: T): T {
+  if (!DATABASE_KINDS.has(input.kind) || input.config.access !== undefined) return input;
+  return {
+    ...input,
+    config: { ...input.config, access: "read", maxRows: 1_000, allowDdl: false },
+  };
+}
 
 export function requiredSecretRefs(kind: IntegrationKind, config: Record<string, unknown>): string[] {
   switch (kind) {
@@ -86,6 +95,20 @@ export function validateIntegrationInput(
     );
   }
   const normalizedConfig = config.data as Record<string, unknown>;
+  if (DATABASE_KINDS.has(value.kind) && normalizedConfig.access !== undefined) {
+    if (normalizedConfig.access !== "read" && normalizedConfig.access !== "write") {
+      throw new IntegrationValidationError("VALIDATION_ERROR", "database access must be read or write");
+    }
+    if (
+      normalizedConfig.maxRows !== undefined &&
+      (!Number.isInteger(normalizedConfig.maxRows) || Number(normalizedConfig.maxRows) < 1 || Number(normalizedConfig.maxRows) > 10_000)
+    ) {
+      throw new IntegrationValidationError("VALIDATION_ERROR", "database maxRows must be an integer between 1 and 10000");
+    }
+    if (normalizedConfig.allowDdl !== undefined && typeof normalizedConfig.allowDdl !== "boolean") {
+      throw new IntegrationValidationError("VALIDATION_ERROR", "database allowDdl must be a boolean");
+    }
+  }
   const missingSecrets = requiredSecretRefs(value.kind, normalizedConfig).filter((field) => !value.secretRefs[field]);
   if (missingSecrets.length > 0) {
     throw new IntegrationValidationError(

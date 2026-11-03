@@ -115,12 +115,152 @@ El orquestador global puede buscar conocimiento cross-project en modo lectura, c
 El trigger declara `inputSchema` con campos, tipos, obligatoriedad, descripción y ejemplo. El botón **Ejecutar** abre un formulario generado desde ese esquema; el servidor valida el payload antes de crear cualquier paso.
 
 - **Manual (`kind: "manual"`):** Lanzamiento desde el canvas o `POST /api/projects/:slug/runs`.
-- **Programado (`kind: "schedule"`):** Expresión cron de 5 campos UTC (`config.cron`, ej. `0 9 * * 1-5`). El `WorkflowScheduler` evalúa cada ventana de minuto y reclama una clave de idempotencia determinista (`schedule:<workflowId>:<nodeId>:<YYYY-MM-DDTHH:mm>`).
+- **Programado (`kind: "schedule"`):** Expresión cron de 5 campos en una zona IANA (`config.timezone`, por defecto UTC), por ejemplo `0 9 * * 1-5` con `America/Mexico_City`. El `WorkflowScheduler` evalúa cada minuto, reclama una clave determinista (`schedule:<workflowId>:<nodeId>:<ventanaUTC>`) y persiste `lastWindowAt`/`nextWindowAt` en `workflow_schedule_state`.
+  - `enabled: false` pausa el schedule sin borrar la configuración.
+  - `overlapPolicy: "skip"` (default) omite la ventana si el flujo anterior sigue `running` o `paused`; `"allow"` permite solapamiento.
+  - `catchUp: true` recupera ventanas perdidas dentro de `catchUpWindowMinutes`, con tope de 1,000 ventanas.
+  - `mode: "once"` + `runAt` ejecuta una sola vez en una fecha ISO; no se repite en días posteriores.
+  - En DST, una hora repetida se ejecuta una sola vez y una hora inexistente se omite; con `catchUp` se recupera una sola vez.
+  - `GET /api/projects/:slug/workflow/schedule` devuelve el estado y la próxima ejecución por trigger.
 - **Webhook (`kind: "webhook"`):** Recibe llamadas en `POST /api/v1/webhooks/:projectSlug/:nodeId` verificando en tiempo constante `x-webhook-secret` o la firma HMAC-SHA256 `x-webhook-signature: sha256=...` contra el alias de secreto del proyecto (`config.secretAlias`).
 - **Recuperación al arranque:** Si el servidor se reinicia con ejecuciones en estado `running`, el motor las reanuda automáticamente desde el último paso `succeeded` usando el snapshot inmutable del grafo con el que iniciaron.
 - El run guarda `launchedBy`, `graphHash`, `versionId`, `integrationId` y origen.
 - El endpoint devuelve `202 { runId }` antes de terminar y el SSE actualiza el estado.
 - El nodo `validate` permite reglas declarativas en cualquier punto; si falta un campo, falla el paso con un mensaje accionable y no ejecuta los siguientes.
+
+## Acción nativa de notificación (P0)
+
+El nodo `notify` envía un mensaje por un canal del proyecto y registra la entrega en el ledger `workflow_deliveries`:
+
+```json
+{
+  "type": "notify",
+  "config": {
+    "integrationId": "<id-del-canal>",
+    "recipient": "123456789",
+    "text": "Hola {{input.nombre}}, tu reporte está listo."
+  }
+}
+```
+
+- Telegram y WhatsApp requieren `recipient`; el chat externo lo omite y usa el `webhookUrl` de la integración.
+- El mensaje acepta `{{input.campo}}` y se resuelve antes de enviar.
+- La acción usa una clave estable (`runId:nodeId` o `config.actionKey`) para no reenviar una entrega ya confirmada en reintentos o replays.
+- La salida es `{ delivered, integrationId, recipient, providerMessageId }`.
+- Si el proveedor falla, el intento queda en `failed` con un error sanitizado y el nodo aplica su política de reintento o error.
+- El adaptador de email sigue fuera de alcance; usa solo canales con egress activo.
+
+## Acción nativa de base de datos (P0)
+
+El nodo `database` ejecuta SQL parametrizado contra una integración del proyecto sin escribir un nodo de código. La configuración es declarativa:
+
+```json
+{
+  "type": "database",
+  "config": {
+    "integrationId": "<id-de-la-integracion>",
+    "mode": "write",
+    "transaction": true,
+    "maxRows": 1000,
+    "statements": [
+      { "sql": "INSERT INTO leads (name) VALUES (?)", "params": ["{{input.nombre}}"] }
+    ]
+  }
+}
+```
+
+- `mode: "read"` solo permite `SELECT`, `WITH`, `PRAGMA` y `EXPLAIN`.
+- `mode: "write"` permite `INSERT`, `UPDATE`, `DELETE` y `MERGE`; el DDL queda deshabilitado en P0.
+- `params` es un arreglo JSON y acepta `{{input.campo}}`; se resuelve en el servidor antes de ejecutar.
+- `transaction` agrupa las sentencias y revierte todo si una falla. Por defecto se activa cuando hay más de una sentencia.
+- `maxRows` limita las filas devueltas y marca `truncated: true` cuando recorta.
+- La salida es `{ rows, rowCount, affectedRows, truncated }`.
+
+Usa `database` para operaciones declarativas y auditables. Usa `code` + `ctx.db` solo cuando necesites lógica, bucles o transformaciones que el nodo no cubre. El caso de escritura transaccional está cubierto por `apps/server/test/database-actions.test.ts`.
+
+## Reintentos y ruta de error (P0)
+
+Cada nodo de acción acepta `retryPolicy` y `onError`:
+
+```json
+{
+  "retryPolicy": { "maxRetries": 2, "backoffMs": 500, "backoffMultiplier": 2 },
+  "onError": { "strategy": "continue" }
+}
+```
+
+- `stop`: el run falla, como antes.
+- `continue`: el paso falla, pero el flujo sigue por su salida normal con `{ "error": { "nodeId", "message", "attempts" } }`.
+- `route`: el flujo salta al nodo indicado en `onError.target` con el mismo payload de error.
+- La ruta de error no es una arista normal del DAG; el inspector la configura y el canvas la dibuja como línea punteada.
+- El backoff por defecto es 500 ms con multiplicador 2 y un tope de 30 s.
+- Las escrituras `database` en modo `write` usan `maxRetries: 0` por defecto. Si habilitas reintentos, el SQL debe ser idempotente (upsert o clave natural); no hay exactly-once entre la base externa y el ledger local.
+
+## Aprobaciones manuales, programadas y por canal (P0)
+
+El nodo `approval` pausa el run y crea una aprobación pendiente. Ahora se puede resolver de tres formas:
+
+- **UI:** abre el detalle de la ejecución y usa **Aprobar** o **Rechazar**.
+- **API:** `GET /api/projects/:slug/runs/:runId/approvals` lista las aprobaciones; `POST /api/projects/:slug/runs/:runId/approvals/:nodeId` con `{ "decision": "approve" | "reject" }` decide.
+- **Canal:** el prompt se envía al canal de origen si el run nació de una integración; si no, al canal configurado en **Ajustes → Aprobaciones**. El comando `/approve <runId> <nodeId>` sigue disponible para canales autorizados.
+
+Si un run sin origen llega a una aprobación y el proyecto no tiene canal configurado, queda pausado y visible en la UI; la readiness del proyecto indica que falta el canal. `autoApprove: true` registra una aprobación automática (`decidedBy: "autoApprove"`) sin crear una pendiente.
+
+## Política de base de datos y secretos HTTP (P1)
+
+Cada integración de base de datos expone una política visible en **Recursos**:
+
+```json
+{ "access": "read", "maxRows": 1000, "allowDdl": false }
+```
+
+- `access: "read"` rechaza `INSERT`, `UPDATE`, `DELETE` y DDL antes de abrir la conexión.
+- `access: "write"` permite DML; el DDL sigue bloqueado salvo `allowDdl: true`.
+- `maxRows` limita las filas devueltas; el máximo duro es 10,000.
+- Las integraciones existentes se migran con `access: "write"`, `maxRows: 1000` y `allowDdl: true` para no romper flujos. Las nuevas nacen en `read`, `1000` y `false`.
+- La política aplica al nodo `database`, a `ctx.db` y a la tool `db_query`.
+
+El nodo `http` puede usar una integración HTTP para el `baseUrl` y referencias a la bóveda:
+
+```json
+{
+  "integrationId": "<id-de-la-integracion-http>",
+  "url": "/leads",
+  "headers": { "Authorization": "secret:api-token" },
+  "body": { "token": "{{secret.api-token}}" }
+}
+```
+
+El servidor resuelve `secret:<alias>` y `{{secret.<alias>}}` en memoria antes del fetch. El workflow y los snapshots guardan solo el alias; un alias de otro proyecto falla antes de la petición.
+
+## Esperas durables y ejecuciones únicas (P1)
+
+- `delay` con `ms <= 60000` espera en memoria.
+- `delay` con `waitUntil` (ISO) o `ms > 60000` pausa el run y persiste un `workflow_timer`; el scheduler lo reanuda al vencer y el run sobrevive reinicios.
+- Un timer vencido durante una caída se procesa al arrancar. Cada timer se reclama una sola vez.
+- `schedule` con `mode: "once"` y `runAt` crea un run único; si la fecha se perdió durante una caída, se ejecuta una vez al arrancar si el schedule está activo.
+
+## Lotes y subflujos (P1)
+
+- Un nodo `subworkflow` ejecuta una versión inmutable de `workflow_versions` del mismo proyecto. El payload se toma de `input` o de `config.payloadPath`; el resultado o el fallo se propaga al flujo padre.
+- Un nodo `foreach` recibe `itemsPath`, `versionId`, `maxConcurrency` y `onItemError`. Ejecuta un run hijo por elemento, con `parentRunId`, y agrega `{ items: [{ index, status, output, error, runId }] }`.
+- `onItemError: "stop"` corta el lote al primer fallo; `"continue"` procesa los demás y deja el fallo en el resultado.
+- El sistema rechaza ciclos directos y transitivos comparando la cadena de `parentRunId` con el `workflowId` de la versión invocada.
+- Los runs hijos quedan visibles en Ejecuciones con su `parentRunId`, lo que permite auditar el lote.
+
+## Cola, rate limit y alertas por proyecto (P1)
+
+- Los runs se encolan cuando el proyecto alcanza su límite de concurrencia (2 por defecto). El scheduler despacha la cola y el estado `queued` se muestra en Ejecuciones.
+- Las notificaciones respetan `rateLimitPerMinute` (60 por defecto); si se excede, la entrega espera la ventana configurada.
+- Las integraciones de canal pueden declarar `alerts` (`run.failed`, `integration.down`, `health.degraded`) y `alertRecipient`. Un fallo de proyecto usa primero los canales del proyecto y cae a los globales si no hay.
+- Los run hijos de `foreach`/`subworkflow` conservan `parentRunId` y se pueden auditar desde Ejecuciones.
+
+## Límites de automatización
+
+- Las escrituras en bases externas son **at-least-once** si se habilitan reintentos; usa SQL idempotente (upsert o clave natural). No hay exactly-once entre la DB externa y el ledger local.
+- La cola, los timers y el scheduler viven en un solo proceso con SQLite. No están diseñados para múltiples instancias; una cola distribuida queda fuera de alcance.
+- El adaptador de email sigue siendo un contrato futuro; `notify` cubre Telegram, WhatsApp y chat externo.
+- Los secretos HTTP se resuelven en el servidor y nunca se guardan en `workflow.json` ni en snapshots; no los pegues en headers como texto.
 
 ## Versionado del grafo, Snapshots y Rollback
 
@@ -131,7 +271,8 @@ El trigger declara `inputSchema` con campos, tipos, obligatoriedad, descripción
 ## Salida estructurada del nodo Agente y Permisos de herramientas
 
 - **Salida estructurada (`config.outputSchema`):** Los nodos `agent` pueden declarar campos de salida tipados (`string`, `number`, `boolean`, `json`). El motor instruye al agente a devolver JSON, limpia bloques Markdown, valida el contrato y ejecuta un turno automático de reparación si la primera respuesta no cumple el esquema antes de pasar el objeto tipado a nodos `decision`, `validate`, `transform` o `code`.
-- **Permisos por agente y contexto:** Las herramientas `platform_*` validan `x-platform-agent` y `x-platform-context` (`chat`, `workflow`, `external_channel`). Por defecto, los pasos de workflow y canales externos no pueden mutar definiciones (`workflow_upsert`, `subagent_upsert`), y cualquier regla `deny` en el frontmatter del agente bloquea `db_query`, `notify` o `workflow_trigger` con HTTP `403`.
+- **Contexto de sesión y permisos:** cada sesión de OpenCode se registra en `session_context` con su agente y contexto (`chat`, `workflow` o `external_channel`). El plugin envía `x-platform-session` y `x-platform-agent` en cada tool; el servidor resuelve el contexto desde la sesión y aplica las reglas `allow`/`deny` del perfil. Una sesión desconocida cae en el contexto de menor privilegio. Cada veredicto se audita con proyecto, agente, sesión, tool y decisión, sin argumentos ni secretos.
+- **Descubrimiento de integraciones:** los agentes de proyecto tienen `integration_list`, que devuelve id, tipo, capacidades, estado y nombre de las integraciones del proyecto, sin secretos. El orquestador global no la recibe.
 - **Plantilla vertical (`triaje-operativo`):** Al crear un proyecto puedes elegir la plantilla **Triaje operativo**, que despliega un flujo completo de 6 nodos (trigger con esquema, validación, agente clasificador con `outputSchema` y permisos restringidos, decisión condicional, aprobación y nodo de código).
 
 ## Sesiones y credenciales de OpenCode

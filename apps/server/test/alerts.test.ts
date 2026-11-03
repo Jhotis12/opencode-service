@@ -19,6 +19,7 @@ class FakeEgress implements IntegrationEgressPort {
   sent: Array<{ integrationId: string; text: string; recipient?: string }> = [];
   async send(integrationId: string, text: string, recipient?: string) {
     this.sent.push({ integrationId, text, recipient });
+    return {};
   }
 }
 
@@ -74,6 +75,42 @@ describe("deterministic alerts", () => {
     expect(egress.sent[0]?.text).toContain("ventas");
     expect(egress.sent[0]?.text).not.toContain("sk_secret_123");
     expect(egress.sent[0]?.text).not.toContain("supersecret");
+    store.close();
+  });
+
+  it("prefers a project alert channel over global channels", async () => {
+    const store = new SqliteStore(":memory:");
+    globalChannel(store, ["run.failed"]);
+    const now = new Date().toISOString();
+    store.integrations.create({
+      id: "project-1",
+      scope: "project",
+      projectSlug: "ventas",
+      kind: "telegram",
+      name: "Alertas ventas",
+      slug: "alertas-ventas",
+      config: { alerts: ["run.failed"], alertRecipient: "project-recipient" },
+      secretRefs: {},
+      capabilities: ["inbound_message", "outbound_message"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const egress = new FakeEgress();
+    const service = new AlertService({
+      store,
+      egress,
+      events: { subscribe: () => () => undefined },
+      logger,
+    });
+    await service.handle({
+      type: "run.updated",
+      projectSlug: "ventas",
+      runId: "run-3",
+      workflowId: "wf",
+      status: "failed",
+    });
+    expect(egress.sent[0]).toMatchObject({ integrationId: "project-1", recipient: "project-recipient" });
     store.close();
   });
 

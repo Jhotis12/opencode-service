@@ -9,6 +9,7 @@ class FakeClient implements PlatformClient {
     return { method, args };
   }
   async listProjects() { return this.record("listProjects", []); }
+  async listIntegrations(slug: string) { return this.record("listIntegrations", [slug]); }
   async getWorkflow(slug: string) { return this.record("getWorkflow", [slug]); }
   async upsertWorkflow(slug: string, graph: unknown) { return this.record("upsertWorkflow", [slug, graph]); }
   async triggerWorkflow(slug: string, payload: unknown, key?: string) { return this.record("triggerWorkflow", [slug, payload, key]); }
@@ -53,6 +54,7 @@ describe("platform tool namespace", () => {
     const tools = createPlatformTools(new FakeClient());
     expect(tools.map((item) => item.name)).toEqual([
       "workflow_list",
+      "integration_list",
       "workflow_get",
       "workflow_upsert",
       "workflow_trigger",
@@ -68,6 +70,47 @@ describe("platform tool namespace", () => {
     for (const item of tools) {
       expect(item.description.length).toBeGreaterThan(10);
       expect(item.input.type).toBe("object");
+    }
+  });
+
+  it("propagates session context and sanitizes integration discovery", async () => {
+    const original = globalThis.fetch;
+    let sentHeaders: Record<string, string> = {};
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      sentHeaders = (init?.headers ?? {}) as Record<string, string>;
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "i1",
+              kind: "telegram",
+              name: "Bot",
+              capabilities: ["outbound_message"],
+              status: "connected",
+              secretRefs: { token: "alias" },
+              config: { token: "should-not-leak" },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    try {
+      const client = new HttpPlatformClient("http://platform", "token", { projectSlug: "p1" });
+      const listTool = createPlatformTools(client, { projectSlug: "p1" }).find(
+        (item) => item.name === "integration_list",
+      )!;
+      const result = await listTool.execute(
+        { projectSlug: "p1" },
+        { sessionID: "s1", agent: "ventas/calificador" },
+      );
+      expect(sentHeaders["x-platform-session"]).toBe("s1");
+      expect(sentHeaders["x-platform-agent"]).toBe("ventas/calificador");
+      expect(JSON.parse(result.content)).toEqual([
+        { id: "i1", kind: "telegram", name: "Bot", capabilities: ["outbound_message"], status: "connected" },
+      ]);
+    } finally {
+      globalThis.fetch = original;
     }
   });
 
@@ -87,6 +130,7 @@ describe("platform tool namespace", () => {
     expect(globalTools).not.toContain("subagent_upsert");
     expect(globalTools).not.toContain("db_query");
     expect(globalTools).not.toContain("notify");
+    expect(globalTools).not.toContain("integration_list");
 
     const projectTools = createPlatformTools(new FakeClient(), { projectSlug: "p1" }).map((item) => item.name);
     expect(projectTools).toContain("workflow_upsert");
@@ -94,6 +138,7 @@ describe("platform tool namespace", () => {
     expect(projectTools).toContain("subagent_upsert");
     expect(projectTools).toContain("db_query");
     expect(projectTools).toContain("notify");
+    expect(projectTools).toContain("integration_list");
   });
 
   it("validates input before delegating", async () => {

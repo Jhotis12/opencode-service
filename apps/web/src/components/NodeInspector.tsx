@@ -1,7 +1,171 @@
-import type { InputField, IntegrationRecord, NodeSpec, SubagentProfile, ValidateRule } from "@platform/shared";
+import { useEffect, useState } from "react";
+import type {
+  DatabaseStatement,
+  InputField,
+  IntegrationRecord,
+  NodeSpec,
+  SubagentProfile,
+  ValidateRule,
+} from "@platform/shared";
 import type { ModelInfo } from "../api.ts";
 import { CodeEditor } from "./CodeEditor.tsx";
 import { button, buttonGhost } from "../ui.ts";
+
+const DATABASE_KINDS = new Set<IntegrationRecord["kind"]>(["postgres", "mysql", "mssql", "sqlite"]);
+const NOTIFICATION_KINDS = new Set<IntegrationRecord["kind"]>(["telegram", "whatsapp", "external_chat"]);
+const HTTP_KINDS = new Set<IntegrationRecord["kind"]>(["http"]);
+
+function NotifyNodeFields({
+  node,
+  integrations,
+  onConfig,
+}: {
+  node: NodeSpec;
+  integrations: IntegrationRecord[];
+  onConfig(patch: Record<string, unknown>): void;
+}) {
+  const channels = integrations.filter(
+    (integration) =>
+      NOTIFICATION_KINDS.has(integration.kind) && integration.capabilities.includes("outbound_message"),
+  );
+  const selected = channels.find((integration) => integration.id === node.config.integrationId);
+  const requiresRecipient = selected?.kind === "telegram" || selected?.kind === "whatsapp";
+
+  return (
+    <>
+      <label>
+        Canal de salida
+        <select
+          value={String(node.config.integrationId ?? "")}
+          onChange={(event) => onConfig({ integrationId: event.target.value })}
+        >
+          <option value="">Selecciona un canal</option>
+          {channels.map((integration) => (
+            <option key={integration.id} value={integration.id}>
+              {integration.name} · {integration.kind}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Destinatario {requiresRecipient ? "(obligatorio)" : "(opcional)"}
+        <input
+          value={String(node.config.recipient ?? "")}
+          onChange={(event) => onConfig({ recipient: event.target.value || undefined })}
+          placeholder={requiresRecipient ? "123456789" : "Se usa el webhook del canal"}
+        />
+      </label>
+      <label className="md:col-span-2">
+        Mensaje
+        <textarea
+          rows={5}
+          value={String(node.config.text ?? "")}
+          onChange={(event) => onConfig({ text: event.target.value })}
+          placeholder="Hola {{input.nombre}}, tu reporte está listo."
+        />
+      </label>
+      {requiresRecipient && !String(node.config.recipient ?? "").trim() && (
+        <p className="text-xs text-warn md:col-span-2">Este canal requiere un destinatario para enviar.</p>
+      )}
+      <div className="rounded-lg border border-line bg-well p-3 text-xs text-muted md:col-span-2">
+        <strong className="block text-slate-200">Vista previa</strong>
+        <span>{String(node.config.text || "Sin mensaje configurado.")}</span>
+        {selected && <span className="mt-1 block">Canal: {selected.name}</span>}
+      </div>
+    </>
+  );
+}
+
+function DatabaseNodeFields({
+  node,
+  integrations,
+  onConfig,
+}: {
+  node: NodeSpec;
+  integrations: IntegrationRecord[];
+  onConfig(patch: Record<string, unknown>): void;
+}) {
+  const statements = (node.config.statements as DatabaseStatement[] | undefined) ?? [];
+  const [raw, setRaw] = useState(() => JSON.stringify(statements, null, 2));
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    setRaw(JSON.stringify((node.config.statements as DatabaseStatement[] | undefined) ?? [], null, 2));
+    setError(undefined);
+  }, [node.id]);
+
+  function applyStatements(value: string) {
+    setRaw(value);
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("Agrega al menos una sentencia.");
+      if (!parsed.every((item) => item && typeof item === "object" && typeof (item as { sql?: unknown }).sql === "string")) {
+        throw new Error("Cada sentencia necesita un campo sql de texto.");
+      }
+      setError(undefined);
+      onConfig({ statements: parsed });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "JSON inválido.");
+    }
+  }
+
+  return (
+    <>
+      <label>
+        Integración de base de datos
+        <select
+          value={String(node.config.integrationId ?? "")}
+          onChange={(event) => onConfig({ integrationId: event.target.value })}
+        >
+          <option value="">Selecciona una integración</option>
+          {integrations
+            .filter((integration) => DATABASE_KINDS.has(integration.kind))
+            .map((integration) => (
+              <option key={integration.id} value={integration.id}>
+                {integration.name} · {integration.kind}
+              </option>
+            ))}
+        </select>
+      </label>
+      <label>
+        Modo
+        <select value={String(node.config.mode ?? "read")} onChange={(event) => onConfig({ mode: event.target.value })}>
+          <option value="read">Lectura</option>
+          <option value="write">Escritura</option>
+        </select>
+      </label>
+      <label className="md:col-span-2">
+        Sentencias SQL (JSON)
+        <textarea
+          rows={6}
+          value={raw}
+          onChange={(event) => applyStatements(event.target.value)}
+          placeholder={'[{"sql":"select * from leads where id = ?","params":["{{input.id}}"]}]'}
+        />
+      </label>
+      {error && <p className="text-xs text-danger md:col-span-2">{error}</p>}
+      <label className="flex-row items-center gap-2">
+        <input
+          type="checkbox"
+          className="w-auto"
+          checked={node.config.transaction !== false}
+          onChange={(event) => onConfig({ transaction: event.target.checked })}
+        />
+        Transacción
+      </label>
+      <label>
+        Máximo de filas
+        <input
+          type="number"
+          min={1}
+          max={10000}
+          value={Number(node.config.maxRows ?? 1000)}
+          onChange={(event) => onConfig({ maxRows: Number(event.target.value) })}
+        />
+      </label>
+    </>
+  );
+}
 
 function InputFieldsEditor({ fields, onChange }: { fields: InputField[]; onChange(fields: InputField[]): void }) {
   return (
@@ -113,11 +277,13 @@ function ValidateRulesEditor({ rules, onChange }: { rules: ValidateRule[]; onCha
 
 export function NodeInspector({
   node,
+  nodes,
   agents,
   models,
   integrations,
   code,
   codeDirty,
+  scheduleNextRun,
   onPatch,
   onConfig,
   onCodeChange,
@@ -125,11 +291,13 @@ export function NodeInspector({
   onEnableDecisionCode,
 }: {
   node: NodeSpec;
+  nodes: NodeSpec[];
   agents: SubagentProfile[];
   models: ModelInfo[];
   integrations: IntegrationRecord[];
   code: string;
   codeDirty: boolean;
+  scheduleNextRun?: string;
   onPatch(patch: Partial<NodeSpec>): void;
   onConfig(patch: Record<string, unknown>): void;
   onCodeChange(value: string): void;
@@ -158,14 +326,87 @@ export function NodeInspector({
                 </select>
               </label>
               {String(node.config.kind ?? "manual") === "schedule" && (
-                <label>
-                  Expresión Cron (5 campos UTC)
-                  <input
-                    value={String(node.config.cron ?? "")}
-                    onChange={(event) => onConfig({ cron: event.target.value })}
-                    placeholder="0 9 * * 1-5"
-                  />
-                </label>
+                <>
+                  <label>
+                    Modo
+                    <select value={String(node.config.mode ?? "cron")} onChange={(event) => onConfig({ mode: event.target.value })}>
+                      <option value="cron">Cron recurrente</option>
+                      <option value="once">Ejecución única</option>
+                    </select>
+                  </label>
+                  {String(node.config.mode ?? "cron") === "once" ? (
+                    <label>
+                      Fecha y hora (ISO)
+                      <input
+                        value={String(node.config.runAt ?? "")}
+                        onChange={(event) => onConfig({ runAt: event.target.value })}
+                        placeholder="2026-11-05T15:00:00.000Z"
+                      />
+                    </label>
+                  ) : (
+                    <label>
+                      Expresión Cron (5 campos)
+                      <input
+                        value={String(node.config.cron ?? "")}
+                        onChange={(event) => onConfig({ cron: event.target.value })}
+                        placeholder="0 9 * * 1-5"
+                      />
+                    </label>
+                  )}
+                  <label>
+                    Zona horaria (IANA)
+                    <input
+                      value={String(node.config.timezone ?? "UTC")}
+                      onChange={(event) => onConfig({ timezone: event.target.value })}
+                      placeholder="America/Mexico_City"
+                    />
+                  </label>
+                  <label className="flex-row items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="w-auto"
+                      checked={node.config.enabled !== false}
+                      onChange={(event) => onConfig({ enabled: event.target.checked })}
+                    />
+                    Schedule activo
+                  </label>
+                  <label>
+                    Solapamiento
+                    <select
+                      value={String(node.config.overlapPolicy ?? "skip")}
+                      onChange={(event) => onConfig({ overlapPolicy: event.target.value })}
+                    >
+                      <option value="skip">Omitir si hay un run en curso</option>
+                      <option value="allow">Permitir solapamiento</option>
+                    </select>
+                  </label>
+                  <label className="flex-row items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="w-auto"
+                      checked={node.config.catchUp === true}
+                      onChange={(event) => onConfig({ catchUp: event.target.checked })}
+                    />
+                    Recuperar ventanas perdidas
+                  </label>
+                  {node.config.catchUp === true && (
+                    <label>
+                      Ventana de recuperación (min)
+                      <input
+                        type="number"
+                        min={0}
+                        max={1440}
+                        value={Number(node.config.catchUpWindowMinutes ?? 60)}
+                        onChange={(event) => onConfig({ catchUpWindowMinutes: Number(event.target.value) })}
+                      />
+                    </label>
+                  )}
+                  {scheduleNextRun && (
+                    <p className="text-xs text-muted md:col-span-2">
+                      Próxima ejecución: <strong>{new Date(scheduleNextRun).toLocaleString()}</strong>
+                    </p>
+                  )}
+                </>
               )}
               {String(node.config.kind ?? "manual") === "webhook" && (
                 <label>
@@ -229,6 +470,76 @@ export function NodeInspector({
             </>
           )}
 
+          {node.type === "database" && (
+            <DatabaseNodeFields node={node} integrations={integrations} onConfig={onConfig} />
+          )}
+
+          {node.type === "notify" && (
+            <NotifyNodeFields node={node} integrations={integrations} onConfig={onConfig} />
+          )}
+
+          {node.type === "subworkflow" && (
+            <>
+              <label>
+                Versión del subflujo
+                <input
+                  value={String(node.config.versionId ?? "")}
+                  onChange={(event) => onConfig({ versionId: event.target.value })}
+                  placeholder="ID de workflow_versions"
+                />
+              </label>
+              <label>
+                Ruta del payload (opcional)
+                <input
+                  value={String(node.config.payloadPath ?? "")}
+                  onChange={(event) => onConfig({ payloadPath: event.target.value || undefined })}
+                  placeholder="input.pedido"
+                />
+              </label>
+            </>
+          )}
+
+          {node.type === "foreach" && (
+            <>
+              <label>
+                Versión del subflujo
+                <input
+                  value={String(node.config.versionId ?? "")}
+                  onChange={(event) => onConfig({ versionId: event.target.value })}
+                  placeholder="ID de workflow_versions"
+                />
+              </label>
+              <label>
+                Ruta de la lista
+                <input
+                  value={String(node.config.itemsPath ?? "")}
+                  onChange={(event) => onConfig({ itemsPath: event.target.value })}
+                  placeholder="input.items"
+                />
+              </label>
+              <label>
+                Concurrencia máxima
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={Number(node.config.maxConcurrency ?? 1)}
+                  onChange={(event) => onConfig({ maxConcurrency: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                Si falla un elemento
+                <select
+                  value={String(node.config.onItemError ?? "stop")}
+                  onChange={(event) => onConfig({ onItemError: event.target.value })}
+                >
+                  <option value="stop">Detener el lote</option>
+                  <option value="continue">Continuar con los demás</option>
+                </select>
+              </label>
+            </>
+          )}
+
           {node.type === "http" && (
             <>
               <label>
@@ -249,6 +560,25 @@ export function NodeInspector({
                   placeholder="https://api.example.com"
                 />
               </label>
+              <label>
+                Integración HTTP (opcional)
+                <select
+                  value={String(node.config.integrationId ?? "")}
+                  onChange={(event) => onConfig({ integrationId: event.target.value || undefined })}
+                >
+                  <option value="">URL directa</option>
+                  {integrations
+                    .filter((integration) => HTTP_KINDS.has(integration.kind))
+                    .map((integration) => (
+                      <option key={integration.id} value={integration.id}>
+                        {integration.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <p className="text-xs text-muted md:col-span-2">
+                Secretos: usa <code>secret:alias</code> en headers y <code>{"{{secret.alias}}"}</code> en el body.
+              </p>
               <label className="md:col-span-2">
                 Headers (JSON)
                 <textarea rows={2} value={String(node.config.headers ?? "{}")} onChange={(event) => onConfig({ headers: event.target.value })} />
@@ -261,16 +591,26 @@ export function NodeInspector({
           )}
 
           {node.type === "delay" && (
-            <label>
-              Espera (ms, máx. 60000)
-              <input
-                type="number"
-                min={0}
-                max={60000}
-                value={Number(node.config.ms ?? 1000)}
-                onChange={(event) => onConfig({ ms: Number(event.target.value) })}
-              />
-            </label>
+            <>
+              <label>
+                Espera (ms, máx. 60000)
+                <input
+                  type="number"
+                  min={0}
+                  max={60000}
+                  value={Number(node.config.ms ?? 1000)}
+                  onChange={(event) => onConfig({ ms: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                Esperar hasta (ISO, durable)
+                <input
+                  value={String(node.config.waitUntil ?? "")}
+                  onChange={(event) => onConfig({ waitUntil: event.target.value || undefined })}
+                  placeholder="2026-11-05T15:00:00.000Z"
+                />
+              </label>
+            </>
           )}
 
           {node.type === "transform" && (
@@ -447,7 +787,7 @@ export function NodeInspector({
             </>
           )}
 
-          {["code", "http", "decision", "agent", "validate"].includes(node.type) && (
+          {["code", "http", "database", "notify", "decision", "agent", "validate"].includes(node.type) && (
             <>
               <label>
                 Timeout (ms)
@@ -460,9 +800,68 @@ export function NodeInspector({
                   min={0}
                   max={5}
                   value={node.retryPolicy.maxRetries}
-                  onChange={(event) => onPatch({ retryPolicy: { maxRetries: Number(event.target.value) } })}
+                  onChange={(event) => onPatch({ retryPolicy: { ...node.retryPolicy, maxRetries: Number(event.target.value) } })}
                 />
               </label>
+              <label>
+                Backoff (ms)
+                <input
+                  type="number"
+                  min={0}
+                  max={60000}
+                  value={node.retryPolicy.backoffMs ?? 500}
+                  onChange={(event) => onPatch({ retryPolicy: { ...node.retryPolicy, backoffMs: Number(event.target.value) } })}
+                />
+              </label>
+            </>
+          )}
+
+          {node.type !== "trigger" && (
+            <>
+              <label>
+                Si falla
+                <select
+                  value={node.onError?.strategy ?? "stop"}
+                  onChange={(event) => {
+                    const strategy = event.target.value as "stop" | "continue" | "route";
+                    onPatch({
+                      onError:
+                        strategy === "stop"
+                          ? undefined
+                          : strategy === "continue"
+                            ? { strategy }
+                            : { strategy, target: node.onError?.target },
+                    });
+                  }}
+                >
+                  <option value="stop">Detener el run</option>
+                  <option value="continue">Continuar con el error</option>
+                  <option value="route">Derivar a otro nodo</option>
+                </select>
+              </label>
+              {node.onError?.strategy === "route" && (
+                <label>
+                  Nodo de error
+                  <select
+                    value={node.onError.target ?? ""}
+                    onChange={(event) =>
+                      onPatch({ onError: { strategy: "route", target: event.target.value || undefined } })
+                    }
+                  >
+                    <option value="">Selecciona un nodo</option>
+                    {nodes
+                      .filter((candidate) => candidate.id !== node.id && candidate.type !== "trigger")
+                      .map((candidate) => (
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.label ?? candidate.id}
+                        </option>
+                      ))}
+                  </select>
+                  {!node.onError.target && (
+                    <small className="text-warn">Selecciona el nodo que recibirá el error.</small>
+                  )}
+                </label>
+              )}
             </>
           )}
 

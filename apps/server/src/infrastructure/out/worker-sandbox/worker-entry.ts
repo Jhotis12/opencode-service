@@ -37,8 +37,8 @@ const ctx = {
   db(integrationId: string, sql: string, params: unknown[] = []) {
     return rpc("db", { integrationId, sql, params });
   },
-  notify(integrationId: string, text: string) {
-    return rpc("notify", { integrationId, text });
+  notify(integrationId: string, text: string, recipient?: string) {
+    return rpc("notify", { integrationId, text, recipient });
   },
   env(key: string) {
     return allowlistedEnv[key];

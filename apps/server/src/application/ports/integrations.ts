@@ -1,4 +1,5 @@
 import type { IntegrationRecord } from "../../domain/entities.ts";
+import type { EgressSendResult } from "./channels.ts";
 
 export interface IntegrationManagerPort {
   start(integration: IntegrationRecord): Promise<void>;
@@ -7,5 +8,5 @@ export interface IntegrationManagerPort {
   test(integration: IntegrationRecord): Promise<{ ok: boolean; detail?: string; latencyMs?: number }>;
   status(integrationId: string): string | undefined;
   qr(integrationId: string): string | undefined;
-  send(integrationId: string, text: string, recipient?: string): Promise<void>;
+  send(integrationId: string, text: string, recipient?: string): Promise<EgressSendResult>;
 }

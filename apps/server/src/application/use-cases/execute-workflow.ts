@@ -2,6 +2,10 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   InputSchemaSchema,
+  DatabaseNodeConfigSchema,
+  NotifyNodeConfigSchema,
+  SubworkflowNodeConfigSchema,
+  ForeachNodeConfigSchema,
   ValidateConfigSchema,
   type InputSchema,
   type NodeSpec,
@@ -14,10 +18,15 @@ import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { CodeWorkerPort, WorkerRpcHandlers } from "../ports/worker.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
+import { AgentPromptTimeoutError } from "../ports/runtime.ts";
+import type { SecretVault } from "../ports/security.ts";
 import type { EventBus } from "../ports/events.ts";
 import type { ErrorTracker, Metrics, Logger } from "../../domain/telemetry/index.ts";
 import { WorkerTimeoutError } from "../ports/worker.ts";
 import type { StepRunRecord, WorkflowRunRecord } from "../../domain/entities.ts";
+import type { ExecuteDatabaseActionUseCase } from "./database-actions.ts";
+import type { SendNotificationUseCase } from "./send-notification.ts";
+import { registerSessionContext } from "./chat-session.ts";
 import {
   IdempotencyMismatchError,
   RunInFlightError,
@@ -27,6 +36,7 @@ import {
   startNode,
   validateWorkflowGraph,
 } from "../../domain/workflow/graph.ts";
+import { renderParams, renderTemplate, resolvePath } from "../../domain/workflow/template.ts";
 import {
   NodeValidationError,
   WorkflowInputValidationError,
@@ -44,6 +54,10 @@ export interface ExecutorDeps {
   errors: ErrorTracker;
   logger: Logger;
   workerHandlers?: WorkerRpcHandlers;
+  vault?: SecretVault;
+  databaseAction?: ExecuteDatabaseActionUseCase;
+  notification?: SendNotificationUseCase;
+  maxConcurrentRuns?: number;
   notifyApproval?: (run: WorkflowRunRecord, nodeId: string) => Promise<void>;
   knowledgeContext?: (projectSlug: string, notebookIds: string[], query: unknown, strictGrounding: boolean) => Promise<string>;
   defaultModel?: () => string | undefined;
@@ -60,6 +74,7 @@ export interface ExecuteRunInput {
   launchedBy?: string;
   integrationId?: string;
   sourceDetail?: string;
+  parentRunId?: string;
 }
 
 interface RunState {
@@ -85,8 +100,35 @@ export class ExecuteWorkflowRunUseCase {
   }
 
   async start(input: ExecuteRunInput): Promise<WorkflowRunRecord> {
+    const maxConcurrentRuns = this.deps.maxConcurrentRuns ?? 2;
+    const shouldQueue = this.deps.store.runs.countInFlight(input.projectSlug) >= maxConcurrentRuns;
     const prepared = await this.prepare(input);
     if (!prepared.created) return prepared.run;
+    if (shouldQueue) {
+      const queuedAt = new Date().toISOString();
+      this.deps.store.runs.update(prepared.run.id, { status: "queued" });
+      this.deps.store.queue.enqueue({
+        runId: prepared.run.id,
+        projectSlug: input.projectSlug,
+        createdAt: queuedAt,
+      });
+      this.deps.events.publish({
+        type: "run.updated",
+        projectSlug: prepared.run.projectSlug,
+        runId: prepared.run.id,
+        workflowId: prepared.run.workflowId,
+        status: "queued",
+      });
+      this.deps.metrics.increment("workflow_runs_queued");
+      this.deps.logger.info({
+        event: "workflow_queued",
+        entryPoint: input.entryPoint,
+        projectSlug: input.projectSlug,
+        runId: prepared.run.id,
+        workflowId: prepared.run.workflowId,
+      });
+      return this.deps.store.runs.findById(prepared.run.id)!;
+    }
     void this.runGraph(input.graph, input.payload, {
       run: prepared.run,
       priorOutputs: undefined,
@@ -101,6 +143,49 @@ export class ExecuteWorkflowRunUseCase {
       });
     });
     return prepared.run;
+  }
+
+  async dispatchQueued(): Promise<WorkflowRunRecord[]> {
+    const maxConcurrentRuns = this.deps.maxConcurrentRuns ?? 2;
+    const started: WorkflowRunRecord[] = [];
+    const projects = await this.deps.workspace.listProjects();
+    for (const projectSlug of projects) {
+      while (this.deps.store.runs.countInFlight(projectSlug) < maxConcurrentRuns) {
+        const queued = this.deps.store.queue.claimNext(projectSlug);
+        if (!queued) break;
+        const run = this.deps.store.runs.findById(queued.runId);
+        if (!run || run.status !== "queued") continue;
+        const snapshot = await this.resolveRunSnapshot(run);
+        this.deps.store.runs.update(run.id, { status: "running" });
+        this.deps.events.publish({
+          type: "run.updated",
+          projectSlug: run.projectSlug,
+          runId: run.id,
+          workflowId: run.workflowId,
+          status: "running",
+        });
+        this.deps.metrics.increment("workflow_runs_dispatched");
+        this.deps.logger.info({
+          event: "workflow_dispatched",
+          projectSlug: run.projectSlug,
+          runId: run.id,
+          workflowId: run.workflowId,
+        });
+        const result = await this.runGraph(
+          snapshot.graph,
+          run.input,
+          {
+            run: { ...run, status: "running" },
+            priorOutputs: undefined,
+            resumeNodeId: undefined,
+            codeBundle: snapshot.codeBundle,
+          },
+          {},
+        );
+        started.push(result);
+      }
+    }
+    return started;
   }
 
   private async prepare(
@@ -137,6 +222,7 @@ export class ExecuteWorkflowRunUseCase {
       versionId: snapshot.id,
       integrationId: input.integrationId,
       sourceDetail: input.sourceDetail,
+      parentRunId: input.parentRunId,
       startedAt: new Date().toISOString(),
     };
     const claimed = this.deps.store.runs.claim(run);
@@ -321,6 +407,66 @@ export class ExecuteWorkflowRunUseCase {
     );
   }
 
+  async resumeFromTimer(runId: string, nodeId: string): Promise<WorkflowRunRecord> {
+    const run = this.deps.store.runs.findById(runId);
+    if (!run) throw new Error(`run not found: ${runId}`);
+    const snapshot = await this.resolveRunSnapshot(run);
+    const graph = snapshot.graph;
+    const node = graph.nodes.find((item) => item.id === nodeId);
+    if (!node) throw new Error(`timer node not found: ${nodeId}`);
+    const steps = this.deps.store.runs.listSteps(runId);
+    const priorOutputs = new Map<string, unknown>();
+    for (const step of steps) {
+      if (step.status === "succeeded") priorOutputs.set(step.nodeId, step.output);
+    }
+    const edge = nextEdge(graph, nodeId);
+    if (!edge) {
+      const output = priorOutputs.get(nodeId);
+      this.deps.store.runs.update(runId, {
+        status: "succeeded",
+        output,
+        error: undefined,
+        finishedAt: new Date().toISOString(),
+      });
+      return this.deps.store.runs.findById(runId)!;
+    }
+    const next = graph.nodes.find((item) => item.id === edge.target);
+    if (!next) throw new Error(`edge points to missing node: ${edge.target}`);
+    this.deps.store.runs.update(runId, { status: "running", error: undefined, finishedAt: undefined });
+    this.deps.events.publish({
+      type: "run.updated",
+      projectSlug: run.projectSlug,
+      runId: run.id,
+      workflowId: run.workflowId,
+      status: "running",
+      nodeId,
+      stepStatus: "succeeded",
+    });
+    return this.runGraph(
+      graph,
+      run.input,
+      {
+        run: { ...run, status: "running", error: undefined, finishedAt: undefined },
+        priorOutputs,
+        resumeNodeId: next.id,
+        codeBundle: snapshot.codeBundle,
+      },
+      {},
+    );
+  }
+
+  private workflowChain(run: WorkflowRunRecord): Set<string> {
+    const chain = new Set<string>([run.workflowId]);
+    let parentId = run.parentRunId;
+    while (parentId) {
+      const parent = this.deps.store.runs.findById(parentId);
+      if (!parent) break;
+      chain.add(parent.workflowId);
+      parentId = parent.parentRunId;
+    }
+    return chain;
+  }
+
   protected async runGraph(
     graph: WorkflowGraph,
     payload: unknown,
@@ -328,7 +474,7 @@ export class ExecuteWorkflowRunUseCase {
     approvalOverrides: Record<string, boolean>,
     entryPoint: WorkflowRunRecord["entryPoint"] = state.run.entryPoint,
   ): Promise<WorkflowRunRecord> {
-    const { store, workspace, worker, agent, events, metrics, errors, logger } = this.deps;
+    const { store, workspace, worker, agent, events, metrics, errors, logger, vault } = this.deps;
     const projectDirectory = await workspace.projectDirectory(state.run.projectSlug);
     let current = startNode(graph);
     let currentInput = payload;
@@ -337,7 +483,7 @@ export class ExecuteWorkflowRunUseCase {
     const visited = new Set<string>();
 
     try {
-      while (current) {
+      runLoop: while (current) {
         if (visited.has(current.id)) throw new Error(`cycle detected at ${current.id}`);
         visited.add(current.id);
 
@@ -380,6 +526,20 @@ export class ExecuteWorkflowRunUseCase {
         let model: string | undefined;
         let agentId: string | undefined;
         let logs: Array<{ message: string; fields: Record<string, unknown> }> | undefined;
+        const retryable =
+          current.type === "code" ||
+          current.type === "agent" ||
+          current.type === "http" ||
+          current.type === "database" ||
+          current.type === "notify" ||
+          (current.type === "decision" && Boolean(current.codeFile) && current.config.mode !== "condition");
+        let attempt = 0;
+        for (;;) {
+          output = undefined;
+          model = undefined;
+          agentId = undefined;
+          logs = undefined;
+          try {
 
         const runWorkerNode = async () => {
           const diskCodePath = join(projectDirectory, current.codeFile!);
@@ -394,25 +554,15 @@ export class ExecuteWorkflowRunUseCase {
               codePath = tempSnapshotPath;
             }
           }
-          const maxRetries = current.retryPolicy.maxRetries;
-          let attempt = 0;
           try {
-            for (;;) {
-              try {
-                return await worker.execute({
-                  nodeId: current.id,
-                  projectSlug: state.run.projectSlug,
-                  codePath,
-                  input: currentInput,
-                  timeoutMs: current.timeoutMs,
-                  handlers: this.deps.workerHandlers,
-                });
-              } catch (error) {
-                if (attempt >= maxRetries) throw error;
-                attempt += 1;
-                logger.warn({ event: "node_retry", nodeId: current.id, attempt, error: String(error) });
-              }
-            }
+            return await worker.execute({
+              nodeId: current.id,
+              projectSlug: state.run.projectSlug,
+              codePath,
+              input: currentInput,
+              timeoutMs: current.timeoutMs,
+              handlers: this.deps.workerHandlers,
+            });
           } finally {
             if (tempSnapshotPath) await rm(tempSnapshotPath, { force: true }).catch(() => undefined);
           }
@@ -433,11 +583,154 @@ export class ExecuteWorkflowRunUseCase {
             output = evaluateCondition(current.config.condition, currentInput);
           }
         } else if (current.type === "http") {
-          output = await executeHttpNode(current, currentInput);
+          output = await executeHttpNode(current, currentInput, {
+            projectSlug: state.run.projectSlug,
+            store,
+            vault,
+          });
+        } else if (current.type === "database") {
+          if (!this.deps.databaseAction) throw new Error("database action is not configured");
+          const config = DatabaseNodeConfigSchema.parse(current.config);
+          output = await this.deps.databaseAction.execute({
+            projectSlug: state.run.projectSlug,
+            integrationId: config.integrationId,
+            mode: config.mode,
+            statements: config.statements.map((statement) => ({
+              sql: statement.sql,
+              params: renderParams(statement.params, currentInput),
+            })),
+            transaction: config.transaction,
+            maxRows: config.maxRows,
+          });
+        } else if (current.type === "notify") {
+          if (!this.deps.notification) throw new Error("notification action is not configured");
+          const config = NotifyNodeConfigSchema.parse(current.config);
+          output = await this.deps.notification.execute({
+            projectSlug: state.run.projectSlug,
+            integrationId: config.integrationId,
+            recipient: config.recipient,
+            text: config.text,
+            input: currentInput,
+            actionKey: config.actionKey ?? `${state.run.id}:${current.id}`,
+            runId: state.run.id,
+            nodeId: current.id,
+          });
+        } else if (current.type === "subworkflow") {
+          const config = SubworkflowNodeConfigSchema.parse(current.config);
+          const version = store.versions.findById(config.versionId);
+          if (!version || version.projectSlug !== state.run.projectSlug) {
+            throw new Error(`subworkflow version not found: ${config.versionId}`);
+          }
+          if (version.graph.id === state.run.workflowId) {
+            throw new Error("subworkflow cycle detected");
+          }
+          if (this.workflowChain(state.run).has(version.graph.id)) {
+            throw new Error("subworkflow cycle detected in parent chain");
+          }
+          const child = await this.execute({
+            projectSlug: state.run.projectSlug,
+            graph: version.graph,
+            payload: config.payloadPath ? resolvePath(currentInput, config.payloadPath) : currentInput,
+            entryPoint: state.run.entryPoint,
+            parentRunId: state.run.id,
+            launchedBy: "subworkflow",
+            sourceDetail: `subworkflow:${config.versionId}`,
+          });
+          if (child.status !== "succeeded") throw new Error(`subworkflow ${child.id} ${child.status}: ${child.error ?? ""}`);
+          output = child.output;
+        } else if (current.type === "foreach") {
+          const config = ForeachNodeConfigSchema.parse(current.config);
+          const version = store.versions.findById(config.versionId);
+          if (!version || version.projectSlug !== state.run.projectSlug) {
+            throw new Error(`foreach version not found: ${config.versionId}`);
+          }
+          if (version.graph.id === state.run.workflowId) throw new Error("foreach cycle detected");
+          if (this.workflowChain(state.run).has(version.graph.id)) {
+            throw new Error("foreach cycle detected in parent chain");
+          }
+          const items = resolvePath(currentInput, config.itemsPath);
+          if (!Array.isArray(items)) throw new Error(`foreach itemsPath is not an array: ${config.itemsPath}`);
+          const limit = Math.max(1, Math.min(20, config.maxConcurrency));
+          const results: Array<{ index: number; status: string; output?: unknown; error?: string; runId: string }> = [];
+          for (let start = 0; start < items.length; start += limit) {
+            const batch = items.slice(start, start + limit);
+            const batchResults = await Promise.all(
+              batch.map(async (item, offset) => {
+                const index = start + offset;
+                const child = await this.execute({
+                  projectSlug: state.run.projectSlug,
+                  graph: version.graph,
+                  payload: { item, index, parent: currentInput },
+                  entryPoint: state.run.entryPoint,
+                  parentRunId: state.run.id,
+                  launchedBy: "foreach",
+                  sourceDetail: `foreach:${config.versionId}`,
+                });
+                return {
+                  index,
+                  status: child.status,
+                  output: child.output,
+                  error: child.error,
+                  runId: child.id,
+                };
+              }),
+            );
+            results.push(...batchResults);
+            if (config.onItemError === "stop" && batchResults.some((result) => result.status !== "succeeded")) break;
+          }
+          output = { items: results };
+          if (config.onItemError === "stop" && results.some((result) => result.status !== "succeeded")) {
+            throw new Error(`foreach failed at item ${results.find((result) => result.status !== "succeeded")?.index}`);
+          }
         } else if (current.type === "delay") {
+          const waitUntil =
+            typeof current.config.waitUntil === "string" ? Date.parse(current.config.waitUntil) : undefined;
           const ms = Math.min(Math.max(Number(current.config.ms) || 0, 0), 60_000);
-          await new Promise((resolve) => setTimeout(resolve, ms));
-          output = currentInput;
+          const dueAt = new Date(
+            Number.isFinite(waitUntil) && waitUntil! > Date.now() ? waitUntil! : Date.now() + ms,
+          );
+          if (dueAt.getTime() > Date.now() + 60_000 || current.config.waitUntil !== undefined) {
+            if (dueAt.getTime() <= Date.now()) {
+              output = currentInput;
+            } else {
+              const now = new Date().toISOString();
+              store.runs.insertStep({
+                id: crypto.randomUUID(),
+                runId: state.run.id,
+                nodeId: current.id,
+                status: "succeeded",
+                input: currentInput,
+                output: currentInput,
+                durationMs: 0,
+                startedAt,
+                finishedAt: now,
+              });
+              store.timers.create({
+                id: crypto.randomUUID(),
+                runId: state.run.id,
+                nodeId: current.id,
+                dueAt: dueAt.toISOString(),
+                status: "pending",
+                payload: currentInput,
+                createdAt: now,
+                updatedAt: now,
+              });
+              store.runs.update(state.run.id, { status: "paused" });
+              events.publish({
+                type: "run.updated",
+                projectSlug: state.run.projectSlug,
+                runId: state.run.id,
+                workflowId: state.run.workflowId,
+                status: "paused",
+                nodeId: current.id,
+                stepStatus: "succeeded",
+              });
+              return store.runs.findById(state.run.id)!;
+            }
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, ms));
+            output = currentInput;
+          }
         } else if (current.type === "transform") {
           output = executeTransform(current, currentInput);
         } else if (current.type === "validate") {
@@ -460,9 +753,25 @@ export class ExecuteWorkflowRunUseCase {
               model: selectedModel,
             });
             state.sessionId = session.id;
+            registerSessionContext(store, {
+              sessionId: session.id,
+              scope: "project",
+              projectSlug: state.run.projectSlug,
+              agentId: current.agentId,
+              context: "workflow",
+              runId: state.run.id,
+            });
           } else {
             if (selectedModel) await agent.switchModel(state.sessionId, selectedModel);
             if (current.agentId) await agent.switchAgent(state.sessionId, current.agentId);
+            registerSessionContext(store, {
+              sessionId: state.sessionId,
+              scope: "project",
+              projectSlug: state.run.projectSlug,
+              agentId: current.agentId,
+              context: "workflow",
+              runId: state.run.id,
+            });
           }
           let prompt = buildNodePrompt(graph, current.id, currentInput);
           if (current.notebookIds.length > 0 && this.deps.knowledgeContext) {
@@ -474,7 +783,7 @@ export class ExecuteWorkflowRunUseCase {
             );
             if (context) prompt = `${context}\n\n${prompt}`;
           }
-          const rawReply = await agent.prompt(state.sessionId, prompt);
+          const rawReply = await agent.prompt(state.sessionId, prompt, { timeoutMs: current.timeoutMs });
           const outputSchema = InputSchemaSchema.safeParse(current.config.outputSchema);
           if (outputSchema.success && outputSchema.data.fields.length > 0) {
             try {
@@ -509,7 +818,23 @@ export class ExecuteWorkflowRunUseCase {
           }
         } else if (current.type === "approval") {
           const override = approvalOverrides[current.id];
-          if (override === undefined) {
+          if (override === undefined && current.config.autoApprove === true) {
+            const existing = store.runs.findApproval(state.run.id, current.id);
+            if (!existing) {
+              const now = new Date().toISOString();
+              store.runs.createApproval({
+                id: crypto.randomUUID(),
+                runId: state.run.id,
+                nodeId: current.id,
+                status: "approved",
+                createdAt: now,
+                decidedAt: now,
+                decidedBy: "autoApprove",
+              });
+            }
+            logs = [{ message: "approval_auto_approved", fields: { nodeId: current.id } }];
+            output = currentInput;
+          } else if (override === undefined) {
             const existing = store.runs.findApproval(state.run.id, current.id);
             if (existing?.status !== "approved") {
               if (!existing) {
@@ -551,6 +876,80 @@ export class ExecuteWorkflowRunUseCase {
           }
         } else {
           throw new Error(`unsupported node type: ${current.type}`);
+        }
+          break;
+          } catch (error) {
+            if (retryable && attempt < current.retryPolicy.maxRetries) {
+              if (error instanceof AgentPromptTimeoutError) state.sessionId = undefined;
+              attempt += 1;
+              const delay = Math.min(
+                (current.retryPolicy.backoffMs ?? 500) *
+                  Math.pow(current.retryPolicy.backoffMultiplier ?? 2, attempt - 1),
+                30_000,
+              );
+              logger.warn({
+                event: "node_retry",
+                nodeId: current.id,
+                attempt,
+                delayMs: delay,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              await new Promise((resolve) => setTimeout(resolve, delay));
+              continue;
+            }
+            const message = error instanceof Error ? error.message : String(error);
+            if (current.onError?.strategy === "continue" || current.onError?.strategy === "route") {
+              const errorPayload = {
+                error: {
+                  nodeId: current.id,
+                  message,
+                  attempts: attempt + 1,
+                },
+              };
+              const failureStep: StepRunRecord = {
+                id: crypto.randomUUID(),
+                runId: state.run.id,
+                nodeId: current.id,
+                status: "failed",
+                input: currentInput,
+                output: errorPayload,
+                model,
+                agentId,
+                logs,
+                durationMs: Date.now() - started,
+                startedAt,
+                finishedAt: new Date().toISOString(),
+                error: message,
+              };
+              store.runs.insertStep(failureStep);
+              events.publish({
+                type: "run.updated",
+                projectSlug: state.run.projectSlug,
+                runId: state.run.id,
+                workflowId: state.run.workflowId,
+                status: "running",
+                nodeId: current.id,
+                stepStatus: "failed",
+                output: errorPayload,
+                error: message,
+              });
+              lastOutput = errorPayload;
+              currentInput = errorPayload;
+              if (current.onError.strategy === "continue") {
+                const edge = nextEdge(graph, current.id);
+                if (!edge) break runLoop;
+                const next = graph.nodes.find((node) => node.id === edge.target);
+                if (!next) throw new Error(`edge points to missing node: ${edge.target}`);
+                current = next;
+              } else {
+                const target = graph.nodes.find((node) => node.id === current.onError!.target);
+                if (!target) throw new Error(`error route points to missing node: ${current.onError!.target}`);
+                current = target;
+              }
+              continue runLoop;
+            }
+            throw error;
+          }
         }
 
         const durationMs = Date.now() - started;
@@ -621,9 +1020,10 @@ export class ExecuteWorkflowRunUseCase {
         launchedBy: state.run.launchedBy,
       });
     } catch (error) {
-      const timeout = error instanceof WorkerTimeoutError;
+      const timeout = error instanceof WorkerTimeoutError || error instanceof AgentPromptTimeoutError;
       const status: WorkflowRunStatus = timeout ? "timed_out" : "failed";
       const message = error instanceof Error ? error.message : String(error);
+      if (error instanceof AgentPromptTimeoutError) state.sessionId = undefined;
       store.runs.insertStep({
         id: crypto.randomUUID(),
         runId: state.run.id,
@@ -669,32 +1069,6 @@ export class ExecuteWorkflowRunUseCase {
   }
 }
 
-export function resolvePath(input: unknown, path: string): unknown {
-  const clean = path.replace(/^input\.?/, "").trim();
-  if (!clean) return input;
-  return clean.split(".").reduce<unknown>((current, key) => {
-    if (current === null || current === undefined) return undefined;
-    if (Array.isArray(current)) return current[Number(key)];
-    if (typeof current !== "object") return undefined;
-    return (current as Record<string, unknown>)[key];
-  }, input);
-}
-
-function templateValue(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value ?? null);
-}
-
-export function renderTemplate(template: string, input: unknown): unknown {
-  const rendered = template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, path) =>
-    templateValue(resolvePath(input, String(path))),
-  );
-  try {
-    return JSON.parse(rendered);
-  } catch {
-    return rendered;
-  }
-}
-
 export function evaluateCondition(condition: unknown, input: unknown): boolean {
   if (!condition || typeof condition !== "object") return Boolean(input);
   const { field, operator, value } = condition as { field?: string; operator?: string; value?: unknown };
@@ -732,23 +1106,69 @@ export function executeTransform(node: NodeSpec, input: unknown): unknown {
   return input;
 }
 
-export async function executeHttpNode(node: NodeSpec, input: unknown): Promise<unknown> {
+export async function executeHttpNode(
+  node: NodeSpec,
+  input: unknown,
+  context?: { projectSlug: string; store: Store; vault?: SecretVault },
+): Promise<unknown> {
   const method = String(node.config.method ?? "GET").toUpperCase();
-  const url = String(node.config.url ?? "");
+  let url = String(node.config.url ?? "");
   const headers =
     typeof node.config.headers === "string"
       ? (JSON.parse(node.config.headers) as Record<string, string>)
       : ((node.config.headers as Record<string, string>) ?? {});
+
+  const resolveAlias = (alias: string): string => {
+    if (!context || !context.vault) throw new Error("HTTP secrets require a project vault context");
+    const secret = context.store.vault.findByAlias({
+      scope: "project",
+      projectSlug: context.projectSlug,
+      alias,
+    });
+    if (!secret) throw new Error(`missing secret alias: ${alias}`);
+    return context.vault.decrypt(secret.ciphertext);
+  };
+  const resolveSecrets = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      const direct = /^secret:(.+)$/.exec(value);
+      if (direct) return resolveAlias(direct[1]!.trim());
+      return value.replace(/\{\{\s*secret\.([^}]+?)\s*\}\}/g, (_match, alias) => resolveAlias(String(alias).trim()));
+    }
+    if (Array.isArray(value)) return value.map((item) => resolveSecrets(item));
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveSecrets(item)]));
+    }
+    return value;
+  };
+
+  const integrationId = typeof node.config.integrationId === "string" ? node.config.integrationId : "";
+  if (integrationId) {
+    if (!context) throw new Error("HTTP integration requires a project context");
+    const integration = context.store.integrations.findById(integrationId);
+    if (!integration || integration.scope !== "project" || integration.projectSlug !== context.projectSlug || integration.kind !== "http") {
+      throw new Error("HTTP integration does not belong to this project");
+    }
+    const baseUrl = String(integration.config.baseUrl ?? "").replace(/\/+$/, "");
+    if (baseUrl && !/^https?:\/\//i.test(url)) {
+      url = `${baseUrl}/${url.replace(/^\/+/, "")}`;
+    }
+  }
+
+  const resolvedHeaders = Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key, String(resolveSecrets(value))]),
+  ) as Record<string, string>;
   const rawBody = node.config.body;
   const body =
     method === "GET" || method === "HEAD"
       ? undefined
       : typeof rawBody === "string"
-        ? rawBody
-        : JSON.stringify(rawBody ?? input);
+        ? String(resolveSecrets(rawBody))
+        : rawBody === undefined
+          ? JSON.stringify(input)
+          : JSON.stringify(resolveSecrets(rawBody));
   const response = await fetch(url, {
     method,
-    headers,
+    headers: resolvedHeaders,
     body,
     signal: AbortSignal.timeout(node.timeoutMs),
   });

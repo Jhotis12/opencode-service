@@ -30,7 +30,9 @@ const fakeManager: IntegrationManagerPort = {
   qr() {
     return undefined;
   },
-  async send() {},
+  async send() {
+    return {};
+  },
 };
 
 async function setup() {

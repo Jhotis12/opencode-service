@@ -31,6 +31,7 @@ class FakeTelegram implements TelegramTransport {
   }
   async send(to: string, text: string) {
     this.sent.push({ to, text });
+    return { providerMessageId: `${this.type}-${this.sent.length}` };
   }
   async stop() {
     this.running = false;
@@ -53,6 +54,7 @@ class FakeWhatsApp implements WhatsAppTransport {
   }
   async send(to: string, text: string) {
     this.sent.push({ to, text });
+    return { providerMessageId: `${this.type}-${this.sent.length}` };
   }
   async stop() {
     this.running = false;
@@ -95,6 +97,7 @@ describe("channel adapters", () => {
     expect(calls[0]).toEqual({ integrationId: "telegram", kind: "telegram", senderId: "123", text: "hola" });
     await adapter.send("respuesta", "123");
     expect(transport.sent[0]).toEqual({ to: "123", text: "respuesta" });
+    await expect(adapter.send("otra", "123")).resolves.toEqual({ providerMessageId: "telegram-2" });
     expect(events.some((event) => event.type === "integration.status" && event.status === "connected")).toBe(true);
     await adapter.stop();
     expect(events.some((event) => event.type === "integration.status" && event.status === "disconnected")).toBe(true);
@@ -138,6 +141,9 @@ describe("channel adapters", () => {
     });
     await adapter.send("respuesta", "57300@s.whatsapp.net");
     expect(transport.sent[0]?.text).toBe("respuesta");
+    await expect(adapter.send("otra", "57300@s.whatsapp.net")).resolves.toEqual({
+      providerMessageId: "whatsapp-2",
+    });
   });
 
   it("parses Meta Cloud webhooks", () => {
@@ -172,6 +178,7 @@ describe("egress router", () => {
     const sent: string[] = [];
     router.register("telegram", async (text) => {
       sent.push(text);
+      return {};
     });
     await router.send("telegram", "hola");
     expect(sent).toEqual(["hola"]);

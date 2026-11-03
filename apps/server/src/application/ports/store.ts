@@ -13,6 +13,11 @@ import type {
   VaultSecretRecord,
   WorkflowRunRecord,
   WorkflowVersionRecord,
+  WorkflowDeliveryRecord,
+  WorkflowScheduleStateRecord,
+  SessionContextRecord,
+  WorkflowTimerRecord,
+  QueuedRunRecord,
 } from "../../domain/entities.ts";
 import type { EntityScope } from "../../domain/entities.ts";
 import type { WorkflowGraph } from "@platform/shared";
@@ -52,6 +57,8 @@ export interface ProjectRepository {
     patch: Partial<Pick<ProjectRecord, "name" | "description">> & {
       defaultModel?: string | null;
       primaryAgent?: string | null;
+      approvalIntegrationId?: string | null;
+      approvalRecipient?: string | null;
     },
   ): void;
 }
@@ -80,14 +87,71 @@ export interface WorkflowRunRepository {
     >,
   ): void;
   listByProject(projectSlug: string, limit: number): WorkflowRunRecord[];
+  findInFlight(projectSlug: string, workflowId: string): WorkflowRunRecord | undefined;
+  countInFlight(projectSlug: string): number;
   listByStatus(status: WorkflowRunRecord["status"]): WorkflowRunRecord[];
   listRecent(limit: number): WorkflowRunRecord[];
   insertStep(record: StepRunRecord): void;
   listSteps(runId: string): StepRunRecord[];
   createApproval(record: ApprovalRecord): void;
   findApproval(runId: string, nodeId: string): ApprovalRecord | undefined;
+  listApprovals(runId: string): ApprovalRecord[];
   pendingApproval(runId: string): ApprovalRecord | undefined;
   decideApproval(runId: string, nodeId: string, status: "approved" | "rejected", decidedBy: string): void;
+}
+
+export interface WorkflowDeliveryRepository {
+  create(record: WorkflowDeliveryRecord): void;
+  findByActionKey(input: { actionKey: string; integrationId: string }): WorkflowDeliveryRecord | undefined;
+  update(
+    id: string,
+    patch: Partial<Pick<WorkflowDeliveryRecord, "status" | "providerMessageId" | "attempts" | "lastError" | "recipient">>,
+  ): void;
+  listByRun(runId: string): WorkflowDeliveryRecord[];
+}
+
+export interface WorkflowScheduleStateRepository {
+  upsert(record: WorkflowScheduleStateRecord): void;
+  find(input: { projectSlug: string; workflowId: string; nodeId: string }): WorkflowScheduleStateRecord | undefined;
+  listAll(): WorkflowScheduleStateRecord[];
+  update(
+    input: { projectSlug: string; workflowId: string; nodeId: string },
+    patch: Partial<
+      Pick<
+        WorkflowScheduleStateRecord,
+        | "timezone"
+        | "enabled"
+        | "overlapPolicy"
+        | "catchUp"
+        | "catchUpWindowMinutes"
+        | "lastWindowAt"
+        | "nextWindowAt"
+        | "lastRunId"
+      >
+    >,
+  ): void;
+  removeByProject(projectSlug: string): void;
+}
+
+export interface SessionContextRepository {
+  upsert(record: SessionContextRecord): void;
+  find(sessionId: string): SessionContextRecord | undefined;
+  remove(sessionId: string): void;
+  removeByProject(projectSlug: string): void;
+}
+
+export interface WorkflowTimerRepository {
+  create(record: WorkflowTimerRecord): void;
+  claimDue(now: Date, limit: number): WorkflowTimerRecord[];
+  markFired(id: string): void;
+  listByRun(runId: string): WorkflowTimerRecord[];
+}
+
+export interface RunQueueRepository {
+  enqueue(record: QueuedRunRecord): void;
+  claimNext(projectSlug: string): QueuedRunRecord | undefined;
+  depth(projectSlug: string): number;
+  removeByProject(projectSlug: string): void;
 }
 
 export interface WorkflowVersionRepository {
@@ -153,6 +217,11 @@ export interface Store {
   projects: ProjectRepository;
   integrations: IntegrationRepository;
   runs: WorkflowRunRepository;
+  deliveries: WorkflowDeliveryRepository;
+  scheduleStates: WorkflowScheduleStateRepository;
+  sessionContexts: SessionContextRepository;
+  timers: WorkflowTimerRepository;
+  queue: RunQueueRepository;
   versions: WorkflowVersionRepository;
   chatThreads: ChatThreadRepository;
   chat: ChatRepository;

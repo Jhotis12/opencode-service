@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import type { NodeSpec, NodeType, WorkflowGraph } from "@platform/shared";
+import type { IntegrationRecord, NodeSpec, NodeType, WorkflowGraph } from "@platform/shared";
 import { WorkflowCanvas } from "../src/components/WorkflowCanvas.tsx";
 import { NodePaletteModal } from "../src/components/NodePaletteModal.tsx";
 import { NodeInspectorModal } from "../src/components/NodeInspectorModal.tsx";
@@ -47,7 +47,7 @@ function graph(nodes: NodeSpec[], edges: WorkflowGraph["edges"] = []): WorkflowG
   };
 }
 
-const allTypes: NodeType[] = ["trigger", "http", "code", "transform", "delay", "validate", "agent", "decision", "approval"];
+const allTypes: NodeType[] = ["trigger", "http", "database", "notify", "subworkflow", "code", "transform", "delay", "validate", "foreach", "agent", "decision", "approval"];
 
 function renderCanvas(overrides: Partial<React.ComponentProps<typeof WorkflowCanvas>> = {}) {
   const props: React.ComponentProps<typeof WorkflowCanvas> = {
@@ -217,6 +217,8 @@ describe("NodeInspectorModal", () => {
     const onStartCanvasConnect = vi.fn();
     const onDuplicate = vi.fn();
     const onRemove = vi.fn();
+    const onConfig = vi.fn();
+    const onPatch = vi.fn();
     render(
       <NodeInspectorModal
         node={agent}
@@ -229,8 +231,8 @@ describe("NodeInspectorModal", () => {
         codeDirty={false}
         issues={[]}
         onClose={vi.fn()}
-        onPatch={vi.fn()}
-        onConfig={vi.fn()}
+        onPatch={onPatch}
+        onConfig={onConfig}
         onCodeChange={vi.fn()}
         onSaveCode={vi.fn()}
         onEnableDecisionCode={vi.fn()}
@@ -243,8 +245,214 @@ describe("NodeInspectorModal", () => {
         {...overrides}
       />,
     );
-    return { onConnect, onStartCanvasConnect, onDuplicate, onRemove };
+    return { onConnect, onStartCanvasConnect, onDuplicate, onRemove, onConfig, onPatch };
   }
+
+  it("edits database node settings and validates statement JSON", async () => {
+    const database = node("db", "database", {
+      config: { integrationId: "", mode: "read", statements: [{ sql: "select 1" }] },
+    });
+    const integration: IntegrationRecord = {
+      id: "db1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "sqlite",
+      name: "CRM",
+      slug: "crm",
+      config: {},
+      secretRefs: {},
+      capabilities: ["query"],
+      status: "connected",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const { onConfig } = renderInspector({
+      node: database,
+      graph: graph([node("start", "trigger"), database]),
+      integrations: [integration],
+      lastStep: undefined,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: db" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Integración de base de datos"), "db1");
+    expect(onConfig).toHaveBeenCalledWith({ integrationId: "db1" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Modo"), "write");
+    expect(onConfig).toHaveBeenCalledWith({ mode: "write" });
+    const statements = within(dialog).getByLabelText("Sentencias SQL (JSON)");
+    fireEvent.change(statements, { target: { value: '[{"sql":"select 2"}]' } });
+    expect(onConfig).toHaveBeenCalledWith({ statements: [{ sql: "select 2" }] });
+    fireEvent.change(statements, { target: { value: "not json" } });
+    expect(within(dialog).getByText(/Unexpected token|JSON inválido/)).toBeInTheDocument();
+  });
+
+  it("edits notify node settings and only offers outbound channels", async () => {
+    const notify = node("notify", "notify", { config: { integrationId: "", text: "Hola" } });
+    const now = new Date().toISOString();
+    const telegram: IntegrationRecord = {
+      id: "tg1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "telegram",
+      name: "Telegram",
+      slug: "telegram",
+      config: {},
+      secretRefs: {},
+      capabilities: ["inbound_message", "outbound_message"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    };
+    const databaseOnly: IntegrationRecord = {
+      ...telegram,
+      id: "db1",
+      kind: "sqlite",
+      name: "DB",
+      slug: "db",
+      capabilities: ["query"],
+    };
+    const { onConfig } = renderInspector({
+      node: notify,
+      graph: graph([node("start", "trigger"), notify]),
+      integrations: [telegram, databaseOnly],
+      lastStep: undefined,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: notify" });
+    const channel = within(dialog).getByLabelText("Canal de salida");
+    expect(within(channel).queryByRole("option", { name: /DB/ })).not.toBeInTheDocument();
+    await userEvent.selectOptions(channel, "tg1");
+    expect(onConfig).toHaveBeenCalledWith({ integrationId: "tg1" });
+    fireEvent.change(within(dialog).getByLabelText(/Destinatario/), { target: { value: "123" } });
+    expect(onConfig).toHaveBeenCalledWith({ recipient: "123" });
+    fireEvent.change(within(dialog).getByLabelText("Mensaje"), { target: { value: "Hola {{input.nombre}}" } });
+    expect(onConfig).toHaveBeenCalledWith({ text: "Hola {{input.nombre}}" });
+  });
+
+  it("loads and edits the node error strategy", async () => {
+    const routed = {
+      ...node("code", "code"),
+      onError: { strategy: "route" as const, target: "agent" },
+    };
+    const { onPatch } = renderInspector({
+      node: routed,
+      graph: inspectionGraph,
+      lastStep: undefined,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: code" });
+    expect(within(dialog).getByLabelText("Nodo de error")).toHaveValue("agent");
+    const options = within(within(dialog).getByLabelText("Nodo de error")).getAllByRole("option");
+    expect(options.some((option) => option.textContent === "code")).toBe(false);
+    await userEvent.selectOptions(within(dialog).getByLabelText("Si falla"), "stop");
+    expect(onPatch).toHaveBeenCalledWith({ onError: undefined });
+  });
+
+  it("shows schedule timezone, overlap, catch-up and next run", async () => {
+    const scheduled = node("start", "trigger", {
+      config: {
+        kind: "schedule",
+        cron: "0 9 * * *",
+        timezone: "America/Mexico_City",
+        enabled: true,
+        overlapPolicy: "skip",
+        catchUp: false,
+      },
+    });
+    const { onConfig } = renderInspector({
+      node: scheduled,
+      graph: graph([scheduled]),
+      lastStep: undefined,
+      scheduleNextRun: "2026-11-02T15:00:00.000Z",
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: start" });
+    expect(within(dialog).getByLabelText("Zona horaria (IANA)")).toHaveValue("America/Mexico_City");
+    expect(within(dialog).getByText(/Próxima ejecución/)).toBeInTheDocument();
+    await userEvent.selectOptions(within(dialog).getByLabelText("Solapamiento"), "allow");
+    expect(onConfig).toHaveBeenCalledWith({ overlapPolicy: "allow" });
+  });
+
+  it("offers the HTTP integration and secret syntax in the inspector", async () => {
+    const httpNode = node("http", "http");
+    const now = new Date().toISOString();
+    const httpIntegration: IntegrationRecord = {
+      id: "api1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "http",
+      name: "API",
+      slug: "api",
+      config: { baseUrl: "https://api.example.com" },
+      secretRefs: {},
+      capabilities: [],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    };
+    const { onConfig } = renderInspector({
+      node: httpNode,
+      graph: graph([node("start", "trigger"), httpNode]),
+      integrations: [httpIntegration],
+      lastStep: undefined,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: http" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Integración HTTP (opcional)"), "api1");
+    expect(onConfig).toHaveBeenCalledWith({ integrationId: "api1" });
+    expect(within(dialog).getByText(/secret:alias/)).toBeInTheDocument();
+  });
+
+  it("shows one-off schedule and durable delay fields", async () => {
+    const once = node("start", "trigger", {
+      config: { kind: "schedule", mode: "once", runAt: "2026-11-05T15:00:00.000Z" },
+    });
+    const { rerender } = render(
+      <NodeInspectorModal
+        node={once}
+        graph={graph([once])}
+        agents={[]}
+        models={[]}
+        integrations={[]}
+        code=""
+        codeDirty={false}
+        issues={[]}
+        onClose={vi.fn()}
+        onPatch={vi.fn()}
+        onConfig={vi.fn()}
+        onCodeChange={vi.fn()}
+        onSaveCode={vi.fn()}
+        onEnableDecisionCode={vi.fn()}
+        onRemove={vi.fn()}
+        onDuplicate={vi.fn()}
+        onConnect={vi.fn()}
+        onStartCanvasConnect={vi.fn()}
+        onChangeEdgeCondition={vi.fn()}
+        onDeleteEdge={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Fecha y hora (ISO)")).toHaveValue("2026-11-05T15:00:00.000Z");
+    const delay = node("wait", "delay", { config: { waitUntil: "2026-11-05T15:00:00.000Z" } });
+    rerender(
+      <NodeInspectorModal
+        node={delay}
+        graph={graph([node("start", "trigger"), delay])}
+        agents={[]}
+        models={[]}
+        integrations={[]}
+        code=""
+        codeDirty={false}
+        issues={[]}
+        onClose={vi.fn()}
+        onPatch={vi.fn()}
+        onConfig={vi.fn()}
+        onCodeChange={vi.fn()}
+        onSaveCode={vi.fn()}
+        onEnableDecisionCode={vi.fn()}
+        onRemove={vi.fn()}
+        onDuplicate={vi.fn()}
+        onConnect={vi.fn()}
+        onStartCanvasConnect={vi.fn()}
+        onChangeEdgeCondition={vi.fn()}
+        onDeleteEdge={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Esperar hasta (ISO, durable)")).toHaveValue("2026-11-05T15:00:00.000Z");
+  });
 
   it("shows settings, connections with invalid targets disabled, and execution context", async () => {
     const { onConnect } = renderInspector();

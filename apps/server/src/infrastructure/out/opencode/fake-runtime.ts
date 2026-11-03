@@ -51,7 +51,7 @@ export class FakeAgentRuntime implements AgentRuntimePort {
     return { id };
   }
 
-  async prompt(sessionId: string, text: string): Promise<string> {
+  async prompt(sessionId: string, text: string, _options?: { model?: string; agent?: string; timeoutMs?: number }): Promise<string> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
     this.prompts.push(text);
@@ -96,6 +96,8 @@ export class FakeAgentRuntime implements AgentRuntimePort {
     this.emit({ type: "session.text.delta", sessionID: sessionId, text: reply });
     return reply;
   }
+
+  async interrupt(_sessionId: string): Promise<void> {}
 
   async switchModel(sessionId: string, model: string): Promise<void> {
     const session = this.sessions.get(sessionId);

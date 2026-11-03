@@ -62,6 +62,20 @@ export class GetHealthUseCase {
       detail: "Bun workers spawn on demand",
     });
 
+    const queueDepth = this.deps.store.projects
+      .list()
+      .reduce((total, project) => total + this.deps.store.queue.depth(project.slug), 0);
+    services.push({
+      name: "Run queue",
+      status: queueDepth > 0 ? "degraded" : "ok",
+      detail: `${queueDepth} run(s) en cola`,
+    });
+    services.push({
+      name: "Paused runs",
+      status: "ok",
+      detail: `${this.deps.store.runs.listByStatus("paused").length} run(s) pausados`,
+    });
+
     const status = services.some((service) => service.status === "down")
       ? "down"
       : services.some((service) => service.status === "degraded")

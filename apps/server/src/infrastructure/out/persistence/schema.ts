@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -49,6 +49,8 @@ export const projects = sqliteTable("projects", {
   description: text("description").notNull().default(""),
   defaultModel: text("default_model"),
   primaryAgent: text("primary_agent"),
+  approvalIntegrationId: text("approval_integration_id"),
+  approvalRecipient: text("approval_recipient"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at"),
 });
@@ -94,6 +96,7 @@ export const workflowRuns = sqliteTable(
     versionId: text("version_id"),
     integrationId: text("integration_id"),
     sourceDetail: text("source_detail"),
+    parentRunId: text("parent_run_id"),
     startedAt: text("started_at").notNull(),
     finishedAt: text("finished_at"),
   },
@@ -147,6 +150,90 @@ export const workflowApprovals = sqliteTable("workflow_approvals", {
   createdAt: text("created_at").notNull(),
   decidedAt: text("decided_at"),
   decidedBy: text("decided_by"),
+});
+
+export const workflowDeliveries = sqliteTable(
+  "workflow_deliveries",
+  {
+    id: text("id").primaryKey(),
+    projectSlug: text("project_slug").notNull(),
+    runId: text("run_id"),
+    nodeId: text("node_id"),
+    integrationId: text("integration_id").notNull(),
+    actionKey: text("action_key").notNull(),
+    recipient: text("recipient"),
+    status: text("status").notNull(),
+    providerMessageId: text("provider_message_id"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    action: uniqueIndex("workflow_deliveries_action").on(table.actionKey, table.integrationId),
+    project: index("workflow_deliveries_project").on(table.projectSlug),
+    run: index("workflow_deliveries_run").on(table.runId),
+  }),
+);
+
+export const workflowScheduleState = sqliteTable(
+  "workflow_schedule_state",
+  {
+    id: text("id").primaryKey(),
+    projectSlug: text("project_slug").notNull(),
+    workflowId: text("workflow_id").notNull(),
+    nodeId: text("node_id").notNull(),
+    timezone: text("timezone").notNull().default("UTC"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    overlapPolicy: text("overlap_policy").notNull().default("skip"),
+    catchUp: integer("catch_up", { mode: "boolean" }).notNull().default(false),
+    catchUpWindowMinutes: integer("catch_up_window_minutes").notNull().default(60),
+    lastWindowAt: text("last_window_at"),
+    nextWindowAt: text("next_window_at"),
+    lastRunId: text("last_run_id"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    schedule: uniqueIndex("workflow_schedule_state_key").on(table.projectSlug, table.workflowId, table.nodeId),
+    workflow: index("workflow_schedule_state_workflow").on(table.workflowId),
+  }),
+);
+
+export const sessionContexts = sqliteTable("session_context", {
+  sessionId: text("session_id").primaryKey(),
+  scope: text("scope").notNull(),
+  projectSlug: text("project_slug").notNull().default(""),
+  agentId: text("agent_id"),
+  context: text("context").notNull(),
+  runId: text("run_id"),
+  integrationId: text("integration_id"),
+  externalThreadId: text("external_thread_id"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const workflowTimers = sqliteTable(
+  "workflow_timers",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id").notNull(),
+    nodeId: text("node_id").notNull(),
+    dueAt: text("due_at").notNull(),
+    status: text("status").notNull(),
+    payload: text("payload"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    due: index("workflow_timers_due").on(table.status, table.dueAt),
+    run: index("workflow_timers_run").on(table.runId),
+  }),
+);
+
+export const workflowRunQueue = sqliteTable("workflow_run_queue", {
+  runId: text("run_id").primaryKey(),
+  projectSlug: text("project_slug").notNull(),
+  createdAt: text("created_at").notNull(),
 });
 
 export const chatThreads = sqliteTable(
@@ -228,6 +315,11 @@ export const schema = {
   workflowVersions,
   workflowStepRuns,
   workflowApprovals,
+  workflowDeliveries,
+  workflowScheduleState,
+  sessionContexts,
+  workflowTimers,
+  workflowRunQueue,
   chatThreads,
   chatMessages,
   notebooks,

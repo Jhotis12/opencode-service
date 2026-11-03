@@ -14,6 +14,7 @@ export const qk = {
   session: ["session"] as const,
   projects: ["projects"] as const,
   workflow: (slug: string) => ["workflow", slug] as const,
+  schedules: (slug: string) => ["schedules", slug] as const,
   workflowVersions: (slug: string) => ["workflow-versions", slug] as const,
   runs: (slug: string) => ["runs", slug] as const,
   agents: (slug: string) => ["agents", slug] as const,

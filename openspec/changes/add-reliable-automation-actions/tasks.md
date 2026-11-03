@@ -34,11 +34,11 @@
 
 ## 5. Ciclo de vida del schedule P0
 
-- [ ] 5.1 Implementar el matcher de cron con timezone IANA y DST usando `Intl`, sin dependencias nuevas; verificar con tests de zona horaria, hora repetida y hora inexistente.
-- [ ] 5.2 Implementar el repositorio/backfill de `workflow_schedule_state` al arrancar; verificar que un workflow con schedule crea su estado y que un reinicio conserva `last_window_at`.
-- [ ] 5.3 Refactorizar `WorkflowScheduler.tick` para `enabled`, solapamiento `skip`, catch-up acotado y `next_run_at`; verificar con reloj fake y workflows con runs en curso.
-- [ ] 5.4 Exponer `next_run_at` en la API y agregar timezone/enabled/overlap/catch-up al inspector; verificar con tests de API y de componente.
-- [ ] 5.5 Documentar timezone, catch-up, solapamiento y límites del scheduler; verificar que la documentación incluye ejemplos de DST y de recuperación.
+- [x] 5.1 Implementar el matcher de cron con timezone IANA y DST usando `Intl`, sin dependencias nuevas; verificar con tests de zona horaria, hora repetida y hora inexistente.
+- [x] 5.2 Implementar el repositorio/backfill de `workflow_schedule_state` al arrancar; verificar que un workflow con schedule crea su estado y que un reinicio conserva `last_window_at`.
+- [x] 5.3 Refactorizar `WorkflowScheduler.tick` para `enabled`, solapamiento `skip`, catch-up acotado y `next_run_at`; verificar con reloj fake y workflows con runs en curso.
+- [x] 5.4 Exponer `next_run_at` en la API y agregar timezone/enabled/overlap/catch-up al inspector; verificar con tests de API y de componente.
+- [x] 5.5 Documentar timezone, catch-up, solapamiento y límites del scheduler; verificar que la documentación incluye ejemplos de DST y de recuperación.
 
 ## 6. Aprobaciones operables P0
 

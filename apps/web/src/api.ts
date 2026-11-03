@@ -93,6 +93,19 @@ export interface RunRecord {
   steps: StepRun[];
 }
 
+export interface ScheduleState {
+  nodeId: string;
+  workflowId: string;
+  timezone: string;
+  enabled: boolean;
+  overlapPolicy: "skip" | "allow";
+  catchUp: boolean;
+  catchUpWindowMinutes: number;
+  lastWindowAt?: string;
+  nextWindowAt?: string;
+  lastRunId?: string;
+}
+
 export interface ModelInfo {
   providerID: string;
   modelID: string;
@@ -255,6 +268,8 @@ export const api = {
       body: JSON.stringify(input),
     }),
   getWorkflow: (slug: string) => request<WorkflowGraph>(`/api/projects/${slug}/workflow`),
+  listSchedules: (slug: string) =>
+    request<{ data: ScheduleState[] }>(`/api/projects/${slug}/workflow/schedule`),
   saveWorkflow: (slug: string, graph: WorkflowGraph) =>
     request<WorkflowGraph>(`/api/projects/${slug}/workflow`, { method: "PUT", body: JSON.stringify(graph) }),
   listWorkflowVersions: (slug: string) =>

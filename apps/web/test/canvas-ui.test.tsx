@@ -344,6 +344,30 @@ describe("NodeInspectorModal", () => {
     expect(onPatch).toHaveBeenCalledWith({ onError: undefined });
   });
 
+  it("shows schedule timezone, overlap, catch-up and next run", async () => {
+    const scheduled = node("start", "trigger", {
+      config: {
+        kind: "schedule",
+        cron: "0 9 * * *",
+        timezone: "America/Mexico_City",
+        enabled: true,
+        overlapPolicy: "skip",
+        catchUp: false,
+      },
+    });
+    const { onConfig } = renderInspector({
+      node: scheduled,
+      graph: graph([scheduled]),
+      lastStep: undefined,
+      scheduleNextRun: "2026-11-02T15:00:00.000Z",
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: start" });
+    expect(within(dialog).getByLabelText("Zona horaria (IANA)")).toHaveValue("America/Mexico_City");
+    expect(within(dialog).getByText(/Próxima ejecución/)).toBeInTheDocument();
+    await userEvent.selectOptions(within(dialog).getByLabelText("Solapamiento"), "allow");
+    expect(onConfig).toHaveBeenCalledWith({ overlapPolicy: "allow" });
+  });
+
   it("shows settings, connections with invalid targets disabled, and execution context", async () => {
     const { onConnect } = renderInspector();
     const dialog = screen.getByRole("dialog", { name: "Nodo: agent" });

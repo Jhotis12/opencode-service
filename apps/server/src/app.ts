@@ -325,6 +325,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const alerts = new AlertService({ store, egress, events, logger });
   alerts.start();
   const scheduler = new WorkflowScheduler({ store, workspace, executor, logger });
+  await scheduler.syncFromWorkspaces();
   scheduler.start();
 
   const app = new Hono<AppEnv>();
@@ -841,6 +842,17 @@ export async function createApplication(config: AppConfig): Promise<Application>
     } catch (error) {
       return c.json(apiError("NOT_FOUND", error instanceof Error ? error.message : "project not found"), 404);
     }
+  });
+
+  app.get("/api/projects/:slug/workflow/schedule", async (c) => {
+    const projectSlug = c.req.param("slug");
+    if (!store.projects.findBySlug(projectSlug)) {
+      return c.json(apiError("NOT_FOUND", "project not found"), 404);
+    }
+    await scheduler.syncFromWorkspaces();
+    return c.json({
+      data: store.scheduleStates.listAll().filter((state) => state.projectSlug === projectSlug),
+    });
   });
 
   app.get("/api/projects/:slug/workflow", async (c) => {

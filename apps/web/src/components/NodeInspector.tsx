@@ -282,6 +282,7 @@ export function NodeInspector({
   integrations,
   code,
   codeDirty,
+  scheduleNextRun,
   onPatch,
   onConfig,
   onCodeChange,
@@ -295,6 +296,7 @@ export function NodeInspector({
   integrations: IntegrationRecord[];
   code: string;
   codeDirty: boolean;
+  scheduleNextRun?: string;
   onPatch(patch: Partial<NodeSpec>): void;
   onConfig(patch: Record<string, unknown>): void;
   onCodeChange(value: string): void;
@@ -323,14 +325,69 @@ export function NodeInspector({
                 </select>
               </label>
               {String(node.config.kind ?? "manual") === "schedule" && (
-                <label>
-                  Expresión Cron (5 campos UTC)
-                  <input
-                    value={String(node.config.cron ?? "")}
-                    onChange={(event) => onConfig({ cron: event.target.value })}
-                    placeholder="0 9 * * 1-5"
-                  />
-                </label>
+                <>
+                  <label>
+                    Expresión Cron (5 campos)
+                    <input
+                      value={String(node.config.cron ?? "")}
+                      onChange={(event) => onConfig({ cron: event.target.value })}
+                      placeholder="0 9 * * 1-5"
+                    />
+                  </label>
+                  <label>
+                    Zona horaria (IANA)
+                    <input
+                      value={String(node.config.timezone ?? "UTC")}
+                      onChange={(event) => onConfig({ timezone: event.target.value })}
+                      placeholder="America/Mexico_City"
+                    />
+                  </label>
+                  <label className="flex-row items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="w-auto"
+                      checked={node.config.enabled !== false}
+                      onChange={(event) => onConfig({ enabled: event.target.checked })}
+                    />
+                    Schedule activo
+                  </label>
+                  <label>
+                    Solapamiento
+                    <select
+                      value={String(node.config.overlapPolicy ?? "skip")}
+                      onChange={(event) => onConfig({ overlapPolicy: event.target.value })}
+                    >
+                      <option value="skip">Omitir si hay un run en curso</option>
+                      <option value="allow">Permitir solapamiento</option>
+                    </select>
+                  </label>
+                  <label className="flex-row items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="w-auto"
+                      checked={node.config.catchUp === true}
+                      onChange={(event) => onConfig({ catchUp: event.target.checked })}
+                    />
+                    Recuperar ventanas perdidas
+                  </label>
+                  {node.config.catchUp === true && (
+                    <label>
+                      Ventana de recuperación (min)
+                      <input
+                        type="number"
+                        min={0}
+                        max={1440}
+                        value={Number(node.config.catchUpWindowMinutes ?? 60)}
+                        onChange={(event) => onConfig({ catchUpWindowMinutes: Number(event.target.value) })}
+                      />
+                    </label>
+                  )}
+                  {scheduleNextRun && (
+                    <p className="text-xs text-muted md:col-span-2">
+                      Próxima ejecución: <strong>{new Date(scheduleNextRun).toLocaleString()}</strong>
+                    </p>
+                  )}
+                </>
               )}
               {String(node.config.kind ?? "manual") === "webhook" && (
                 <label>

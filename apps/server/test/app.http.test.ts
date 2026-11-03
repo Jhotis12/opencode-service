@@ -482,6 +482,14 @@ describe("application HTTP surface", () => {
     const tickTime = new Date("2026-11-02T10:00:00.000Z");
     const firstTick = await application.scheduler.tick(tickTime);
     expect(firstTick.some((run) => run.projectSlug === "auto-bot" && run.entryPoint === "schedule")).toBe(true);
+    const scheduleResponse = await json("/api/projects/auto-bot/workflow/schedule");
+    expect(scheduleResponse.status).toBe(200);
+    const scheduleBody = (await scheduleResponse.json()) as {
+      data: Array<{ nextWindowAt?: string; timezone: string; enabled: boolean }>;
+    };
+    expect(scheduleBody.data[0]?.nextWindowAt).toBeTruthy();
+    expect(scheduleBody.data[0]?.timezone).toBe("UTC");
+    expect(scheduleBody.data[0]?.enabled).toBe(true);
     // Second tick in the same minute window is deduplicated via idempotencyKey
     const secondTick = await application.scheduler.tick(tickTime);
     const firstRunId = firstTick.find((r) => r.projectSlug === "auto-bot")?.id;

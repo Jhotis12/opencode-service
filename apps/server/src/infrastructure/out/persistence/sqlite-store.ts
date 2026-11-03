@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import type {
   ApprovalRecord,
   ChatMessageRecord,
@@ -364,6 +364,21 @@ export class SqliteStore implements Store {
         .limit(limit)
         .all()
         .map((row) => this.mapRun(row)!),
+    findInFlight: (projectSlug: string, workflowId: string): WorkflowRunRecord | undefined => {
+      const row = this.handle.db
+        .select()
+        .from(workflowRuns)
+        .where(
+          and(
+            eq(workflowRuns.projectSlug, projectSlug),
+            eq(workflowRuns.workflowId, workflowId),
+            or(eq(workflowRuns.status, "running"), eq(workflowRuns.status, "paused")),
+          ),
+        )
+        .orderBy(desc(workflowRuns.startedAt))
+        .get();
+      return this.mapRun(row);
+    },
     listByStatus: (status: WorkflowRunRecord["status"]): WorkflowRunRecord[] =>
       this.handle.db
         .select()

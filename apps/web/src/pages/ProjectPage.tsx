@@ -43,6 +43,11 @@ export function ProjectPage() {
   const queryClient = useQueryClient();
 
   const workflowQuery = useQuery({ queryKey: qk.workflow(slug), queryFn: () => api.getWorkflow(slug), enabled: Boolean(slug) });
+  const schedulesQuery = useQuery({
+    queryKey: qk.schedules(slug),
+    queryFn: () => api.listSchedules(slug).then((result) => result.data),
+    enabled: Boolean(slug),
+  });
   const runsQuery = useQuery({
     queryKey: qk.runs(slug),
     queryFn: () => api.listRuns(slug).then((result) => result.data),
@@ -660,6 +665,7 @@ export function ProjectPage() {
               models={models}
               integrations={integrations}
               lastStep={lastStep}
+              scheduleNextRun={schedulesQuery.data?.find((state) => state.nodeId === selected.id)?.nextWindowAt}
               code={nodeCode}
               codeDirty={nodeCodeDirty}
               issues={graphIssues}

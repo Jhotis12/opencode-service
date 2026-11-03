@@ -115,7 +115,12 @@ El orquestador global puede buscar conocimiento cross-project en modo lectura, c
 El trigger declara `inputSchema` con campos, tipos, obligatoriedad, descripción y ejemplo. El botón **Ejecutar** abre un formulario generado desde ese esquema; el servidor valida el payload antes de crear cualquier paso.
 
 - **Manual (`kind: "manual"`):** Lanzamiento desde el canvas o `POST /api/projects/:slug/runs`.
-- **Programado (`kind: "schedule"`):** Expresión cron de 5 campos UTC (`config.cron`, ej. `0 9 * * 1-5`). El `WorkflowScheduler` evalúa cada ventana de minuto y reclama una clave de idempotencia determinista (`schedule:<workflowId>:<nodeId>:<YYYY-MM-DDTHH:mm>`).
+- **Programado (`kind: "schedule"`):** Expresión cron de 5 campos en una zona IANA (`config.timezone`, por defecto UTC), por ejemplo `0 9 * * 1-5` con `America/Mexico_City`. El `WorkflowScheduler` evalúa cada minuto, reclama una clave determinista (`schedule:<workflowId>:<nodeId>:<ventanaUTC>`) y persiste `lastWindowAt`/`nextWindowAt` en `workflow_schedule_state`.
+  - `enabled: false` pausa el schedule sin borrar la configuración.
+  - `overlapPolicy: "skip"` (default) omite la ventana si el flujo anterior sigue `running` o `paused`; `"allow"` permite solapamiento.
+  - `catchUp: true` recupera ventanas perdidas dentro de `catchUpWindowMinutes`, con tope de 1,000 ventanas.
+  - En DST, una hora repetida se ejecuta una sola vez y una hora inexistente se omite; con `catchUp` se recupera una sola vez.
+  - `GET /api/projects/:slug/workflow/schedule` devuelve el estado y la próxima ejecución por trigger.
 - **Webhook (`kind: "webhook"`):** Recibe llamadas en `POST /api/v1/webhooks/:projectSlug/:nodeId` verificando en tiempo constante `x-webhook-secret` o la firma HMAC-SHA256 `x-webhook-signature: sha256=...` contra el alias de secreto del proyecto (`config.secretAlias`).
 - **Recuperación al arranque:** Si el servidor se reinicia con ejecuciones en estado `running`, el motor las reanuda automáticamente desde el último paso `succeeded` usando el snapshot inmutable del grafo con el que iniciaron.
 - El run guarda `launchedBy`, `graphHash`, `versionId`, `integrationId` y origen.

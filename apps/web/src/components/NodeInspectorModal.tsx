@@ -44,6 +44,7 @@ export function NodeInspectorModal({
   models,
   integrations,
   lastStep,
+  scheduleNextRun,
   code,
   codeDirty,
   issues,
@@ -67,6 +68,7 @@ export function NodeInspectorModal({
   models: ModelInfo[];
   integrations: IntegrationRecord[];
   lastStep?: StepRun;
+  scheduleNextRun?: string;
   code: string;
   codeDirty: boolean;
   issues: GraphIssue[];
@@ -202,6 +204,7 @@ export function NodeInspectorModal({
             agents={agents}
             models={models}
             integrations={integrations}
+            scheduleNextRun={scheduleNextRun}
             code={code}
             codeDirty={codeDirty}
             onPatch={onPatch}

@@ -82,6 +82,7 @@ export interface WorkflowRunRepository {
     >,
   ): void;
   listByProject(projectSlug: string, limit: number): WorkflowRunRecord[];
+  findInFlight(projectSlug: string, workflowId: string): WorkflowRunRecord | undefined;
   listByStatus(status: WorkflowRunRecord["status"]): WorkflowRunRecord[];
   listRecent(limit: number): WorkflowRunRecord[];
   insertStep(record: StepRunRecord): void;

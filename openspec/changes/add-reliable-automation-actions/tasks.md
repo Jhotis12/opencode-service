@@ -26,11 +26,11 @@
 
 ## 4. Timeout, reintentos y política de error uniforme
 
-- [ ] 4.1 Extender `AgentRuntimePort` con timeout e `interrupt(sessionId)` y usar `session.interrupt` de OpenCode; verificar con el runtime fake que un timeout marca `timed_out` y no bloquea el run.
-- [ ] 4.2 Extraer `executeWithPolicy` en el executor para aplicar timeout y retry con backoff a `code`, `agent`, `http`, `database` y `notify`; verificar con tests de reintento exitoso y agotamiento.
-- [ ] 4.3 Implementar las estrategias `stop`, `continue` y `route`, validar targets inexistentes/auto-referencias/ciclos y persistir el payload de error; verificar con tests de cada estrategia y de un ciclo rechazado.
-- [ ] 4.4 Agregar al inspector la sección "On error" con estrategia y target, y representar la ruta en el canvas; verificar con tests de componente que se guarda y se vuelve a cargar.
-- [ ] 4.5 Documentar la política de error y la advertencia de reintentos en escrituras DB; verificar que el README y el inspector dicen lo mismo.
+- [x] 4.1 Extender `AgentRuntimePort` con timeout e `interrupt(sessionId)` y usar `session.interrupt` de OpenCode; verificar con el runtime fake que un timeout marca `timed_out` y no bloquea el run.
+- [x] 4.2 Extraer `executeWithPolicy` en el executor para aplicar timeout y retry con backoff a `code`, `agent`, `http`, `database` y `notify`; verificar con tests de reintento exitoso y agotamiento.
+- [x] 4.3 Implementar las estrategias `stop`, `continue` y `route`, validar targets inexistentes/auto-referencias/ciclos y persistir el payload de error; verificar con tests de cada estrategia y de un ciclo rechazado.
+- [x] 4.4 Agregar al inspector la sección "On error" con estrategia y target, y representar la ruta en el canvas; verificar con tests de componente que se guarda y se vuelve a cargar.
+- [x] 4.5 Documentar la política de error y la advertencia de reintentos en escrituras DB; verificar que el README y el inspector dicen lo mismo.
 
 ## 5. Ciclo de vida del schedule P0
 

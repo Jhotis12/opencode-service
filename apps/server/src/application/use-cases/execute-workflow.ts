@@ -16,6 +16,7 @@ import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { CodeWorkerPort, WorkerRpcHandlers } from "../ports/worker.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
+import { AgentPromptTimeoutError } from "../ports/runtime.ts";
 import type { EventBus } from "../ports/events.ts";
 import type { ErrorTracker, Metrics, Logger } from "../../domain/telemetry/index.ts";
 import { WorkerTimeoutError } from "../ports/worker.ts";
@@ -344,7 +345,7 @@ export class ExecuteWorkflowRunUseCase {
     const visited = new Set<string>();
 
     try {
-      while (current) {
+      runLoop: while (current) {
         if (visited.has(current.id)) throw new Error(`cycle detected at ${current.id}`);
         visited.add(current.id);
 
@@ -387,6 +388,20 @@ export class ExecuteWorkflowRunUseCase {
         let model: string | undefined;
         let agentId: string | undefined;
         let logs: Array<{ message: string; fields: Record<string, unknown> }> | undefined;
+        const retryable =
+          current.type === "code" ||
+          current.type === "agent" ||
+          current.type === "http" ||
+          current.type === "database" ||
+          current.type === "notify" ||
+          (current.type === "decision" && Boolean(current.codeFile) && current.config.mode !== "condition");
+        let attempt = 0;
+        for (;;) {
+          output = undefined;
+          model = undefined;
+          agentId = undefined;
+          logs = undefined;
+          try {
 
         const runWorkerNode = async () => {
           const diskCodePath = join(projectDirectory, current.codeFile!);
@@ -401,25 +416,15 @@ export class ExecuteWorkflowRunUseCase {
               codePath = tempSnapshotPath;
             }
           }
-          const maxRetries = current.retryPolicy.maxRetries;
-          let attempt = 0;
           try {
-            for (;;) {
-              try {
-                return await worker.execute({
-                  nodeId: current.id,
-                  projectSlug: state.run.projectSlug,
-                  codePath,
-                  input: currentInput,
-                  timeoutMs: current.timeoutMs,
-                  handlers: this.deps.workerHandlers,
-                });
-              } catch (error) {
-                if (attempt >= maxRetries) throw error;
-                attempt += 1;
-                logger.warn({ event: "node_retry", nodeId: current.id, attempt, error: String(error) });
-              }
-            }
+            return await worker.execute({
+              nodeId: current.id,
+              projectSlug: state.run.projectSlug,
+              codePath,
+              input: currentInput,
+              timeoutMs: current.timeoutMs,
+              handlers: this.deps.workerHandlers,
+            });
           } finally {
             if (tempSnapshotPath) await rm(tempSnapshotPath, { force: true }).catch(() => undefined);
           }
@@ -508,7 +513,7 @@ export class ExecuteWorkflowRunUseCase {
             );
             if (context) prompt = `${context}\n\n${prompt}`;
           }
-          const rawReply = await agent.prompt(state.sessionId, prompt);
+          const rawReply = await agent.prompt(state.sessionId, prompt, { timeoutMs: current.timeoutMs });
           const outputSchema = InputSchemaSchema.safeParse(current.config.outputSchema);
           if (outputSchema.success && outputSchema.data.fields.length > 0) {
             try {
@@ -586,6 +591,80 @@ export class ExecuteWorkflowRunUseCase {
         } else {
           throw new Error(`unsupported node type: ${current.type}`);
         }
+          break;
+          } catch (error) {
+            if (retryable && attempt < current.retryPolicy.maxRetries) {
+              if (error instanceof AgentPromptTimeoutError) state.sessionId = undefined;
+              attempt += 1;
+              const delay = Math.min(
+                (current.retryPolicy.backoffMs ?? 500) *
+                  Math.pow(current.retryPolicy.backoffMultiplier ?? 2, attempt - 1),
+                30_000,
+              );
+              logger.warn({
+                event: "node_retry",
+                nodeId: current.id,
+                attempt,
+                delayMs: delay,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              await new Promise((resolve) => setTimeout(resolve, delay));
+              continue;
+            }
+            const message = error instanceof Error ? error.message : String(error);
+            if (current.onError?.strategy === "continue" || current.onError?.strategy === "route") {
+              const errorPayload = {
+                error: {
+                  nodeId: current.id,
+                  message,
+                  attempts: attempt + 1,
+                },
+              };
+              const failureStep: StepRunRecord = {
+                id: crypto.randomUUID(),
+                runId: state.run.id,
+                nodeId: current.id,
+                status: "failed",
+                input: currentInput,
+                output: errorPayload,
+                model,
+                agentId,
+                logs,
+                durationMs: Date.now() - started,
+                startedAt,
+                finishedAt: new Date().toISOString(),
+                error: message,
+              };
+              store.runs.insertStep(failureStep);
+              events.publish({
+                type: "run.updated",
+                projectSlug: state.run.projectSlug,
+                runId: state.run.id,
+                workflowId: state.run.workflowId,
+                status: "running",
+                nodeId: current.id,
+                stepStatus: "failed",
+                output: errorPayload,
+                error: message,
+              });
+              lastOutput = errorPayload;
+              currentInput = errorPayload;
+              if (current.onError.strategy === "continue") {
+                const edge = nextEdge(graph, current.id);
+                if (!edge) break runLoop;
+                const next = graph.nodes.find((node) => node.id === edge.target);
+                if (!next) throw new Error(`edge points to missing node: ${edge.target}`);
+                current = next;
+              } else {
+                const target = graph.nodes.find((node) => node.id === current.onError!.target);
+                if (!target) throw new Error(`error route points to missing node: ${current.onError!.target}`);
+                current = target;
+              }
+              continue runLoop;
+            }
+            throw error;
+          }
+        }
 
         const durationMs = Date.now() - started;
         const step: StepRunRecord = {
@@ -655,9 +734,10 @@ export class ExecuteWorkflowRunUseCase {
         launchedBy: state.run.launchedBy,
       });
     } catch (error) {
-      const timeout = error instanceof WorkerTimeoutError;
+      const timeout = error instanceof WorkerTimeoutError || error instanceof AgentPromptTimeoutError;
       const status: WorkflowRunStatus = timeout ? "timed_out" : "failed";
       const message = error instanceof Error ? error.message : String(error);
+      if (error instanceof AgentPromptTimeoutError) state.sessionId = undefined;
       store.runs.insertStep({
         id: crypto.randomUUID(),
         runId: state.run.id,

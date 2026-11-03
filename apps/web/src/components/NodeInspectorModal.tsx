@@ -198,6 +198,7 @@ export function NodeInspectorModal({
           )}
           <NodeInspector
             node={node}
+            nodes={graph.nodes}
             agents={agents}
             models={models}
             integrations={integrations}

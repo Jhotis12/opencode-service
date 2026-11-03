@@ -35,6 +35,7 @@ class FakeRuntime implements AgentRuntimePort {
   async registerProviderKey(providerID: string, apiKey: string) { this.registered.push({ providerID, apiKey }); }
   async createSession() { return { id: "s1" }; }
   async prompt() { return "ok"; }
+  async interrupt() {}
   async switchModel() {}
   async switchAgent() {}
   async reloadLocation() {}

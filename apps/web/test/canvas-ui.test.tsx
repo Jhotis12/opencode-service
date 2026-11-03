@@ -218,6 +218,7 @@ describe("NodeInspectorModal", () => {
     const onDuplicate = vi.fn();
     const onRemove = vi.fn();
     const onConfig = vi.fn();
+    const onPatch = vi.fn();
     render(
       <NodeInspectorModal
         node={agent}
@@ -230,7 +231,7 @@ describe("NodeInspectorModal", () => {
         codeDirty={false}
         issues={[]}
         onClose={vi.fn()}
-        onPatch={vi.fn()}
+        onPatch={onPatch}
         onConfig={onConfig}
         onCodeChange={vi.fn()}
         onSaveCode={vi.fn()}
@@ -244,7 +245,7 @@ describe("NodeInspectorModal", () => {
         {...overrides}
       />,
     );
-    return { onConnect, onStartCanvasConnect, onDuplicate, onRemove, onConfig };
+    return { onConnect, onStartCanvasConnect, onDuplicate, onRemove, onConfig, onPatch };
   }
 
   it("edits database node settings and validates statement JSON", async () => {
@@ -323,6 +324,24 @@ describe("NodeInspectorModal", () => {
     expect(onConfig).toHaveBeenCalledWith({ recipient: "123" });
     fireEvent.change(within(dialog).getByLabelText("Mensaje"), { target: { value: "Hola {{input.nombre}}" } });
     expect(onConfig).toHaveBeenCalledWith({ text: "Hola {{input.nombre}}" });
+  });
+
+  it("loads and edits the node error strategy", async () => {
+    const routed = {
+      ...node("code", "code"),
+      onError: { strategy: "route" as const, target: "agent" },
+    };
+    const { onPatch } = renderInspector({
+      node: routed,
+      graph: inspectionGraph,
+      lastStep: undefined,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: code" });
+    expect(within(dialog).getByLabelText("Nodo de error")).toHaveValue("agent");
+    const options = within(within(dialog).getByLabelText("Nodo de error")).getAllByRole("option");
+    expect(options.some((option) => option.textContent === "code")).toBe(false);
+    await userEvent.selectOptions(within(dialog).getByLabelText("Si falla"), "stop");
+    expect(onPatch).toHaveBeenCalledWith({ onError: undefined });
   });
 
   it("shows settings, connections with invalid targets disabled, and execution context", async () => {

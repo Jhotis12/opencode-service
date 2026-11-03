@@ -9,6 +9,13 @@ export interface AgentSessionRef {
   id: string;
 }
 
+export class AgentPromptTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`agent prompt timed out after ${timeoutMs}ms`);
+    this.name = "AgentPromptTimeoutError";
+  }
+}
+
 export interface AgentRuntimePort {
   ensureReady(): Promise<{ url: string; version?: string }>;
   health(): Promise<{ ok: boolean; detail: string; latencyMs?: number }>;
@@ -20,7 +27,12 @@ export interface AgentRuntimePort {
     agent?: string;
     model?: string;
   }): Promise<AgentSessionRef>;
-  prompt(sessionId: string, text: string, options?: { model?: string; agent?: string }): Promise<string>;
+  prompt(
+    sessionId: string,
+    text: string,
+    options?: { model?: string; agent?: string; timeoutMs?: number },
+  ): Promise<string>;
+  interrupt(sessionId: string): Promise<void>;
   switchModel(sessionId: string, model: string): Promise<void>;
   switchAgent(sessionId: string, agent: string): Promise<void>;
   reloadLocation(directory: string): Promise<void>;

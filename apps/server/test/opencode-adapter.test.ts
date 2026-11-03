@@ -6,6 +6,7 @@ import {
   type OpenCodeClientLike,
 } from "../src/infrastructure/out/opencode/opencode-adapter.ts";
 import { FakeAgentRuntime } from "../src/infrastructure/out/opencode/fake-runtime.ts";
+import { AgentPromptTimeoutError } from "../src/application/ports/runtime.ts";
 
 function fakeClient(overrides: Partial<OpenCodeClientLike> = {}): OpenCodeClientLike {
   const calls: Record<string, unknown[]> = {};
@@ -32,6 +33,7 @@ function fakeClient(overrides: Partial<OpenCodeClientLike> = {}): OpenCodeClient
         record("prompt", input);
         return {};
       },
+      interrupt: async (input) => record("interrupt", input),
       switchModel: async (input) => record("switchModel", input),
       switchAgent: async (input) => record("switchAgent", input),
       context: async () => [
@@ -91,6 +93,21 @@ describe("opencode v2 adapter contract", () => {
     const reply = await adapter.prompt("s1", "hola");
     expect(reply).toBe("primera\nsegunda");
     expect(client.calls.wait?.[0]).toEqual({ sessionID: "s1" });
+  });
+
+  it("interrupts a prompt that exceeds its timeout", async () => {
+    const client = fakeClient({
+      experimental: {
+        session: {
+          wait: async () => new Promise<void>(() => undefined),
+        },
+      },
+    });
+    const { adapter } = adapterWith(client);
+    await expect(adapter.prompt("s1", "hola", { timeoutMs: 20 })).rejects.toBeInstanceOf(AgentPromptTimeoutError);
+    expect((client as OpenCodeClientLike & { calls: Record<string, unknown[]> }).calls.interrupt?.[0]).toEqual({
+      sessionID: "s1",
+    });
   });
 
   it("switches models and agents with the generated client shape", async () => {

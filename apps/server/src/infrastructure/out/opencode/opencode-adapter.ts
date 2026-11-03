@@ -1,6 +1,7 @@
 import { OpenCode } from "@opencode/client";
 import { Service } from "@opencode/client/service";
 import type { AgentModelInfo, AgentRuntimePort } from "../../../application/ports/runtime.ts";
+import { AgentPromptTimeoutError } from "../../../application/ports/runtime.ts";
 import { parseModelRef } from "@platform/shared";
 
 interface ModelLike {
@@ -27,6 +28,7 @@ export interface OpenCodeClientLike {
       model?: { providerID: string; id: string; variant?: string };
     }): Promise<{ id: string }>;
     prompt(input: { sessionID: string; text: string }): Promise<unknown>;
+    interrupt(input: { sessionID: string }): Promise<unknown>;
     switchModel(input: { sessionID: string; model: { providerID: string; id: string; variant?: string } }): Promise<void>;
     switchAgent(input: { sessionID: string; agent: string }): Promise<void>;
     context(input: { sessionID: string }): Promise<MessageLike[]>;
@@ -144,12 +146,43 @@ export class OpenCodeV2Adapter implements AgentRuntimePort {
     return { id: session.id };
   }
 
-  async prompt(sessionId: string, text: string): Promise<string> {
+  async prompt(
+    sessionId: string,
+    text: string,
+    options: { timeoutMs?: number } = {},
+  ): Promise<string> {
     const client = await this.client();
-    await client.session.prompt({ sessionID: sessionId, text });
-    await client.experimental.session.wait({ sessionID: sessionId });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const run = (async () => {
+        await client.session.prompt({ sessionID: sessionId, text });
+        await client.experimental.session.wait({ sessionID: sessionId });
+      })();
+      if (options.timeoutMs && options.timeoutMs > 0) {
+        await Promise.race([
+          run,
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new AgentPromptTimeoutError(options.timeoutMs!)), options.timeoutMs);
+          }),
+        ]);
+      } else {
+        await run;
+      }
+    } catch (error) {
+      if (error instanceof AgentPromptTimeoutError) {
+        await this.interrupt(sessionId).catch(() => undefined);
+      }
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     const messages = await client.session.context({ sessionID: sessionId });
     return extractAssistantText(messages);
+  }
+
+  async interrupt(sessionId: string): Promise<void> {
+    const client = await this.client();
+    await client.session.interrupt({ sessionID: sessionId });
   }
 
   async switchModel(sessionId: string, model: string): Promise<void> {

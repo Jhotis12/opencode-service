@@ -79,6 +79,45 @@ describe("workflow graph validation", () => {
     expect(() => validateWorkflowGraph(bad)).toThrow(/unknown target/);
   });
 
+  it("validates error routes and rejects unknown, self and cyclic targets", () => {
+    const routed = graph();
+    routed.nodes.push({
+      id: "fallback",
+      type: "code",
+      codeFile: "nodes/fallback.ts",
+      position: { x: 2, y: 0 },
+      config: {},
+      notebookIds: [],
+      timeoutMs: 30_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    routed.nodes[1] = { ...routed.nodes[1]!, onError: { strategy: "route", target: "fallback" } };
+    expect(() => validateWorkflowGraph(routed)).not.toThrow();
+
+    const unknown = graph();
+    unknown.nodes[1] = { ...unknown.nodes[1]!, onError: { strategy: "route", target: "ghost" } };
+    expect(() => validateWorkflowGraph(unknown)).toThrow(/unknown node/);
+
+    const self = graph();
+    self.nodes[1] = { ...self.nodes[1]!, onError: { strategy: "route", target: "fetch" } };
+    expect(() => validateWorkflowGraph(self)).toThrow(/itself/);
+
+    const cyclic = graph();
+    cyclic.nodes.push({
+      id: "fallback",
+      type: "code",
+      codeFile: "nodes/fallback.ts",
+      position: { x: 2, y: 0 },
+      config: {},
+      notebookIds: [],
+      timeoutMs: 30_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    cyclic.nodes[1] = { ...cyclic.nodes[1]!, onError: { strategy: "route", target: "fallback" } };
+    cyclic.edges.push({ id: "e2", source: "fallback", target: "fetch" });
+    expect(() => validateWorkflowGraph(cyclic)).toThrow(/cycle/);
+  });
+
   it("rejects cycles", () => {
     const bad = graph();
     bad.edges.push({ id: "e2", source: "fetch", target: "start" });

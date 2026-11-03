@@ -16,6 +16,7 @@ import { InMemoryMetrics } from "../src/domain/telemetry/metrics.ts";
 import { NoopErrorTracker } from "../src/infrastructure/out/telemetry/sentry.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
 import type { AgentModelInfo, AgentRuntimePort } from "../src/application/ports/runtime.ts";
+import { AgentPromptTimeoutError } from "../src/application/ports/runtime.ts";
 import type { EventBus } from "../src/application/ports/events.ts";
 import {
   ExecuteWorkflowRunUseCase,
@@ -49,6 +50,7 @@ class FakeAgent implements AgentRuntimePort {
   prompts: string[] = [];
   switchedModels: string[] = [];
   switchedAgents: string[] = [];
+  interrupted: string[] = [];
   async ensureReady() { return { url: "http://fake" }; }
   async health() { return { ok: true, detail: "fake" }; }
   async listModels() { return this.models; }
@@ -62,6 +64,7 @@ class FakeAgent implements AgentRuntimePort {
     this.prompts.push(text);
     return "respuesta-agente";
   }
+  async interrupt(sessionId: string) { this.interrupted.push(sessionId); }
   async switchModel(_sessionId: string, model: string) { this.switchedModels.push(model); }
   async switchAgent(_sessionId: string, agent: string) { this.switchedAgents.push(agent); }
   async reloadLocation() {}
@@ -283,6 +286,199 @@ describe("workflow execution", () => {
     expect(egress.sent[1]).toEqual({ integrationId: "chat1", text: "Fin: msg-1", recipient: undefined });
     expect(store.deliveries.listByRun(run.id)).toHaveLength(2);
     store.close();
+  });
+
+  it("marks an agent timeout as timed_out", async () => {
+    class TimeoutAgent extends FakeAgent {
+      async prompt(_sessionId: string, _text: string): Promise<string> {
+        throw new AgentPromptTimeoutError(10);
+      }
+    }
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "timeout-flow",
+      name: "Timeout flow",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "agent",
+          type: "agent",
+          agentId: "ventas/calificador",
+          position: { x: 100, y: 0 },
+          config: {},
+          notebookIds: [],
+          timeoutMs: 10,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "agent" }],
+      updatedAt: new Date().toISOString(),
+    };
+    const { executor, store } = await setup(graph, {}, { agent: new TimeoutAgent() });
+    const run = await executor.execute({
+      projectSlug: "p1",
+      graph,
+      payload: {},
+      entryPoint: "web_ui",
+    });
+    expect(run.status).toBe("timed_out");
+    expect(store.runs.listSteps(run.id).at(-1)?.status).toBe("timed_out");
+    store.close();
+  });
+
+  it("retries HTTP nodes with backoff and records exhaustion", async () => {
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "http-retry",
+      name: "HTTP retry",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "http",
+          type: "http",
+          position: { x: 100, y: 0 },
+          config: { method: "GET", url: "https://example.test/data" },
+          notebookIds: [],
+          timeoutMs: 1_000,
+          retryPolicy: { maxRetries: 1, backoffMs: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "http" }],
+      updatedAt: new Date().toISOString(),
+    };
+    const { executor, store } = await setup(graph, {});
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      if (calls === 1) return new Response("fail", { status: 500 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    try {
+      const run = await executor.execute({ projectSlug: "p1", graph, payload: {}, entryPoint: "web_ui" });
+      expect(run.status).toBe("succeeded");
+      expect(calls).toBe(2);
+      expect(run.output).toEqual({ ok: true });
+
+      calls = 0;
+      globalThis.fetch = (async () => {
+        calls += 1;
+        return new Response("down", { status: 500 });
+      }) as unknown as typeof fetch;
+      const failed = await executor.execute({ projectSlug: "p1", graph, payload: {}, entryPoint: "web_ui" });
+      expect(failed.status).toBe("failed");
+      expect(calls).toBe(2);
+      expect(store.runs.listSteps(failed.id).at(-1)?.status).toBe("failed");
+    } finally {
+      globalThis.fetch = originalFetch;
+      store.close();
+    }
+  });
+
+  it("follows continue and route error strategies", async () => {
+    const now = new Date().toISOString();
+    const baseNodes = [
+      {
+        id: "start",
+        type: "trigger" as const,
+        position: { x: 0, y: 0 },
+        config: { kind: "manual" as const },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "http",
+        type: "http" as const,
+        position: { x: 100, y: 0 },
+        config: { method: "GET", url: "https://example.test/fail" },
+        notebookIds: [],
+        timeoutMs: 1_000,
+        retryPolicy: { maxRetries: 0, backoffMs: 0 },
+        onError: { strategy: "continue" as const },
+      },
+      {
+        id: "after",
+        type: "transform" as const,
+        position: { x: 200, y: 0 },
+        config: { template: '{"failed":"{{input.error.nodeId}}"}' },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+    ];
+    const continueGraph: WorkflowGraph = {
+      version: 1,
+      id: "continue-flow",
+      name: "Continue flow",
+      description: "",
+      nodes: baseNodes,
+      edges: [
+        { id: "e1", source: "start", target: "http" },
+        { id: "e2", source: "http", target: "after" },
+      ],
+      updatedAt: now,
+    };
+    const { executor, store } = await setup(continueGraph, {});
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("down", { status: 500 })) as unknown as typeof fetch;
+    try {
+      const run = await executor.execute({ projectSlug: "p1", graph: continueGraph, payload: {}, entryPoint: "web_ui" });
+      expect(run.status).toBe("succeeded");
+      expect(run.output).toEqual({ failed: "http" });
+      expect(store.runs.listSteps(run.id).map((step) => [step.nodeId, step.status])).toEqual([
+        ["start", "succeeded"],
+        ["http", "failed"],
+        ["after", "succeeded"],
+      ]);
+
+      const routeGraph: WorkflowGraph = {
+        ...continueGraph,
+        id: "route-flow",
+        nodes: [
+          baseNodes[0]!,
+          {
+            ...baseNodes[1]!,
+            onError: { strategy: "route" as const, target: "fallback" },
+          },
+          {
+            id: "fallback",
+            type: "transform" as const,
+            position: { x: 200, y: 0 },
+            config: { template: '{"route":"{{input.error.message}}"}' },
+            notebookIds: [],
+            timeoutMs: 30_000,
+            retryPolicy: { maxRetries: 0 },
+          },
+        ],
+        edges: [{ id: "e1", source: "start", target: "http" }],
+      };
+      const routed = await executor.execute({ projectSlug: "p1", graph: routeGraph, payload: {}, entryPoint: "web_ui" });
+      expect(routed.status).toBe("succeeded");
+      expect((routed.output as { route: string }).route).toContain("HTTP 500");
+      expect(store.runs.listSteps(routed.id).map((step) => step.nodeId)).toEqual(["start", "http", "fallback"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      store.close();
+    }
   });
 
   it("runs code and agent nodes, checkpointing every step", async () => {

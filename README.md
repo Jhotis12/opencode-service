@@ -172,6 +172,24 @@ El nodo `database` ejecuta SQL parametrizado contra una integración del proyect
 
 Usa `database` para operaciones declarativas y auditables. Usa `code` + `ctx.db` solo cuando necesites lógica, bucles o transformaciones que el nodo no cubre. El caso de escritura transaccional está cubierto por `apps/server/test/database-actions.test.ts`.
 
+## Reintentos y ruta de error (P0)
+
+Cada nodo de acción acepta `retryPolicy` y `onError`:
+
+```json
+{
+  "retryPolicy": { "maxRetries": 2, "backoffMs": 500, "backoffMultiplier": 2 },
+  "onError": { "strategy": "continue" }
+}
+```
+
+- `stop`: el run falla, como antes.
+- `continue`: el paso falla, pero el flujo sigue por su salida normal con `{ "error": { "nodeId", "message", "attempts" } }`.
+- `route`: el flujo salta al nodo indicado en `onError.target` con el mismo payload de error.
+- La ruta de error no es una arista normal del DAG; el inspector la configura y el canvas la dibuja como línea punteada.
+- El backoff por defecto es 500 ms con multiplicador 2 y un tope de 30 s.
+- Las escrituras `database` en modo `write` usan `maxRetries: 0` por defecto. Si habilitas reintentos, el SQL debe ser idempotente (upsert o clave natural); no hay exactly-once entre la base externa y el ledger local.
+
 ## Versionado del grafo, Snapshots y Rollback
 
 - Cada guardado o ejecución registra un snapshot inmutable en `workflow_versions` con el JSON del grafo y el paquete de código `nodes/*.ts`.

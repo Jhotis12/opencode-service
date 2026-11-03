@@ -276,6 +276,7 @@ function ValidateRulesEditor({ rules, onChange }: { rules: ValidateRule[]; onCha
 
 export function NodeInspector({
   node,
+  nodes,
   agents,
   models,
   integrations,
@@ -288,6 +289,7 @@ export function NodeInspector({
   onEnableDecisionCode,
 }: {
   node: NodeSpec;
+  nodes: NodeSpec[];
   agents: SubagentProfile[];
   models: ModelInfo[];
   integrations: IntegrationRecord[];
@@ -618,7 +620,7 @@ export function NodeInspector({
             </>
           )}
 
-          {["code", "http", "decision", "agent", "validate"].includes(node.type) && (
+          {["code", "http", "database", "notify", "decision", "agent", "validate"].includes(node.type) && (
             <>
               <label>
                 Timeout (ms)
@@ -631,9 +633,68 @@ export function NodeInspector({
                   min={0}
                   max={5}
                   value={node.retryPolicy.maxRetries}
-                  onChange={(event) => onPatch({ retryPolicy: { maxRetries: Number(event.target.value) } })}
+                  onChange={(event) => onPatch({ retryPolicy: { ...node.retryPolicy, maxRetries: Number(event.target.value) } })}
                 />
               </label>
+              <label>
+                Backoff (ms)
+                <input
+                  type="number"
+                  min={0}
+                  max={60000}
+                  value={node.retryPolicy.backoffMs ?? 500}
+                  onChange={(event) => onPatch({ retryPolicy: { ...node.retryPolicy, backoffMs: Number(event.target.value) } })}
+                />
+              </label>
+            </>
+          )}
+
+          {node.type !== "trigger" && (
+            <>
+              <label>
+                Si falla
+                <select
+                  value={node.onError?.strategy ?? "stop"}
+                  onChange={(event) => {
+                    const strategy = event.target.value as "stop" | "continue" | "route";
+                    onPatch({
+                      onError:
+                        strategy === "stop"
+                          ? undefined
+                          : strategy === "continue"
+                            ? { strategy }
+                            : { strategy, target: node.onError?.target },
+                    });
+                  }}
+                >
+                  <option value="stop">Detener el run</option>
+                  <option value="continue">Continuar con el error</option>
+                  <option value="route">Derivar a otro nodo</option>
+                </select>
+              </label>
+              {node.onError?.strategy === "route" && (
+                <label>
+                  Nodo de error
+                  <select
+                    value={node.onError.target ?? ""}
+                    onChange={(event) =>
+                      onPatch({ onError: { strategy: "route", target: event.target.value || undefined } })
+                    }
+                  >
+                    <option value="">Selecciona un nodo</option>
+                    {nodes
+                      .filter((candidate) => candidate.id !== node.id && candidate.type !== "trigger")
+                      .map((candidate) => (
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.label ?? candidate.id}
+                        </option>
+                      ))}
+                  </select>
+                  {!node.onError.target && (
+                    <small className="text-warn">Selecciona el nodo que recibirá el error.</small>
+                  )}
+                </label>
+              )}
             </>
           )}
 

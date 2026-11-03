@@ -81,6 +81,18 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
         issues.push(`notify node ${node.id} requires a valid integrationId and text`);
       }
     }
+    if (node.onError?.strategy === "route") {
+      const target = node.onError.target;
+      if (!target) {
+        issues.push(`node ${node.id} requires an onError target for the route strategy`);
+      } else if (target === node.id) {
+        issues.push(`node ${node.id} cannot route its error to itself`);
+      } else if (!ids.has(target)) {
+        issues.push(`node ${node.id} routes its error to an unknown node: ${target}`);
+      } else if (graph.nodes.find((candidate) => candidate.id === target)?.type === "trigger") {
+        issues.push(`node ${node.id} cannot route its error to the trigger node`);
+      }
+    }
     if (node.type === "delay" && !(Number(node.config.ms) > 0)) {
       issues.push(`delay node ${node.id} requires a positive config.ms`);
     }
@@ -129,15 +141,16 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
 }
 
 export function topologicalOrder(graph: WorkflowGraph): string[] {
+  const edges = effectiveEdges(graph);
   const indegree = new Map<string, number>();
   for (const node of graph.nodes) indegree.set(node.id, 0);
-  for (const edge of graph.edges) indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
+  for (const edge of edges) indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
   const queue = graph.nodes.filter((node) => indegree.get(node.id) === 0).map((node) => node.id);
   const order: string[] = [];
   while (queue.length > 0) {
     const id = queue.shift()!;
     order.push(id);
-    for (const edge of graph.edges.filter((item) => item.source === id)) {
+    for (const edge of edges.filter((item) => item.source === id)) {
       const remaining = (indegree.get(edge.target) ?? 0) - 1;
       indegree.set(edge.target, remaining);
       if (remaining === 0) queue.push(edge.target);
@@ -149,13 +162,26 @@ export function topologicalOrder(graph: WorkflowGraph): string[] {
 export function reachableFrom(graph: WorkflowGraph, start: string): Set<string> {
   const seen = new Set<string>();
   const stack = [start];
+  const edges = effectiveEdges(graph);
   while (stack.length > 0) {
     const id = stack.pop()!;
     if (seen.has(id)) continue;
     seen.add(id);
-    for (const edge of graph.edges.filter((item) => item.source === id)) stack.push(edge.target);
+    for (const edge of edges.filter((item) => item.source === id)) stack.push(edge.target);
   }
   return seen;
+}
+
+function effectiveEdges(graph: WorkflowGraph): Edge[] {
+  const errorEdges: Edge[] = graph.nodes
+    .filter((node) => node.onError?.strategy === "route" && node.onError.target)
+    .map((node) => ({
+      id: `error:${node.id}:${node.onError!.target}`,
+      source: node.id,
+      target: node.onError!.target!,
+      condition: "error",
+    }));
+  return [...graph.edges, ...errorEdges];
 }
 
 export function startNode(graph: WorkflowGraph): NodeSpec {

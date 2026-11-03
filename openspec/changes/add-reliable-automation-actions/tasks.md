@@ -105,11 +105,11 @@
 
 ## 14. Observabilidad y verificación P1
 
-- [ ] 14.1 Emitir eventos y métricas de entregas, schedules, aprobaciones y cola con redacción de datos sensibles; verificar con tests de logger y de métricas.
-- [ ] 14.2 Agregar próximas ejecuciones, entregas fallidas, cola y aprobaciones pendientes al panel de salud; verificar con tests de API y de componente.
+- [x] 14.1 Emitir eventos y métricas de entregas, schedules, aprobaciones y cola con redacción de datos sensibles; verificar con tests de logger y de métricas.
+- [x] 14.2 Agregar próximas ejecuciones, entregas fallidas, cola y aprobaciones pendientes al panel de salud; verificar con tests de API y de componente.
 - [ ] 14.3 Ejecutar los E2E de P1: permisos por sesión, secreto HTTP, timer durable, `foreach`/subworkflow y rate limit; verificar que toda la suite termina en verde.
-- [ ] 14.4 Ejecutar `bun run typecheck`, `bun run test`, `bun run build`, `bun run test:e2e` y `graphify update .`; verificar que no hay errores y que el grafo se actualiza.
-- [ ] 14.5 Actualizar README y docs con las dos fases, el gate P0/P1 y las limitaciones de exactly-once/multi-instancia; verificar que la documentación coincide con los contratos.
+- [x] 14.4 Ejecutar `bun run typecheck`, `bun run test`, `bun run build`, `bun run test:e2e` y `graphify update .`; verificar que no hay errores y que el grafo se actualiza.
+- [x] 14.5 Actualizar README y docs con las dos fases, el gate P0/P1 y las limitaciones de exactly-once/multi-instancia; verificar que la documentación coincide con los contratos.
 
 ## Workflow follow-up
 

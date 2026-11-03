@@ -119,6 +119,14 @@ export class ExecuteWorkflowRunUseCase {
         workflowId: prepared.run.workflowId,
         status: "queued",
       });
+      this.deps.metrics.increment("workflow_runs_queued");
+      this.deps.logger.info({
+        event: "workflow_queued",
+        entryPoint: input.entryPoint,
+        projectSlug: input.projectSlug,
+        runId: prepared.run.id,
+        workflowId: prepared.run.workflowId,
+      });
       return this.deps.store.runs.findById(prepared.run.id)!;
     }
     void this.runGraph(input.graph, input.payload, {
@@ -155,6 +163,13 @@ export class ExecuteWorkflowRunUseCase {
           runId: run.id,
           workflowId: run.workflowId,
           status: "running",
+        });
+        this.deps.metrics.increment("workflow_runs_dispatched");
+        this.deps.logger.info({
+          event: "workflow_dispatched",
+          projectSlug: run.projectSlug,
+          runId: run.id,
+          workflowId: run.workflowId,
         });
         const result = await this.runGraph(
           snapshot.graph,

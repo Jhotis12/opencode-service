@@ -400,6 +400,14 @@ export class WorkflowScheduler {
             sourceDetail: "once",
           });
           triggered.push(run);
+          this.deps.logger.info({
+            event: "workflow_schedule_fired",
+            entryPoint: "scheduler",
+            projectSlug: slug,
+            workflowId: graph.id,
+            nodeId: trigger.id,
+            runId: run.id,
+          });
           this.deps.store.scheduleStates.update(
             { projectSlug: slug, workflowId: graph.id, nodeId: trigger.id },
             { lastWindowAt: runAt.toISOString(), nextWindowAt: undefined, lastRunId: run.id },
@@ -454,6 +462,14 @@ export class WorkflowScheduler {
             sourceDetail: `cron:${config.cron}`,
           });
           triggered.push(run);
+          this.deps.logger.info({
+            event: "workflow_schedule_fired",
+            entryPoint: "scheduler",
+            projectSlug: slug,
+            workflowId: graph.id,
+            nodeId: trigger.id,
+            runId: run.id,
+          });
           this.deps.store.scheduleStates.update(
             { projectSlug: slug, workflowId: graph.id, nodeId: trigger.id },
             { lastWindowAt: window.toISOString(), nextWindowAt, lastRunId: run.id },

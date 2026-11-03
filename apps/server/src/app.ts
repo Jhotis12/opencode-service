@@ -208,7 +208,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const queryDatabase = new QueryDatabaseIntegrationUseCase(store, vault, externalDb, logger);
   const testDatabase = new TestDatabaseIntegrationUseCase(store, vault, externalDb);
   const databaseAction = new ExecuteDatabaseActionUseCase(store, vault, externalDb, logger);
-  const notification = new SendNotificationUseCase(store, egress);
+  const notification = new SendNotificationUseCase(store, egress, logger);
   const notifyApproval = new NotifyApprovalUseCase(store, notification, logger);
   const embeddings = createEmbeddingAdapter(env);
   const knowledgeFiles = new KnowledgeFileStore(workspacesDir);

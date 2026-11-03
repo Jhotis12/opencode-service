@@ -33,6 +33,13 @@ export class NotifyApprovalUseCase {
           runId: run.id,
           nodeId,
         });
+        this.logger.info({
+          event: "approval_notification_sent",
+          projectSlug: run.projectSlug,
+          runId: run.id,
+          nodeId,
+          integrationId: target.integrationId,
+        });
         return;
       } catch (error) {
         this.logger.warn({

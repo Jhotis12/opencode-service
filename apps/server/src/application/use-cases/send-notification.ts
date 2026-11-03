@@ -2,6 +2,7 @@ import type { Store } from "../ports/store.ts";
 import type { IntegrationEgressPort } from "../ports/channels.ts";
 import { renderTemplate } from "../../domain/workflow/template.ts";
 import type { WorkflowDeliveryRecord } from "../../domain/entities.ts";
+import type { Logger } from "../../domain/telemetry/index.ts";
 
 export interface SendNotificationInput {
   projectSlug: string;
@@ -30,6 +31,7 @@ export class SendNotificationUseCase {
   constructor(
     private readonly store: Store,
     private readonly egress: IntegrationEgressPort,
+    private readonly logger?: Logger,
   ) {}
 
   private async waitForRateLimit(integrationId: string, limit: number, windowMs: number): Promise<void> {
@@ -108,6 +110,14 @@ export class SendNotificationUseCase {
         providerMessageId: result.providerMessageId,
         attempts,
       });
+      this.logger?.info({
+        event: "delivery.succeeded",
+        projectSlug: input.projectSlug,
+        runId: input.runId,
+        nodeId: input.nodeId,
+        integrationId: input.integrationId,
+        attempts,
+      });
       return {
         delivered: true,
         integrationId: input.integrationId,
@@ -119,6 +129,15 @@ export class SendNotificationUseCase {
         status: "failed",
         attempts,
         lastError: (error instanceof Error ? error.message : String(error)).slice(0, 300),
+      });
+      this.logger?.error({
+        event: "delivery.failed",
+        projectSlug: input.projectSlug,
+        runId: input.runId,
+        nodeId: input.nodeId,
+        integrationId: input.integrationId,
+        attempts,
+        error: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }

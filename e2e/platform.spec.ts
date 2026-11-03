@@ -436,9 +436,10 @@ test("P0: scheduled notification delivers once and is visible in the run detail"
 
     await page.goto(`/projects/${slug}`);
     await page.getByRole("button", { name: /^Ejecuciones/ }).first().click();
-    await page.getByRole("button", { name: "Ver detalle" }).first().click();
+    const runArticle = page.locator("article").filter({ hasText: String(run.id).slice(0, 8) });
+    await runArticle.getByRole("button", { name: "Ver detalle" }).click();
     const detail = page.getByRole("dialog", { name: /Ejecución/ });
-    await expect(detail.getByText("Entregas")).toBeVisible();
+    await expect(detail.getByRole("heading", { name: "Entregas" })).toBeVisible();
     await expect(detail.getByText("Entregado")).toBeVisible();
   } finally {
     await new Promise<void>((resolve) => receiver.close(() => resolve()));
@@ -467,7 +468,18 @@ test("P0: webhook approval writes the database once and rejection leaves no chan
     },
   });
   expect(integrationResponse.status()).toBe(201);
-  const integration = (await integrationResponse.json()) as { integration: { id: string } };
+  const integration = (await integrationResponse.json()) as {
+    integration: { id: string; config: Record<string, unknown> };
+  };
+  expect(
+    (
+      await page.request.patch(`/api/projects/${slug}/integrations/${integration.integration.id}`, {
+        data: {
+          config: { ...integration.integration.config, access: "write", maxRows: 1000, allowDdl: true },
+        },
+      })
+    ).ok(),
+  ).toBeTruthy();
   const dbQuery = async (sql: string, params: unknown[] = []) => {
     const response = await page.request.post(
       `/api/projects/${slug}/integrations/${integration.integration.id}/database/query`,

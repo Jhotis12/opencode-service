@@ -255,6 +255,13 @@ El servidor resuelve `secret:<alias>` y `{{secret.<alias>}}` en memoria antes de
 - Las integraciones de canal pueden declarar `alerts` (`run.failed`, `integration.down`, `health.degraded`) y `alertRecipient`. Un fallo de proyecto usa primero los canales del proyecto y cae a los globales si no hay.
 - Los run hijos de `foreach`/`subworkflow` conservan `parentRunId` y se pueden auditar desde Ejecuciones.
 
+## Límites de automatización
+
+- Las escrituras en bases externas son **at-least-once** si se habilitan reintentos; usa SQL idempotente (upsert o clave natural). No hay exactly-once entre la DB externa y el ledger local.
+- La cola, los timers y el scheduler viven en un solo proceso con SQLite. No están diseñados para múltiples instancias; una cola distribuida queda fuera de alcance.
+- El adaptador de email sigue siendo un contrato futuro; `notify` cubre Telegram, WhatsApp y chat externo.
+- Los secretos HTTP se resuelven en el servidor y nunca se guardan en `workflow.json` ni en snapshots; no los pegues en headers como texto.
+
 ## Versionado del grafo, Snapshots y Rollback
 
 - Cada guardado o ejecución registra un snapshot inmutable en `workflow_versions` con el JSON del grafo y el paquete de código `nodes/*.ts`.

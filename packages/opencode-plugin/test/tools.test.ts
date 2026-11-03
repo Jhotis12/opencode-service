@@ -71,6 +71,31 @@ describe("platform tool namespace", () => {
     }
   });
 
+  it("registers only read-only tools for the global scope", () => {
+    const globalTools = createPlatformTools(new FakeClient(), { global: true }).map((item) => item.name);
+    expect(globalTools).toEqual([
+      "workflow_list",
+      "workflow_get",
+      "workflow_runs",
+      "project_overview",
+      "subagent_list",
+      "kb_search",
+      "health_summary",
+    ]);
+    expect(globalTools).not.toContain("workflow_upsert");
+    expect(globalTools).not.toContain("workflow_trigger");
+    expect(globalTools).not.toContain("subagent_upsert");
+    expect(globalTools).not.toContain("db_query");
+    expect(globalTools).not.toContain("notify");
+
+    const projectTools = createPlatformTools(new FakeClient(), { projectSlug: "p1" }).map((item) => item.name);
+    expect(projectTools).toContain("workflow_upsert");
+    expect(projectTools).toContain("workflow_trigger");
+    expect(projectTools).toContain("subagent_upsert");
+    expect(projectTools).toContain("db_query");
+    expect(projectTools).toContain("notify");
+  });
+
   it("validates input before delegating", async () => {
     const client = new FakeClient();
     await expect(tool("workflow_get", client).execute({ projectSlug: "../evil" })).rejects.toThrow();

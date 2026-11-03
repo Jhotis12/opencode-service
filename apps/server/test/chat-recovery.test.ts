@@ -99,6 +99,7 @@ describe("chat session recovery after OpenCode restart", () => {
       agent,
       controlDirectory: join(dir, "control"),
       orchestratorAgent: "orchestrator/agente",
+      model: () => "opencode-go/fast",
       logger,
     });
     const result = await orchestrator.execute("estado global");
@@ -106,6 +107,31 @@ describe("chat session recovery after OpenCode restart", () => {
     expect(result.sessionId).not.toBe("ses_stale_global");
     expect(store.chatThreads.findById(globalThread.id)?.opencodeSessionId).toBe(result.sessionId);
     expect(orchestrator.history().map((message) => message.role)).toEqual(["user", "agent"]);
+    store.close();
+  });
+
+  it("replaces an empty global session and reuses the replacement on the next turn", async () => {
+    const { dir, store, agent, globalThread } = await setup();
+    agent.scriptedReplies = ["", "respuesta recuperada"];
+    const orchestrator = new ChatWithOrchestratorUseCase({
+      store,
+      agent,
+      controlDirectory: join(dir, "control"),
+      orchestratorAgent: "orchestrator/agente",
+      model: () => "opencode-go/fast",
+      logger,
+    });
+
+    const first = await orchestrator.execute("estado global");
+    expect(first.reply).toBe("respuesta recuperada");
+    expect(first.sessionId).not.toBe("ses_stale_global");
+    expect(store.chatThreads.findById(globalThread.id)?.opencodeSessionId).toBe(first.sessionId);
+    expect(orchestrator.history().map((message) => message.role)).toEqual(["user", "agent"]);
+
+    agent.scriptedReplies = ["segunda respuesta"];
+    const second = await orchestrator.execute("otra consulta");
+    expect(second.sessionId).toBe(first.sessionId);
+    expect(second.reply).toBe("segunda respuesta");
     store.close();
   });
 

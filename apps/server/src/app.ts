@@ -69,7 +69,7 @@ import { WorkflowInputValidationError } from "./domain/workflow/input.ts";
 import { ManageIntegrationsUseCase, type IntegrationCommand, type IntegrationUpdateCommand } from "./application/use-cases/manage-integrations.ts";
 import { IntegrationValidationError } from "./domain/integrations/validation.ts";
 import { GetProjectSettingsUseCase, UpdateProjectSettingsUseCase } from "./application/use-cases/project-settings.ts";
-import { ChatWithOrchestratorUseCase } from "./application/use-cases/orchestrator.ts";
+import { ChatWithOrchestratorUseCase, resolveOrchestratorModel } from "./application/use-cases/orchestrator.ts";
 import { AlertService } from "./application/use-cases/alerts.ts";
 import { validateWorkflowResources } from "./application/use-cases/workflow-resources.ts";
 import { WorkflowScheduler } from "./domain/workflow/cron.ts";
@@ -308,6 +308,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     controlDirectory,
     orchestratorAgent: "orchestrator/agente",
     timeoutMs: Number(env.AGENT_CHAT_TIMEOUT_MS ?? 900_000),
+    model: () => resolveOrchestratorModel(env.ORCHESTRATOR_MODEL, store.settings.get("default_model")),
     logger,
   });
   const agents = new ManageSubagentsUseCase(workspace, new MarkdownAgentAdapter(workspace), agent, events);
@@ -402,6 +403,15 @@ export async function createApplication(config: AppConfig): Promise<Application>
       return next();
     }
     if (scope === "global" && c.req.method !== "GET") {
+      logger.warn(
+        {
+          event: "global_mutation_rejected",
+          entryPoint: "global_orchestrator",
+          method: c.req.method,
+          path: c.req.path,
+        },
+        "global orchestrator attempted a mutating project request",
+      );
       return c.json(apiError("FORBIDDEN", "global orchestrator is read-only for project data"), 403);
     }
     const scoped = c.req.header("x-platform-project");
@@ -654,6 +664,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     if (wantsStream) {
       return streamSSE(c, async (stream) => {
         let finished = false;
+        let writes = Promise.resolve();
         const heartbeat = setInterval(() => {
           if (!finished && !stream.aborted) void stream.writeSSE({ event: "heartbeat", data: "{}" }).catch(() => undefined);
         }, 15_000);
@@ -661,10 +672,23 @@ export async function createApplication(config: AppConfig): Promise<Application>
           finished = true;
           clearInterval(heartbeat);
         });
+        const publish = (event: ChatProgressEvent) => {
+          if (finished || stream.aborted) return;
+          writes = writes
+            .then(() =>
+              stream.writeSSE({
+                event: event.type === "text" ? "delta" : "activity",
+                data: JSON.stringify(event),
+              }),
+            )
+            .catch(() => undefined);
+        };
         try {
-          const result = await orchestrator.execute(messageText);
+          const result = await orchestrator.execute(messageText, publish);
+          await writes;
           await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
         } catch (error) {
+          await writes;
           await stream
             .writeSSE({ event: "error", data: JSON.stringify({ message: error instanceof Error ? error.message : String(error) }) })
             .catch(() => undefined);

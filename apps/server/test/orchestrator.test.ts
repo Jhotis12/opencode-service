@@ -37,6 +37,7 @@ describe("global orchestrator", () => {
       agent,
       controlDirectory: join(dir, "control"),
       orchestratorAgent: "orchestrator/agente",
+      model: () => "opencode-go/fast",
     });
     await projectChat.execute("ventas", "hola proyecto");
     await orchestrator.execute("hola orquestador");

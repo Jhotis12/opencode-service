@@ -1,7 +1,9 @@
+import type { ChatProgressEvent } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
 import type { ChatMessageRecord } from "../../domain/entities.ts";
 import type { Logger } from "../../domain/telemetry/index.ts";
+import { createChatProgressHandler } from "./chat-progress.ts";
 import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
 
 export interface OrchestratorOverview {
@@ -20,6 +22,31 @@ export interface OrchestratorOverview {
 }
 
 const DEFAULT_TIMEOUT_MS = 900_000;
+const ENTRY_POINT = "global_orchestrator";
+
+export class OrchestratorConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OrchestratorConfigurationError";
+  }
+}
+
+export class EmptyAgentReplyError extends Error {
+  constructor(message = "the orchestrator returned an empty response") {
+    super(message);
+    this.name = "EmptyAgentReplyError";
+  }
+}
+
+export function resolveOrchestratorModel(
+  envValue: string | undefined,
+  platformDefault: string | undefined,
+): string | undefined {
+  const fromEnv = envValue?.trim();
+  if (fromEnv) return fromEnv;
+  const fromPlatform = platformDefault?.trim();
+  return fromPlatform || undefined;
+}
 
 export class ChatWithOrchestratorUseCase {
   constructor(
@@ -30,6 +57,7 @@ export class ChatWithOrchestratorUseCase {
       orchestratorAgent: string;
       timeoutMs?: number;
       logger?: Logger;
+      model?: () => string | undefined;
     },
   ) {}
 
@@ -39,23 +67,20 @@ export class ChatWithOrchestratorUseCase {
       externalThreadId: "web",
       title: "Orquestador global",
     });
-    return this.deps.store.chat.listByThread(thread.id, limit);
+    return this.deps.store.chat
+      .listByThread(thread.id, limit)
+      .filter((message) => message.role !== "agent" || message.content.trim().length > 0);
   }
 
-  async execute(message: string): Promise<{ reply: string; sessionId: string; threadId: string }> {
+  async execute(
+    message: string,
+    onProgress?: (event: ChatProgressEvent) => void,
+  ): Promise<{ reply: string; sessionId: string; threadId: string }> {
     const thread = this.deps.store.chatThreads.findOrCreate({
       scope: "global",
       externalThreadId: "web",
       title: "Orquestador global",
     });
-    const create = () =>
-      this.deps.agent.createSession({
-        directory: this.deps.controlDirectory,
-        title: "Orquestador global",
-        agent: this.deps.orchestratorAgent,
-      });
-    const sessionFactory = { create, agentId: this.deps.orchestratorAgent, logger: this.deps.logger };
-    const sessionId = await ensureChatSession(this.deps.store, this.deps.agent, thread, sessionFactory);
     this.deps.store.chat.append({
       id: crypto.randomUUID(),
       threadId: thread.id,
@@ -63,34 +88,102 @@ export class ChatWithOrchestratorUseCase {
       content: message,
       createdAt: new Date().toISOString(),
     });
+
+    let sessionId: string | undefined;
     try {
-      const result = await Promise.race([
-        promptWithSessionRecovery(
-          this.deps.store,
-          this.deps.agent,
-          thread,
-          sessionId,
-          message,
-          sessionFactory,
-        ),
-        new Promise<{ reply: string; sessionId: string }>((_resolve, reject) =>
-          setTimeout(
-            () => reject(new Error("the orchestrator did not respond in time")),
-            this.deps.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      const model = this.resolveModel();
+      const create = () =>
+        this.deps.agent.createSession({
+          directory: this.deps.controlDirectory,
+          title: "Orquestador global",
+          agent: this.deps.orchestratorAgent,
+          model,
+        });
+      const sessionFactory = {
+        create,
+        agentId: this.deps.orchestratorAgent,
+        model,
+        logger: this.deps.logger,
+      };
+      sessionId = await ensureChatSession(this.deps.store, this.deps.agent, thread, sessionFactory);
+      const progress = onProgress ? createChatProgressHandler(onProgress) : undefined;
+      const runPrompt = (activeSessionId: string) =>
+        Promise.race([
+          promptWithSessionRecovery(
+            this.deps.store,
+            this.deps.agent,
+            thread,
+            activeSessionId,
+            message,
+            sessionFactory,
+            progress,
           ),
-        ),
-      ]);
-      const reply = result.reply;
+          new Promise<{ reply: string; sessionId: string }>((_resolve, reject) =>
+            setTimeout(
+              () => reject(new Error("the orchestrator did not respond in time")),
+              this.deps.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+            ),
+          ),
+        ]);
+
+      let result = await runPrompt(sessionId);
+      sessionId = result.sessionId;
+      if (!result.reply.trim()) {
+        this.deps.logger?.warn(
+          {
+            event: "orchestrator_empty_reply",
+            threadId: thread.id,
+            sessionId: result.sessionId,
+            attempt: 1,
+            entryPoint: ENTRY_POINT,
+          },
+          "orchestrator returned an empty reply",
+        );
+        const replacement = await sessionFactory.create();
+        this.deps.store.chatThreads.setSession(thread.id, replacement.id);
+        this.deps.logger?.info(
+          {
+            event: "orchestrator_session_replaced",
+            threadId: thread.id,
+            previousSessionId: result.sessionId,
+            sessionId: replacement.id,
+            entryPoint: ENTRY_POINT,
+          },
+          "orchestrator session replaced after an empty reply",
+        );
+        result = await runPrompt(replacement.id);
+        sessionId = result.sessionId;
+        if (!result.reply.trim()) {
+          this.deps.logger?.warn(
+            {
+              event: "orchestrator_empty_reply",
+              threadId: thread.id,
+              sessionId: result.sessionId,
+              attempt: 2,
+              entryPoint: ENTRY_POINT,
+            },
+            "orchestrator returned an empty reply",
+          );
+          throw new EmptyAgentReplyError();
+        }
+      }
+
       this.deps.store.chat.append({
         id: crypto.randomUUID(),
         threadId: thread.id,
         role: "agent",
-        content: reply,
+        content: result.reply,
         createdAt: new Date().toISOString(),
       });
       this.deps.store.chatThreads.touch(thread.id);
-      return { reply, sessionId: result.sessionId, threadId: thread.id };
+      return { reply: result.reply, sessionId: result.sessionId, threadId: thread.id };
     } catch (error) {
+      if (error instanceof OrchestratorConfigurationError) {
+        this.deps.logger?.warn(
+          { event: "orchestrator_model_missing", threadId: thread.id, entryPoint: ENTRY_POINT },
+          "orchestrator model is not configured",
+        );
+      }
       this.deps.store.chat.append({
         id: crypto.randomUUID(),
         threadId: thread.id,
@@ -98,8 +191,28 @@ export class ChatWithOrchestratorUseCase {
         content: `Error: ${error instanceof Error ? error.message : String(error)}`,
         createdAt: new Date().toISOString(),
       });
+      this.deps.logger?.error(
+        {
+          event: "orchestrator_turn_failed",
+          threadId: thread.id,
+          sessionId,
+          entryPoint: ENTRY_POINT,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "orchestrator turn failed",
+      );
       throw error;
     }
+  }
+
+  private resolveModel(): string {
+    const model = this.deps.model?.()?.trim();
+    if (!model) {
+      throw new OrchestratorConfigurationError(
+        "orchestrator model is not configured; set ORCHESTRATOR_MODEL or the platform default model",
+      );
+    }
+    return model;
   }
 
   overview(): OrchestratorOverview {

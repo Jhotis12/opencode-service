@@ -12,9 +12,16 @@ export class FakeAgentRuntime implements AgentRuntimePort {
   private counter = 0;
   registeredKeys: Array<{ providerID: string; apiKey: string }> = [];
   prompts: string[] = [];
+  promptCalls: Array<{ sessionId: string; text: string }> = [];
+  switchedModels: Array<{ sessionId: string; model: string }> = [];
+  scriptedReplies: string[] = [];
 
   get sessionCount(): number {
     return this.sessions.size;
+  }
+
+  session(id: string): { directory: string; model?: string; agent?: string } | undefined {
+    return this.sessions.get(id);
   }
 
   async ensureReady() {
@@ -48,6 +55,12 @@ export class FakeAgentRuntime implements AgentRuntimePort {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
     this.prompts.push(text);
+    this.promptCalls.push({ sessionId, text });
+    const scripted = this.scriptedReplies.shift();
+    if (scripted !== undefined) {
+      if (scripted) this.emit({ type: "session.text.delta", sessionID: sessionId, text: scripted });
+      return scripted;
+    }
     const schemaMatch = /Esquema de salida JSON obligatorio:\s*(\[[\s\S]*?\])\r?\n/.exec(text);
     if (schemaMatch) {
       try {
@@ -88,6 +101,7 @@ export class FakeAgentRuntime implements AgentRuntimePort {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
     session.model = model;
+    this.switchedModels.push({ sessionId, model });
     this.emit({ type: "session.model.selected", sessionID: sessionId, model });
   }
 

@@ -426,7 +426,8 @@ export const api = {
     request<{ ok: boolean }>(`/api/control/integrations/${id}/disconnect`, { method: "POST" }),
   controlIntegrationQr: (id: string) => request<{ qr: string }>(`/api/control/integrations/${id}/qr`),
   controlOverview: () => request<OrchestratorOverview>("/api/control/overview"),
-  controlChat: (message: string) => chatStream("/api/control/chat", message),
+  controlChat: (message: string, onEvent?: (event: ChatProgressEvent) => void) =>
+    chatStream("/api/control/chat", message, onEvent),
   controlChatHistory: () => request<{ data: ChatHistoryMessage[] }>("/api/control/chat?limit=200"),
   controlKnowledgeSearch: (query: string, projectSlug?: string) =>
     request<{ data: SearchHit[] }>("/api/control/knowledge/search", {

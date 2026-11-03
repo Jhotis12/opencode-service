@@ -65,6 +65,12 @@ class FakeAgent implements AgentRuntimePort {
     this.prompts.push(text);
     return "respuesta-agente";
   }
+  async sendPrompt() { return {}; }
+  async getSession() { return undefined; }
+  async listActiveSessions() { return new Set<string>(); }
+  async listInbox() { return []; }
+  async getMessages() { return []; }
+  async getMessage() { return undefined; }
   async interrupt(sessionId: string) { this.interrupted.push(sessionId); }
   async switchModel(_sessionId: string, model: string) { this.switchedModels.push(model); }
   async switchAgent(_sessionId: string, agent: string) { this.switchedAgents.push(agent); }

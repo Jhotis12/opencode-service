@@ -2,6 +2,7 @@ import type {
   ApprovalRecord,
   ChatMessageRecord,
   ChatThreadRecord,
+  ChatTurnRecord,
   ErrorEventRecord,
   IntegrationRecord,
   KbChunkRecord,
@@ -187,7 +188,28 @@ export interface ChatThreadRepository {
 export interface ChatRepository {
   append(record: ChatMessageRecord): void;
   listByThread(threadId: string, limit: number): ChatMessageRecord[];
+  listByTurn(turnId: string): ChatMessageRecord[];
   clearByThread(threadId: string): void;
+}
+
+export interface ChatTurnRepository {
+  createWithMessage(turn: ChatTurnRecord, message: ChatMessageRecord): void;
+  findById(id: string): ChatTurnRecord | undefined;
+  findActiveByThread(threadId: string): ChatTurnRecord | undefined;
+  findByIdempotencyKey(threadId: string, key: string): ChatTurnRecord | undefined;
+  update(id: string, patch: Partial<ChatTurnRecord>): void;
+  complete(id: string, patch: Partial<ChatTurnRecord>, message?: ChatMessageRecord): void;
+  listActive(): ChatTurnRecord[];
+  listByThread(threadId: string, limit: number): ChatTurnRecord[];
+  removeByThread(threadId: string): void;
+  removeByProject(projectSlug: string): void;
+  stats(): {
+    active: number;
+    oldestActiveAgeMs?: number;
+    recovered24h: number;
+    failed24h: number;
+    lastErrorAt?: string;
+  };
 }
 
 export interface NotebookRepository {
@@ -225,6 +247,7 @@ export interface Store {
   versions: WorkflowVersionRepository;
   chatThreads: ChatThreadRepository;
   chat: ChatRepository;
+  chatTurns: ChatTurnRepository;
   notebooks: NotebookRepository;
   knowledge: KnowledgeRepository;
   deleteProjectData(projectSlug: string): void;

@@ -9,6 +9,37 @@ export interface AgentSessionRef {
   id: string;
 }
 
+export interface AgentSessionState {
+  id: string;
+  active: boolean;
+  outcome?: "succeeded" | "failed" | "interrupted";
+  error?: { type?: string; message?: string; status?: number };
+  cost?: number;
+  tokens?: { input?: number; output?: number; reasoning?: number; cacheRead?: number };
+  time?: { created?: number; updated?: number; busy?: number; idle?: number };
+}
+
+export interface AgentMessage {
+  id: string;
+  type: string;
+  text?: string;
+  created?: number;
+}
+
+export interface AgentInboxItem {
+  id?: string;
+  inboxId?: string;
+  type?: string;
+  delivery?: string;
+}
+
+export interface AgentPromptInput {
+  id?: string;
+  text: string;
+  metadata?: Record<string, unknown>;
+  delivery?: "queue" | "steer";
+}
+
 export class AgentPromptTimeoutError extends Error {
   constructor(timeoutMs: number) {
     super(`agent prompt timed out after ${timeoutMs}ms`);
@@ -32,6 +63,13 @@ export interface AgentRuntimePort {
     text: string,
     options?: { model?: string; agent?: string; timeoutMs?: number },
   ): Promise<string>;
+  sendPrompt(sessionId: string, input: AgentPromptInput): Promise<{ inboxId?: string }>;
+  getSession(sessionId: string): Promise<AgentSessionState | undefined>;
+  listActiveSessions(): Promise<Set<string>>;
+  listInbox(sessionId: string): Promise<AgentInboxItem[]>;
+  getMessages(sessionId: string, options?: { order?: "asc" | "desc"; limit?: number }): Promise<AgentMessage[]>;
+  getMessage(sessionId: string, messageId: string): Promise<AgentMessage | undefined>;
+  openSessionLog?(sessionId: string, options?: { after?: number; follow?: boolean }): AsyncIterable<unknown>;
   interrupt(sessionId: string): Promise<void>;
   switchModel(sessionId: string, model: string): Promise<void>;
   switchAgent(sessionId: string, agent: string): Promise<void>;

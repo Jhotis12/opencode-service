@@ -1,5 +1,12 @@
 import { join } from "node:path";
-import type { AgentModelInfo, AgentRuntimePort } from "../../../application/ports/runtime.ts";
+import type {
+  AgentInboxItem,
+  AgentMessage,
+  AgentModelInfo,
+  AgentPromptInput,
+  AgentRuntimePort,
+  AgentSessionState,
+} from "../../../application/ports/runtime.ts";
 import { OpenCodeV2Adapter, ServiceClientFactory } from "./opencode-adapter.ts";
 
 /**
@@ -7,7 +14,19 @@ import { OpenCodeV2Adapter, ServiceClientFactory } from "./opencode-adapter.ts";
  * when OpenCode V2 is not running. Selected explicitly with OPENCODE_MODE=fake.
  */
 export class FakeAgentRuntime implements AgentRuntimePort {
-  private sessions = new Map<string, { directory: string; model?: string; agent?: string }>();
+  private sessions = new Map<
+    string,
+    {
+      directory: string;
+      model?: string;
+      agent?: string;
+      active: boolean;
+      outcome?: AgentSessionState["outcome"];
+      messages: AgentMessage[];
+      inbox: AgentInboxItem[];
+      timer?: ReturnType<typeof setTimeout>;
+    }
+  >();
   private handlers = new Set<(event: unknown) => void>();
   private counter = 0;
   registeredKeys: Array<{ providerID: string; apiKey: string }> = [];
@@ -15,13 +34,17 @@ export class FakeAgentRuntime implements AgentRuntimePort {
   promptCalls: Array<{ sessionId: string; text: string }> = [];
   switchedModels: Array<{ sessionId: string; model: string }> = [];
   scriptedReplies: string[] = [];
+  scriptedEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
+  completionDelayMs = 5;
+  interruptedSessions: string[] = [];
 
   get sessionCount(): number {
     return this.sessions.size;
   }
 
   session(id: string): { directory: string; model?: string; agent?: string } | undefined {
-    return this.sessions.get(id);
+    const session = this.sessions.get(id);
+    return session ? { directory: session.directory, model: session.model, agent: session.agent } : undefined;
   }
 
   async ensureReady() {
@@ -46,7 +69,14 @@ export class FakeAgentRuntime implements AgentRuntimePort {
 
   async createSession(input: { directory: string; title?: string; agent?: string; model?: string }) {
     const id = `fake-session-${++this.counter}`;
-    this.sessions.set(id, { directory: input.directory, model: input.model, agent: input.agent });
+    this.sessions.set(id, {
+      directory: input.directory,
+      model: input.model,
+      agent: input.agent,
+      active: false,
+      messages: [],
+      inbox: [],
+    });
     this.emit({ type: "session.created", sessionID: id });
     return { id };
   }
@@ -97,7 +127,87 @@ export class FakeAgentRuntime implements AgentRuntimePort {
     return reply;
   }
 
-  async interrupt(_sessionId: string): Promise<void> {}
+  async sendPrompt(sessionId: string, input: AgentPromptInput): Promise<{ inboxId?: string }> {
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    if (session.active) throw new Error("session is busy");
+    const inboxId = input.id ?? `fake-inbox-${++this.counter}`;
+    session.active = true;
+    session.outcome = undefined;
+    session.inbox = [{ id: inboxId, inboxId, type: "user", delivery: input.delivery ?? "steer" }];
+    session.messages.push({
+      id: inboxId,
+      type: "user",
+      text: input.text,
+      created: Date.now(),
+    });
+    this.prompts.push(input.text);
+    this.promptCalls.push({ sessionId, text: input.text });
+    this.emit({ type: "session.inbox.enqueued", sessionID: sessionId, id: inboxId, data: { sessionID: sessionId, inboxID: inboxId } });
+    session.timer = setTimeout(() => {
+      if (!session.active) return;
+      for (const event of this.scriptedEvents.splice(0)) {
+        this.emit({
+          ...event,
+          data: { sessionID: sessionId, ...(event.data ?? {}) },
+        });
+      }
+      const scripted = this.scriptedReplies.shift();
+      const reply = scripted ?? `[simulado] ${input.text.replace(/\s+/g, " ").slice(0, 220)}`;
+      session.messages.push({
+        id: `fake-assistant-${++this.counter}`,
+        type: "assistant",
+        text: reply,
+        created: Date.now(),
+      });
+      session.active = false;
+      session.outcome = "succeeded";
+      session.inbox = [];
+      this.emit({ type: "session.text.delta", sessionID: sessionId, text: reply });
+      this.emit({ type: "session.execution.succeeded", sessionID: sessionId });
+    }, this.completionDelayMs);
+    return { inboxId };
+  }
+
+  async getSession(sessionId: string): Promise<AgentSessionState | undefined> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    return {
+      id: sessionId,
+      active: session.active,
+      outcome: session.outcome,
+      time: { created: 0, updated: Date.now(), busy: session.active ? Date.now() : undefined, idle: session.active ? undefined : Date.now() },
+    };
+  }
+
+  async listActiveSessions(): Promise<Set<string>> {
+    return new Set([...this.sessions.entries()].filter(([, session]) => session.active).map(([id]) => id));
+  }
+
+  async listInbox(sessionId: string): Promise<AgentInboxItem[]> {
+    return this.sessions.get(sessionId)?.inbox ?? [];
+  }
+
+  async getMessages(sessionId: string, options: { order?: "asc" | "desc"; limit?: number } = {}): Promise<AgentMessage[]> {
+    const messages = [...(this.sessions.get(sessionId)?.messages ?? [])];
+    if (options.order === "desc") messages.reverse();
+    return options.limit ? messages.slice(0, options.limit) : messages;
+  }
+
+  async getMessage(sessionId: string, messageId: string): Promise<AgentMessage | undefined> {
+    return this.sessions.get(sessionId)?.messages.find((message) => message.id === messageId);
+  }
+
+  async interrupt(sessionId: string): Promise<void> {
+    this.interruptedSessions.push(sessionId);
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.active) return;
+    if (session.timer) clearTimeout(session.timer);
+    session.active = false;
+    session.outcome = "interrupted";
+    session.inbox = [];
+    this.emit({ type: "session.execution.interrupted", sessionID: sessionId, reason: "user" });
+  }
 
   async switchModel(sessionId: string, model: string): Promise<void> {
     const session = this.sessions.get(sessionId);

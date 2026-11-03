@@ -3,6 +3,7 @@ import type {
   ApprovalRecord,
   ChatMessageRecord,
   ChatThreadRecord,
+  ChatTurnRecord,
   ErrorEventRecord,
   IntegrationRecord,
   KbChunkRecord,
@@ -50,6 +51,35 @@ import {
 const json = (value: unknown): string => JSON.stringify(value ?? null);
 const parse = <T>(value: string | null): T | undefined => (value ? (JSON.parse(value) as T) : undefined);
 const scopeKey = (projectSlug?: string): string => projectSlug ?? "";
+
+interface ChatTurnRow {
+  id: string;
+  thread_id: string;
+  scope: string;
+  project_slug: string;
+  integration_id: string;
+  external_thread_id: string;
+  session_id: string | null;
+  user_message_id: string | null;
+  assistant_message_id: string | null;
+  inbox_id: string | null;
+  assistant_opencode_message_id: string | null;
+  status: string;
+  delivery_state: string;
+  attempt: number;
+  started_at: string;
+  finished_at: string | null;
+  last_activity_at: string;
+  last_seq: number | null;
+  error_code: string | null;
+  error_message: string | null;
+  usage_json: string | null;
+  has_side_effects: number;
+  idempotency_key: string | null;
+  entry_point: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export class SqliteStore implements Store {
   private readonly handle: DatabaseHandle;
@@ -899,8 +929,10 @@ export class SqliteStore implements Store {
         .values({
           id: record.id,
           threadId: record.threadId,
+          turnId: record.turnId ?? null,
           role: record.role,
           content: record.content,
+          errorCode: record.errorCode ?? null,
           createdAt: record.createdAt,
         })
         .run();
@@ -914,15 +946,113 @@ export class SqliteStore implements Store {
         .limit(limit)
         .all()
         .reverse()
-        .map((row) => ({
-          id: row.id,
-          threadId: row.threadId,
-          role: row.role as ChatMessageRecord["role"],
-          content: row.content,
-          createdAt: row.createdAt,
-        })),
+        .map((row) => this.mapChatMessage(row)),
+    listByTurn: (turnId: string): ChatMessageRecord[] =>
+      this.handle.db
+        .select()
+        .from(chatMessages)
+        .where(eq(chatMessages.turnId, turnId))
+        .orderBy(chatMessages.createdAt)
+        .all()
+        .map((row) => this.mapChatMessage(row)),
     clearByThread: (threadId: string): void => {
       this.handle.sqlite.query("DELETE FROM chat_messages WHERE thread_id = ?").run(threadId);
+    },
+  };
+
+  chatTurns = {
+    createWithMessage: (turn: ChatTurnRecord, message: ChatMessageRecord): void => {
+      this.handle.sqlite.transaction(() => {
+        this.insertChatTurn(turn);
+        this.handle.sqlite
+          .query(
+            "INSERT INTO chat_messages (id, thread_id, turn_id, role, content, error_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          )
+          .run(
+            message.id,
+            message.threadId,
+            message.turnId ?? turn.id,
+            message.role,
+            message.content,
+            message.errorCode ?? null,
+            message.createdAt,
+          );
+      })();
+    },
+    findById: (id: string): ChatTurnRecord | undefined => this.findChatTurn("id = ?", id),
+    findActiveByThread: (threadId: string): ChatTurnRecord | undefined =>
+      this.findChatTurn("thread_id = ? AND status IN ('queued','running','recovering') ORDER BY started_at DESC LIMIT 1", threadId),
+    findByIdempotencyKey: (threadId: string, key: string): ChatTurnRecord | undefined =>
+      this.findChatTurn("thread_id = ? AND idempotency_key = ? LIMIT 1", threadId, key),
+    update: (id: string, patch: Partial<ChatTurnRecord>): void => {
+      this.updateChatTurn(id, patch);
+    },
+    complete: (id: string, patch: Partial<ChatTurnRecord>, message?: ChatMessageRecord): void => {
+      this.handle.sqlite.transaction(() => {
+        this.updateChatTurn(id, patch);
+        if (message) {
+          this.handle.sqlite
+            .query(
+              "INSERT INTO chat_messages (id, thread_id, turn_id, role, content, error_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )
+            .run(
+              message.id,
+              message.threadId,
+              message.turnId ?? id,
+              message.role,
+              message.content,
+              message.errorCode ?? null,
+              message.createdAt,
+            );
+        }
+      })();
+    },
+    listActive: (): ChatTurnRecord[] =>
+      (this.handle.sqlite
+        .query("SELECT * FROM chat_turns WHERE status IN ('queued','running','recovering') ORDER BY started_at ASC")
+        .all() as ChatTurnRow[]).map((row) => this.mapChatTurn(row)),
+    listByThread: (threadId: string, limit: number): ChatTurnRecord[] =>
+      (this.handle.sqlite
+        .query("SELECT * FROM chat_turns WHERE thread_id = ? ORDER BY started_at DESC LIMIT ?")
+        .all(threadId, limit) as ChatTurnRow[]).map((row) => this.mapChatTurn(row)),
+    removeByThread: (threadId: string): void => {
+      this.handle.sqlite.query("DELETE FROM chat_turns WHERE thread_id = ?").run(threadId);
+    },
+    removeByProject: (projectSlug: string): void => {
+      this.handle.sqlite.query("DELETE FROM chat_turns WHERE project_slug = ?").run(projectSlug);
+    },
+    stats: () => {
+      const now = Date.now();
+      const activeRows = this.handle.sqlite
+        .query("SELECT started_at FROM chat_turns WHERE status IN ('queued','running','recovering')")
+        .all() as Array<{ started_at: string }>;
+      const oldest = activeRows.reduce<number | undefined>((min, row) => {
+        const age = now - Date.parse(row.started_at);
+        return min === undefined || age > min ? age : min;
+      }, undefined);
+      const since = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+      const recovered = this.handle.sqlite
+        .query(
+          "SELECT count(*) as n FROM chat_turns WHERE status = 'succeeded' AND error_code IS NOT NULL AND updated_at >= ?",
+        )
+        .get(since) as { n: number };
+      const failed = this.handle.sqlite
+        .query(
+          "SELECT count(*) as n FROM chat_turns WHERE status IN ('failed','timed_out','cancelled','unknown','interrupted') AND updated_at >= ?",
+        )
+        .get(since) as { n: number };
+      const lastError = this.handle.sqlite
+        .query(
+          "SELECT updated_at FROM chat_turns WHERE status IN ('failed','timed_out','cancelled','unknown','interrupted') ORDER BY updated_at DESC LIMIT 1",
+        )
+        .get() as { updated_at?: string } | undefined;
+      return {
+        active: activeRows.length,
+        oldestActiveAgeMs: oldest,
+        recovered24h: Number(recovered?.n ?? 0),
+        failed24h: Number(failed?.n ?? 0),
+        lastErrorAt: lastError?.updated_at,
+      };
     },
   };
 
@@ -1020,6 +1150,7 @@ export class SqliteStore implements Store {
         .query("DELETE FROM kb_sources WHERE notebook_id IN (SELECT id FROM notebooks WHERE project_slug = ?)")
         .run(projectSlug);
       this.handle.sqlite.query("DELETE FROM notebooks WHERE project_slug = ?").run(projectSlug);
+      this.handle.sqlite.query("DELETE FROM chat_turns WHERE project_slug = ?").run(projectSlug);
       this.handle.sqlite
         .query("DELETE FROM chat_messages WHERE thread_id IN (SELECT id FROM chat_threads WHERE scope = 'project' AND project_slug = ?)")
         .run(projectSlug);
@@ -1302,6 +1433,146 @@ export class SqliteStore implements Store {
       lastError: row.lastError ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+    };
+  }
+
+  private mapChatMessage(row: typeof chatMessages.$inferSelect): ChatMessageRecord {
+    return {
+      id: row.id,
+      threadId: row.threadId,
+      turnId: row.turnId ?? undefined,
+      role: row.role as ChatMessageRecord["role"],
+      content: row.content,
+      errorCode: (row.errorCode as ChatMessageRecord["errorCode"]) ?? undefined,
+      createdAt: row.createdAt,
+    };
+  }
+
+  private findChatTurn(where: string, ...params: unknown[]): ChatTurnRecord | undefined {
+    const row = this.handle.sqlite.query(`SELECT * FROM chat_turns WHERE ${where}`).get(...(params as any)) as ChatTurnRow | null;
+    return row ? this.mapChatTurn(row) : undefined;
+  }
+
+  private insertChatTurn(turn: ChatTurnRecord): void {
+    this.handle.sqlite
+      .query(
+        `INSERT INTO chat_turns (
+          id, thread_id, scope, project_slug, integration_id, external_thread_id,
+          session_id, user_message_id, assistant_message_id, inbox_id, assistant_opencode_message_id,
+          status, delivery_state, attempt, started_at, finished_at, last_activity_at, last_seq,
+          error_code, error_message, usage_json, has_side_effects, idempotency_key, entry_point, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        turn.id,
+        turn.threadId,
+        turn.scope,
+        turn.projectSlug ?? "",
+        turn.integrationId ?? "",
+        turn.externalThreadId ?? "",
+        turn.sessionId ?? null,
+        turn.userMessageId ?? null,
+        turn.assistantMessageId ?? null,
+        turn.inboxId ?? null,
+        turn.assistantOpencodeMessageId ?? null,
+        turn.status,
+        turn.deliveryState,
+        turn.attempt,
+        turn.startedAt,
+        turn.finishedAt ?? null,
+        turn.lastActivityAt,
+        turn.lastSeq ?? null,
+        turn.errorCode ?? null,
+        turn.errorMessage ?? null,
+        turn.usage ? JSON.stringify(turn.usage) : null,
+        turn.hasSideEffects ? 1 : 0,
+        turn.idempotencyKey ?? null,
+        turn.entryPoint,
+        turn.createdAt,
+        turn.updatedAt,
+      );
+  }
+
+  private updateChatTurn(id: string, patch: Partial<ChatTurnRecord>): void {
+    const columns: Record<string, string> = {
+      threadId: "thread_id",
+      scope: "scope",
+      projectSlug: "project_slug",
+      integrationId: "integration_id",
+      externalThreadId: "external_thread_id",
+      sessionId: "session_id",
+      userMessageId: "user_message_id",
+      assistantMessageId: "assistant_message_id",
+      inboxId: "inbox_id",
+      assistantOpencodeMessageId: "assistant_opencode_message_id",
+      status: "status",
+      deliveryState: "delivery_state",
+      attempt: "attempt",
+      startedAt: "started_at",
+      finishedAt: "finished_at",
+      lastActivityAt: "last_activity_at",
+      lastSeq: "last_seq",
+      errorCode: "error_code",
+      errorMessage: "error_message",
+      usage: "usage_json",
+      hasSideEffects: "has_side_effects",
+      idempotencyKey: "idempotency_key",
+      entryPoint: "entry_point",
+      createdAt: "created_at",
+      updatedAt: "updated_at",
+    };
+    const assignments: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, column] of Object.entries(columns)) {
+      if (!(key in patch)) continue;
+      const value = (patch as Record<string, unknown>)[key];
+      if (value === undefined) continue;
+      assignments.push(`${column} = ?`);
+      values.push(
+        key === "usage"
+          ? value
+            ? JSON.stringify(value)
+            : null
+          : key === "hasSideEffects"
+            ? value
+              ? 1
+              : 0
+            : value,
+      );
+    }
+    if (assignments.length === 0) return;
+    values.push(id);
+    this.handle.sqlite.query(`UPDATE chat_turns SET ${assignments.join(", ")} WHERE id = ?`).run(...(values as any));
+  }
+
+  private mapChatTurn(row: ChatTurnRow): ChatTurnRecord {
+    return {
+      id: row.id,
+      threadId: row.thread_id,
+      scope: row.scope as ChatTurnRecord["scope"],
+      projectSlug: row.project_slug || undefined,
+      integrationId: row.integration_id || undefined,
+      externalThreadId: row.external_thread_id || undefined,
+      sessionId: row.session_id ?? undefined,
+      userMessageId: row.user_message_id ?? undefined,
+      assistantMessageId: row.assistant_message_id ?? undefined,
+      inboxId: row.inbox_id ?? undefined,
+      assistantOpencodeMessageId: row.assistant_opencode_message_id ?? undefined,
+      status: row.status as ChatTurnRecord["status"],
+      deliveryState: row.delivery_state as ChatTurnRecord["deliveryState"],
+      attempt: Number(row.attempt ?? 0),
+      startedAt: row.started_at,
+      finishedAt: row.finished_at ?? undefined,
+      lastActivityAt: row.last_activity_at,
+      lastSeq: row.last_seq ?? undefined,
+      errorCode: (row.error_code as ChatTurnRecord["errorCode"]) ?? undefined,
+      errorMessage: row.error_message ?? undefined,
+      usage: row.usage_json ? (JSON.parse(row.usage_json) as ChatTurnRecord["usage"]) : undefined,
+      hasSideEffects: Boolean(row.has_side_effects),
+      idempotencyKey: row.idempotency_key ?? undefined,
+      entryPoint: row.entry_point,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
     };
   }
 

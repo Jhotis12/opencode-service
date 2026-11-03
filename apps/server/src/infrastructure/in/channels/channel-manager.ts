@@ -3,6 +3,7 @@ import type { Store } from "../../../application/ports/store.ts";
 import type { SecretVault } from "../../../application/ports/security.ts";
 import type { EventBus } from "../../../application/ports/events.ts";
 import type { IntegrationManagerPort } from "../../../application/ports/integrations.ts";
+import type { EgressSendResult } from "../../../application/ports/channels.ts";
 import type { IntegrationEgressRouter } from "./egress-router.ts";
 import type { Logger } from "../../../domain/telemetry/index.ts";
 import type { IntegrationRecord } from "../../../domain/entities.ts";
@@ -149,8 +150,8 @@ export class IntegrationManager implements IntegrationManagerPort {
     return this.qrCodes.get(integrationId);
   }
 
-  async send(integrationId: string, text: string, recipient?: string): Promise<void> {
-    await this.deps.egress.send(integrationId, text, recipient);
+  async send(integrationId: string, text: string, recipient?: string): Promise<EgressSendResult> {
+    return this.deps.egress.send(integrationId, text, recipient);
   }
 
   private resolveSecret(integration: IntegrationRecord, field: string): string | undefined {
@@ -178,6 +179,7 @@ export class IntegrationManager implements IntegrationManagerPort {
       });
       if (!secret) throw new Error("external chat integration has no webhook secret");
       await deliverWebhook(url, this.deps.vault.decrypt(secret.ciphertext), { text }, this.deps.fetchImpl);
+      return {};
     });
   }
 }

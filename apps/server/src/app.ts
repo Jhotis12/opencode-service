@@ -34,6 +34,7 @@ import { createEmbeddingAdapter } from "./infrastructure/out/knowledge/embedding
 import { DynamicDatabaseClientAdapter } from "./infrastructure/out/external-db/dynamic-adapter.ts";
 import { ExecuteWorkflowRunUseCase } from "./application/use-cases/execute-workflow.ts";
 import { ExecuteDatabaseActionUseCase } from "./application/use-cases/database-actions.ts";
+import { SendNotificationUseCase } from "./application/use-cases/send-notification.ts";
 import { ManageSubagentsUseCase } from "./application/use-cases/manage-subagents.ts";
 import { IngestKnowledgeUseCase } from "./application/use-cases/ingest-knowledge.ts";
 import { SearchKnowledgeUseCase, buildGroundedContext } from "./application/use-cases/search-knowledge.ts";
@@ -205,6 +206,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const queryDatabase = new QueryDatabaseIntegrationUseCase(store, vault, externalDb);
   const testDatabase = new TestDatabaseIntegrationUseCase(store, vault, externalDb);
   const databaseAction = new ExecuteDatabaseActionUseCase(store, vault, externalDb);
+  const notification = new SendNotificationUseCase(store, egress);
   const embeddings = createEmbeddingAdapter(env);
   const knowledgeFiles = new KnowledgeFileStore(workspacesDir);
   const ingest = new IngestKnowledgeUseCase({
@@ -225,15 +227,16 @@ export async function createApplication(config: AppConfig): Promise<Application>
     errors: errorTracker,
     logger,
     databaseAction,
+    notification,
     workerHandlers: {
       db: ({ projectSlug, integrationId, sql, params }) =>
         queryDatabase.execute(integrationId, { scope: "project", projectSlug }, sql, params),
-      notify: async ({ projectSlug, integrationId, text }) => {
+      notify: async ({ projectSlug, integrationId, text, recipient }) => {
         const integration = store.integrations.findById(integrationId);
         if (!integration || integration.scope !== "project" || integration.projectSlug !== projectSlug) {
           throw new IntegrationValidationError("FORBIDDEN", "integration scope mismatch");
         }
-        await egress.send(integrationId, text);
+        await egress.send(integrationId, text, recipient);
       },
     },
     defaultModel: () => store.settings.get("default_model") || undefined,

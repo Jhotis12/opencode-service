@@ -12,6 +12,68 @@ import { CodeEditor } from "./CodeEditor.tsx";
 import { button, buttonGhost } from "../ui.ts";
 
 const DATABASE_KINDS = new Set<IntegrationRecord["kind"]>(["postgres", "mysql", "mssql", "sqlite"]);
+const NOTIFICATION_KINDS = new Set<IntegrationRecord["kind"]>(["telegram", "whatsapp", "external_chat"]);
+
+function NotifyNodeFields({
+  node,
+  integrations,
+  onConfig,
+}: {
+  node: NodeSpec;
+  integrations: IntegrationRecord[];
+  onConfig(patch: Record<string, unknown>): void;
+}) {
+  const channels = integrations.filter(
+    (integration) =>
+      NOTIFICATION_KINDS.has(integration.kind) && integration.capabilities.includes("outbound_message"),
+  );
+  const selected = channels.find((integration) => integration.id === node.config.integrationId);
+  const requiresRecipient = selected?.kind === "telegram" || selected?.kind === "whatsapp";
+
+  return (
+    <>
+      <label>
+        Canal de salida
+        <select
+          value={String(node.config.integrationId ?? "")}
+          onChange={(event) => onConfig({ integrationId: event.target.value })}
+        >
+          <option value="">Selecciona un canal</option>
+          {channels.map((integration) => (
+            <option key={integration.id} value={integration.id}>
+              {integration.name} · {integration.kind}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Destinatario {requiresRecipient ? "(obligatorio)" : "(opcional)"}
+        <input
+          value={String(node.config.recipient ?? "")}
+          onChange={(event) => onConfig({ recipient: event.target.value || undefined })}
+          placeholder={requiresRecipient ? "123456789" : "Se usa el webhook del canal"}
+        />
+      </label>
+      <label className="md:col-span-2">
+        Mensaje
+        <textarea
+          rows={5}
+          value={String(node.config.text ?? "")}
+          onChange={(event) => onConfig({ text: event.target.value })}
+          placeholder="Hola {{input.nombre}}, tu reporte está listo."
+        />
+      </label>
+      {requiresRecipient && !String(node.config.recipient ?? "").trim() && (
+        <p className="text-xs text-warn md:col-span-2">Este canal requiere un destinatario para enviar.</p>
+      )}
+      <div className="rounded-lg border border-line bg-well p-3 text-xs text-muted md:col-span-2">
+        <strong className="block text-slate-200">Vista previa</strong>
+        <span>{String(node.config.text || "Sin mensaje configurado.")}</span>
+        {selected && <span className="mt-1 block">Canal: {selected.name}</span>}
+      </div>
+    </>
+  );
+}
 
 function DatabaseNodeFields({
   node,
@@ -332,6 +394,10 @@ export function NodeInspector({
 
           {node.type === "database" && (
             <DatabaseNodeFields node={node} integrations={integrations} onConfig={onConfig} />
+          )}
+
+          {node.type === "notify" && (
+            <NotifyNodeFields node={node} integrations={integrations} onConfig={onConfig} />
           )}
 
           {node.type === "http" && (

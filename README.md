@@ -122,6 +122,28 @@ El trigger declara `inputSchema` con campos, tipos, obligatoriedad, descripción
 - El endpoint devuelve `202 { runId }` antes de terminar y el SSE actualiza el estado.
 - El nodo `validate` permite reglas declarativas en cualquier punto; si falta un campo, falla el paso con un mensaje accionable y no ejecuta los siguientes.
 
+## Acción nativa de notificación (P0)
+
+El nodo `notify` envía un mensaje por un canal del proyecto y registra la entrega en el ledger `workflow_deliveries`:
+
+```json
+{
+  "type": "notify",
+  "config": {
+    "integrationId": "<id-del-canal>",
+    "recipient": "123456789",
+    "text": "Hola {{input.nombre}}, tu reporte está listo."
+  }
+}
+```
+
+- Telegram y WhatsApp requieren `recipient`; el chat externo lo omite y usa el `webhookUrl` de la integración.
+- El mensaje acepta `{{input.campo}}` y se resuelve antes de enviar.
+- La acción usa una clave estable (`runId:nodeId` o `config.actionKey`) para no reenviar una entrega ya confirmada en reintentos o replays.
+- La salida es `{ delivered, integrationId, recipient, providerMessageId }`.
+- Si el proveedor falla, el intento queda en `failed` con un error sanitizado y el nodo aplica su política de reintento o error.
+- El adaptador de email sigue fuera de alcance; usa solo canales con egress activo.
+
 ## Acción nativa de base de datos (P0)
 
 El nodo `database` ejecuta SQL parametrizado contra una integración del proyecto sin escribir un nodo de código. La configuración es declarativa:

@@ -18,11 +18,11 @@
 
 ## 3. Nodo nativo de notificación P0 y ledger de entregas
 
-- [ ] 3.1 Extender `IntegrationEgressPort.send` para devolver `{ providerMessageId?: string }` y actualizar los adaptadores de Telegram, WhatsApp y chat externo; verificar con tests de cada adaptador y un mock de proveedor.
-- [ ] 3.2 Implementar `SendNotificationUseCase` con reglas de destinatario, plantilla, deduplicación por `action_key` y estados `pending`/`delivered`/`failed`; verificar con tests de deduplicación, canal sin destinatario y fallo del proveedor.
-- [ ] 3.3 Integrar el nodo `notify` en el executor, extender `ctx.notify` para aceptar destinatario y ajustar el RPC del worker; verificar con un workflow que envía a Telegram/WhatsApp simulado y otro a chat externo.
-- [ ] 3.4 Agregar el nodo `notify` a la paleta y al inspector (integración, destinatario, plantilla, preview); verificar con tests de componente que solo ofrece integraciones de salida del proyecto.
-- [ ] 3.5 Documentar el nodo `notify`, el destinatario obligatorio y el ledger de entregas; verificar que los ejemplos de Telegram, WhatsApp y chat externo coinciden con el contrato.
+- [x] 3.1 Extender `IntegrationEgressPort.send` para devolver `{ providerMessageId?: string }` y actualizar los adaptadores de Telegram, WhatsApp y chat externo; verificar con tests de cada adaptador y un mock de proveedor.
+- [x] 3.2 Implementar `SendNotificationUseCase` con reglas de destinatario, plantilla, deduplicación por `action_key` y estados `pending`/`delivered`/`failed`; verificar con tests de deduplicación, canal sin destinatario y fallo del proveedor.
+- [x] 3.3 Integrar el nodo `notify` en el executor, extender `ctx.notify` para aceptar destinatario y ajustar el RPC del worker; verificar con un workflow que envía a Telegram/WhatsApp simulado y otro a chat externo.
+- [x] 3.4 Agregar el nodo `notify` a la paleta y al inspector (integración, destinatario, plantilla, preview); verificar con tests de componente que solo ofrece integraciones de salida del proyecto.
+- [x] 3.5 Documentar el nodo `notify`, el destinatario obligatorio y el ledger de entregas; verificar que los ejemplos de Telegram, WhatsApp y chat externo coinciden con el contrato.
 
 ## 4. Timeout, reintentos y política de error uniforme
 

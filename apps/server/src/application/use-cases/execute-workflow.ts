@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   InputSchemaSchema,
   DatabaseNodeConfigSchema,
+  NotifyNodeConfigSchema,
   ValidateConfigSchema,
   type InputSchema,
   type NodeSpec,
@@ -20,6 +21,7 @@ import type { ErrorTracker, Metrics, Logger } from "../../domain/telemetry/index
 import { WorkerTimeoutError } from "../ports/worker.ts";
 import type { StepRunRecord, WorkflowRunRecord } from "../../domain/entities.ts";
 import type { ExecuteDatabaseActionUseCase } from "./database-actions.ts";
+import type { SendNotificationUseCase } from "./send-notification.ts";
 import {
   IdempotencyMismatchError,
   RunInFlightError,
@@ -29,6 +31,7 @@ import {
   startNode,
   validateWorkflowGraph,
 } from "../../domain/workflow/graph.ts";
+import { renderParams, renderTemplate, resolvePath } from "../../domain/workflow/template.ts";
 import {
   NodeValidationError,
   WorkflowInputValidationError,
@@ -47,6 +50,7 @@ export interface ExecutorDeps {
   logger: Logger;
   workerHandlers?: WorkerRpcHandlers;
   databaseAction?: ExecuteDatabaseActionUseCase;
+  notification?: SendNotificationUseCase;
   notifyApproval?: (run: WorkflowRunRecord, nodeId: string) => Promise<void>;
   knowledgeContext?: (projectSlug: string, notebookIds: string[], query: unknown, strictGrounding: boolean) => Promise<string>;
   defaultModel?: () => string | undefined;
@@ -451,6 +455,19 @@ export class ExecuteWorkflowRunUseCase {
             transaction: config.transaction,
             maxRows: config.maxRows,
           });
+        } else if (current.type === "notify") {
+          if (!this.deps.notification) throw new Error("notification action is not configured");
+          const config = NotifyNodeConfigSchema.parse(current.config);
+          output = await this.deps.notification.execute({
+            projectSlug: state.run.projectSlug,
+            integrationId: config.integrationId,
+            recipient: config.recipient,
+            text: config.text,
+            input: currentInput,
+            actionKey: config.actionKey ?? `${state.run.id}:${current.id}`,
+            runId: state.run.id,
+            nodeId: current.id,
+          });
         } else if (current.type === "delay") {
           const ms = Math.min(Math.max(Number(current.config.ms) || 0, 0), 60_000);
           await new Promise((resolve) => setTimeout(resolve, ms));
@@ -684,41 +701,6 @@ export class ExecuteWorkflowRunUseCase {
     }
     return store.runs.findById(state.run.id)!;
   }
-}
-
-export function resolvePath(input: unknown, path: string): unknown {
-  const clean = path.replace(/^input\.?/, "").trim();
-  if (!clean) return input;
-  return clean.split(".").reduce<unknown>((current, key) => {
-    if (current === null || current === undefined) return undefined;
-    if (Array.isArray(current)) return current[Number(key)];
-    if (typeof current !== "object") return undefined;
-    return (current as Record<string, unknown>)[key];
-  }, input);
-}
-
-function templateValue(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value ?? null);
-}
-
-export function renderTemplate(template: string, input: unknown): unknown {
-  const rendered = template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, path) =>
-    templateValue(resolvePath(input, String(path))),
-  );
-  try {
-    return JSON.parse(rendered);
-  } catch {
-    return rendered;
-  }
-}
-
-export function renderParams(value: unknown, input: unknown): unknown {
-  if (typeof value === "string") return renderTemplate(value, input);
-  if (Array.isArray(value)) return value.map((item) => renderParams(item, input));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, renderParams(item, input)]));
-  }
-  return value;
 }
 
 export function evaluateCondition(condition: unknown, input: unknown): boolean {

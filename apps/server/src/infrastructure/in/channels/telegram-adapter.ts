@@ -1,5 +1,10 @@
 import { Bot } from "grammy";
-import type { IncomingIntegrationMessage, IntegrationEgressPort, IntegrationTransport } from "../../../application/ports/channels.ts";
+import type {
+  EgressSendResult,
+  IncomingIntegrationMessage,
+  IntegrationEgressPort,
+  IntegrationTransport,
+} from "../../../application/ports/channels.ts";
 import type { EventBus } from "../../../application/ports/events.ts";
 import type { Logger } from "../../../domain/telemetry/index.ts";
 
@@ -32,8 +37,9 @@ export class GrammyTransport implements TelegramTransport {
     });
   }
 
-  async send(senderId: string, text: string): Promise<void> {
-    await this.bot.api.sendMessage(senderId, text);
+  async send(senderId: string, text: string): Promise<EgressSendResult> {
+    const message = await this.bot.api.sendMessage(senderId, text);
+    return { providerMessageId: String(message.message_id) };
   }
 
   async stop(): Promise<void> {
@@ -86,9 +92,9 @@ export class TelegramChannelAdapter implements IntegrationEgressPort {
     });
   }
 
-  async send(_text: string, _recipient?: string): Promise<void> {
+  async send(_text: string, _recipient?: string): Promise<EgressSendResult> {
     if (!_recipient) throw new Error("telegram replies require a recipient");
-    await this.options.transport.send(_recipient, _text);
+    return (await this.options.transport.send(_recipient, _text)) ?? {};
   }
 
   async stop(): Promise<void> {

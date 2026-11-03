@@ -1,11 +1,15 @@
-import type { IncomingIntegrationMessage, IntegrationEgressPort } from "../../../application/ports/channels.ts";
+import type {
+  EgressSendResult,
+  IncomingIntegrationMessage,
+  IntegrationEgressPort,
+} from "../../../application/ports/channels.ts";
 import type { EventBus } from "../../../application/ports/events.ts";
 import type { Logger } from "../../../domain/telemetry/index.ts";
 
 export interface WhatsAppTransport {
   readonly type: "whatsapp";
   start(handler: (message: { senderId: string; text: string }) => void, onQr: (qr: string) => void): Promise<void>;
-  send(senderId: string, text: string): Promise<void>;
+  send(senderId: string, text: string): Promise<EgressSendResult | void>;
   stop(): Promise<void>;
   status(): string;
 }
@@ -41,9 +45,10 @@ export class BaileysTransport implements WhatsAppTransport {
     });
   }
 
-  async send(senderId: string, text: string): Promise<void> {
+  async send(senderId: string, text: string): Promise<EgressSendResult> {
     if (!this.socket) throw new Error("whatsapp transport is not connected");
-    await this.socket.sendMessage(senderId, { text });
+    const result = await this.socket.sendMessage(senderId, { text });
+    return { providerMessageId: result?.key?.id ? String(result.key.id) : undefined };
   }
 
   async stop(): Promise<void> {
@@ -72,7 +77,7 @@ export class WhatsAppCloudTransport implements WhatsAppTransport {
     this.handler = handler;
   }
 
-  async send(senderId: string, text: string): Promise<void> {
+  async send(senderId: string, text: string): Promise<EgressSendResult> {
     const response = await this.fetchImpl(`https://graph.facebook.com/v21.0/${this.phoneNumberId}/messages`, {
       method: "POST",
       headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
@@ -80,6 +85,10 @@ export class WhatsAppCloudTransport implements WhatsAppTransport {
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) throw new Error(`whatsapp cloud send failed: ${response.status}`);
+    const payload = (await response.json().catch(() => undefined)) as
+      | { messages?: Array<{ id?: string }> }
+      | undefined;
+    return { providerMessageId: payload?.messages?.[0]?.id };
   }
 
   async stop(): Promise<void> {
@@ -166,9 +175,10 @@ export class WhatsAppChannelAdapter implements IntegrationEgressPort {
     });
   }
 
-  async send(text: string, recipient?: string): Promise<void> {
+  async send(text: string, recipient?: string): Promise<EgressSendResult> {
     if (!recipient) throw new Error("whatsapp replies require a recipient");
-    await this.options.transport.send(recipient, text);
+    const result = await this.options.transport.send(recipient, text);
+    return result ?? {};
   }
 
   async stop(): Promise<void> {

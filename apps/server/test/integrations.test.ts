@@ -21,7 +21,9 @@ const manager: IntegrationManagerPort = {
   qr() {
     return undefined;
   },
-  async send() {},
+  async send() {
+    return {};
+  },
 };
 
 function useCase(store: SqliteStore, vault: Aes256GcmVaultAdapter) {

@@ -10,6 +10,8 @@ import { SqliteStore } from "../src/infrastructure/out/persistence/sqlite-store.
 import { Aes256GcmVaultAdapter } from "../src/infrastructure/out/vault/aes-vault.ts";
 import { DynamicDatabaseClientAdapter } from "../src/infrastructure/out/external-db/dynamic-adapter.ts";
 import { ExecuteDatabaseActionUseCase } from "../src/application/use-cases/database-actions.ts";
+import { SendNotificationUseCase } from "../src/application/use-cases/send-notification.ts";
+import type { EgressSendResult, IntegrationEgressPort } from "../src/application/ports/channels.ts";
 import { InMemoryMetrics } from "../src/domain/telemetry/metrics.ts";
 import { NoopErrorTracker } from "../src/infrastructure/out/telemetry/sentry.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
@@ -69,6 +71,14 @@ class FakeAgent implements AgentRuntimePort {
 class FakeEvents implements EventBus {
   events: SseEvent[] = [];
   publish(event: SseEvent) { this.events.push(event); }
+}
+
+class RecordingEgress implements IntegrationEgressPort {
+  sent: Array<{ integrationId: string; text: string; recipient?: string }> = [];
+  async send(integrationId: string, text: string, recipient?: string): Promise<EgressSendResult> {
+    this.sent.push({ integrationId, text, recipient });
+    return { providerMessageId: `msg-${this.sent.length}` };
+  }
 }
 
 async function setup(graph: WorkflowGraph, nodes: Record<string, string>, extraDeps: Partial<ExecutorDeps> = {}) {
@@ -199,6 +209,79 @@ describe("workflow execution", () => {
     expect(run.status).toBe("succeeded");
     expect(run.output).toMatchObject({ rows: [{ name: "Ana" }], rowCount: 1 });
     expect(store.runs.listSteps(run.id).map((step) => step.nodeId)).toEqual(["start", "write", "read"]);
+    store.close();
+  });
+
+  it("executes notify nodes for telegram and external chat", async () => {
+    const now = new Date().toISOString();
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "notify-flow",
+      name: "Notify flow",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "telegram",
+          type: "notify",
+          position: { x: 100, y: 0 },
+          config: { integrationId: "tg1", recipient: "123", text: "Hola {{input.nombre}}" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "chat",
+          type: "notify",
+          position: { x: 200, y: 0 },
+          config: { integrationId: "chat1", text: "Fin: {{input.providerMessageId}}" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [
+        { id: "e1", source: "start", target: "telegram" },
+        { id: "e2", source: "telegram", target: "chat" },
+      ],
+      updatedAt: now,
+    };
+    const { store, deps } = await setup(graph, {});
+    const base = {
+      scope: "project" as const,
+      projectSlug: "p1",
+      config: {},
+      secretRefs: {},
+      capabilities: ["inbound_message" as const, "outbound_message" as const],
+      status: "connected" as const,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.integrations.create({ ...base, id: "tg1", kind: "telegram", name: "TG", slug: "tg" });
+    store.integrations.create({ ...base, id: "chat1", kind: "external_chat", name: "Chat", slug: "chat" });
+    const egress = new RecordingEgress();
+    const executor = new ExecuteWorkflowRunUseCase({
+      ...deps,
+      notification: new SendNotificationUseCase(store, egress),
+    });
+    const run = await executor.execute({
+      projectSlug: "p1",
+      graph,
+      payload: { nombre: "Ana" },
+      entryPoint: "web_ui",
+    });
+    expect(run.status).toBe("succeeded");
+    expect(egress.sent[0]).toEqual({ integrationId: "tg1", text: "Hola Ana", recipient: "123" });
+    expect(egress.sent[1]).toEqual({ integrationId: "chat1", text: "Fin: msg-1", recipient: undefined });
+    expect(store.deliveries.listByRun(run.id)).toHaveLength(2);
     store.close();
   });
 

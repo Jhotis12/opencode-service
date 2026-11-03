@@ -283,6 +283,48 @@ describe("NodeInspectorModal", () => {
     expect(within(dialog).getByText(/Unexpected token|JSON inválido/)).toBeInTheDocument();
   });
 
+  it("edits notify node settings and only offers outbound channels", async () => {
+    const notify = node("notify", "notify", { config: { integrationId: "", text: "Hola" } });
+    const now = new Date().toISOString();
+    const telegram: IntegrationRecord = {
+      id: "tg1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "telegram",
+      name: "Telegram",
+      slug: "telegram",
+      config: {},
+      secretRefs: {},
+      capabilities: ["inbound_message", "outbound_message"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    };
+    const databaseOnly: IntegrationRecord = {
+      ...telegram,
+      id: "db1",
+      kind: "sqlite",
+      name: "DB",
+      slug: "db",
+      capabilities: ["query"],
+    };
+    const { onConfig } = renderInspector({
+      node: notify,
+      graph: graph([node("start", "trigger"), notify]),
+      integrations: [telegram, databaseOnly],
+      lastStep: undefined,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: notify" });
+    const channel = within(dialog).getByLabelText("Canal de salida");
+    expect(within(channel).queryByRole("option", { name: /DB/ })).not.toBeInTheDocument();
+    await userEvent.selectOptions(channel, "tg1");
+    expect(onConfig).toHaveBeenCalledWith({ integrationId: "tg1" });
+    fireEvent.change(within(dialog).getByLabelText(/Destinatario/), { target: { value: "123" } });
+    expect(onConfig).toHaveBeenCalledWith({ recipient: "123" });
+    fireEvent.change(within(dialog).getByLabelText("Mensaje"), { target: { value: "Hola {{input.nombre}}" } });
+    expect(onConfig).toHaveBeenCalledWith({ text: "Hola {{input.nombre}}" });
+  });
+
   it("shows settings, connections with invalid targets disabled, and execution context", async () => {
     const { onConnect } = renderInspector();
     const dialog = screen.getByRole("dialog", { name: "Nodo: agent" });

@@ -1,6 +1,11 @@
 export interface WorkerRpcHandlers {
   db?: (args: { projectSlug: string; integrationId: string; sql: string; params: unknown[] }) => Promise<unknown>;
-  notify?: (args: { projectSlug: string; integrationId: string; text: string }) => Promise<unknown>;
+  notify?: (args: {
+    projectSlug: string;
+    integrationId: string;
+    text: string;
+    recipient?: string;
+  }) => Promise<unknown>;
 }
 
 export interface CodeWorkerPort {

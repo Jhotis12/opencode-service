@@ -61,6 +61,8 @@ export type ValidateConfig = z.infer<typeof ValidateConfigSchema>;
 export const TriggerConfigSchema = z.object({
   kind: TriggerKindSchema.default("manual"),
   cron: z.string().optional(),
+  mode: z.enum(["cron", "once"]).default("cron"),
+  runAt: z.string().datetime().optional(),
   timezone: ScheduleTimezoneSchema.default("UTC"),
   enabled: z.boolean().default(true),
   overlapPolicy: ScheduleOverlapPolicySchema.default("skip"),

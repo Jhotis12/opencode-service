@@ -179,6 +179,18 @@ CREATE TABLE IF NOT EXISTS session_context (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS workflow_timers (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  node_id TEXT NOT NULL,
+  due_at TEXT NOT NULL,
+  status TEXT NOT NULL,
+  payload TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS workflow_timers_due ON workflow_timers(status, due_at);
+CREATE INDEX IF NOT EXISTS workflow_timers_run ON workflow_timers(run_id);
 CREATE TABLE IF NOT EXISTS chat_threads (
   id TEXT PRIMARY KEY,
   scope TEXT NOT NULL,

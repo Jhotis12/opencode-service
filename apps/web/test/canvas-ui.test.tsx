@@ -397,6 +397,63 @@ describe("NodeInspectorModal", () => {
     expect(within(dialog).getByText(/secret:alias/)).toBeInTheDocument();
   });
 
+  it("shows one-off schedule and durable delay fields", async () => {
+    const once = node("start", "trigger", {
+      config: { kind: "schedule", mode: "once", runAt: "2026-11-05T15:00:00.000Z" },
+    });
+    const { rerender } = render(
+      <NodeInspectorModal
+        node={once}
+        graph={graph([once])}
+        agents={[]}
+        models={[]}
+        integrations={[]}
+        code=""
+        codeDirty={false}
+        issues={[]}
+        onClose={vi.fn()}
+        onPatch={vi.fn()}
+        onConfig={vi.fn()}
+        onCodeChange={vi.fn()}
+        onSaveCode={vi.fn()}
+        onEnableDecisionCode={vi.fn()}
+        onRemove={vi.fn()}
+        onDuplicate={vi.fn()}
+        onConnect={vi.fn()}
+        onStartCanvasConnect={vi.fn()}
+        onChangeEdgeCondition={vi.fn()}
+        onDeleteEdge={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Fecha y hora (ISO)")).toHaveValue("2026-11-05T15:00:00.000Z");
+    const delay = node("wait", "delay", { config: { waitUntil: "2026-11-05T15:00:00.000Z" } });
+    rerender(
+      <NodeInspectorModal
+        node={delay}
+        graph={graph([node("start", "trigger"), delay])}
+        agents={[]}
+        models={[]}
+        integrations={[]}
+        code=""
+        codeDirty={false}
+        issues={[]}
+        onClose={vi.fn()}
+        onPatch={vi.fn()}
+        onConfig={vi.fn()}
+        onCodeChange={vi.fn()}
+        onSaveCode={vi.fn()}
+        onEnableDecisionCode={vi.fn()}
+        onRemove={vi.fn()}
+        onDuplicate={vi.fn()}
+        onConnect={vi.fn()}
+        onStartCanvasConnect={vi.fn()}
+        onChangeEdgeCondition={vi.fn()}
+        onDeleteEdge={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText("Esperar hasta (ISO, durable)")).toHaveValue("2026-11-05T15:00:00.000Z");
+  });
+
   it("shows settings, connections with invalid targets disabled, and execution context", async () => {
     const { onConnect } = renderInspector();
     const dialog = screen.getByRole("dialog", { name: "Nodo: agent" });

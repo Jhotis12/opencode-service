@@ -119,6 +119,7 @@ El trigger declara `inputSchema` con campos, tipos, obligatoriedad, descripción
   - `enabled: false` pausa el schedule sin borrar la configuración.
   - `overlapPolicy: "skip"` (default) omite la ventana si el flujo anterior sigue `running` o `paused`; `"allow"` permite solapamiento.
   - `catchUp: true` recupera ventanas perdidas dentro de `catchUpWindowMinutes`, con tope de 1,000 ventanas.
+  - `mode: "once"` + `runAt` ejecuta una sola vez en una fecha ISO; no se repite en días posteriores.
   - En DST, una hora repetida se ejecuta una sola vez y una hora inexistente se omite; con `catchUp` se recupera una sola vez.
   - `GET /api/projects/:slug/workflow/schedule` devuelve el estado y la próxima ejecución por trigger.
 - **Webhook (`kind: "webhook"`):** Recibe llamadas en `POST /api/v1/webhooks/:projectSlug/:nodeId` verificando en tiempo constante `x-webhook-secret` o la firma HMAC-SHA256 `x-webhook-signature: sha256=...` contra el alias de secreto del proyecto (`config.secretAlias`).
@@ -231,6 +232,13 @@ El nodo `http` puede usar una integración HTTP para el `baseUrl` y referencias 
 ```
 
 El servidor resuelve `secret:<alias>` y `{{secret.<alias>}}` en memoria antes del fetch. El workflow y los snapshots guardan solo el alias; un alias de otro proyecto falla antes de la petición.
+
+## Esperas durables y ejecuciones únicas (P1)
+
+- `delay` con `ms <= 60000` espera en memoria.
+- `delay` con `waitUntil` (ISO) o `ms > 60000` pausa el run y persiste un `workflow_timer`; el scheduler lo reanuda al vencer y el run sobrevive reinicios.
+- Un timer vencido durante una caída se procesa al arrancar. Cada timer se reclama una sola vez.
+- `schedule` con `mode: "once"` y `runAt` crea un run único; si la fecha se perdió durante una caída, se ejecuta una vez al arrancar si el schedule está activo.
 
 ## Versionado del grafo, Snapshots y Rollback
 

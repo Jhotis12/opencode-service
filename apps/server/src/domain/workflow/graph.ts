@@ -53,9 +53,17 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
       if (!["manual", "integration", "schedule", "webhook"].includes(kind)) {
         issues.push(`trigger ${node.id} uses ${kind}, which has no active executor yet`);
       } else if (kind === "schedule") {
-        const cron = typeof node.config.cron === "string" ? node.config.cron.trim() : "";
-        if (!cron || !isValidCronExpression(cron)) {
-          issues.push(`schedule trigger ${node.id} requires a valid 5-field config.cron expression`);
+        const mode = String(node.config.mode ?? "cron");
+        if (mode === "once") {
+          const runAt = typeof node.config.runAt === "string" ? node.config.runAt.trim() : "";
+          if (!runAt || Number.isNaN(Date.parse(runAt))) {
+            issues.push(`schedule trigger ${node.id} requires a valid config.runAt for once mode`);
+          }
+        } else {
+          const cron = typeof node.config.cron === "string" ? node.config.cron.trim() : "";
+          if (!cron || !isValidCronExpression(cron)) {
+            issues.push(`schedule trigger ${node.id} requires a valid 5-field config.cron expression`);
+          }
         }
       } else if (kind === "webhook") {
         const secretAlias = typeof node.config.secretAlias === "string" ? node.config.secretAlias.trim() : "";
@@ -93,8 +101,11 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
         issues.push(`node ${node.id} cannot route its error to the trigger node`);
       }
     }
-    if (node.type === "delay" && !(Number(node.config.ms) > 0)) {
-      issues.push(`delay node ${node.id} requires a positive config.ms`);
+    if (node.type === "delay") {
+      const waitUntil = typeof node.config.waitUntil === "string" ? Date.parse(node.config.waitUntil) : Number.NaN;
+      if (!(Number(node.config.ms) > 0) && Number.isNaN(waitUntil)) {
+        issues.push(`delay node ${node.id} requires a positive config.ms or a valid config.waitUntil`);
+      }
     }
     if (node.type === "validate") {
       const rules = node.config.rules;

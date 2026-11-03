@@ -211,6 +211,24 @@ export const sessionContexts = sqliteTable("session_context", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const workflowTimers = sqliteTable(
+  "workflow_timers",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id").notNull(),
+    nodeId: text("node_id").notNull(),
+    dueAt: text("due_at").notNull(),
+    status: text("status").notNull(),
+    payload: text("payload"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    due: index("workflow_timers_due").on(table.status, table.dueAt),
+    run: index("workflow_timers_run").on(table.runId),
+  }),
+);
+
 export const chatThreads = sqliteTable(
   "chat_threads",
   {
@@ -293,6 +311,7 @@ export const schema = {
   workflowDeliveries,
   workflowScheduleState,
   sessionContexts,
+  workflowTimers,
   chatThreads,
   chatMessages,
   notebooks,

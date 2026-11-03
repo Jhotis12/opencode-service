@@ -165,6 +165,28 @@ describe("sqlite store", () => {
     store.close();
   });
 
+  it("claims due workflow timers once", () => {
+    const store = new SqliteStore(":memory:");
+    store.timers.create({
+      id: "t1",
+      runId: "r1",
+      nodeId: "wait",
+      dueAt: new Date(Date.now() + 60_000).toISOString(),
+      status: "pending",
+      payload: { keep: true },
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(store.timers.claimDue(new Date(), 10)).toHaveLength(0);
+    const due = store.timers.claimDue(new Date(Date.now() + 120_000), 10);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.payload).toEqual({ keep: true });
+    expect(store.timers.claimDue(new Date(Date.now() + 120_000), 10)).toHaveLength(0);
+    store.timers.markFired("t1");
+    expect(store.timers.listByRun("r1")[0]?.status).toBe("fired");
+    store.close();
+  });
+
   it("tracks session context by OpenCode session", () => {
     const store = new SqliteStore(":memory:");
     store.sessionContexts.upsert({

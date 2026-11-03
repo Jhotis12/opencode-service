@@ -164,6 +164,17 @@ export interface SessionContextRecord {
   updatedAt: string;
 }
 
+export interface WorkflowTimerRecord {
+  id: string;
+  runId: string;
+  nodeId: string;
+  dueAt: string;
+  status: "pending" | "running" | "fired";
+  payload?: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ChatThreadRecord {
   id: string;
   scope: EntityScope;

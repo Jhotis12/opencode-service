@@ -332,6 +332,54 @@ export class ExecuteWorkflowRunUseCase {
     );
   }
 
+  async resumeFromTimer(runId: string, nodeId: string): Promise<WorkflowRunRecord> {
+    const run = this.deps.store.runs.findById(runId);
+    if (!run) throw new Error(`run not found: ${runId}`);
+    const snapshot = await this.resolveRunSnapshot(run);
+    const graph = snapshot.graph;
+    const node = graph.nodes.find((item) => item.id === nodeId);
+    if (!node) throw new Error(`timer node not found: ${nodeId}`);
+    const steps = this.deps.store.runs.listSteps(runId);
+    const priorOutputs = new Map<string, unknown>();
+    for (const step of steps) {
+      if (step.status === "succeeded") priorOutputs.set(step.nodeId, step.output);
+    }
+    const edge = nextEdge(graph, nodeId);
+    if (!edge) {
+      const output = priorOutputs.get(nodeId);
+      this.deps.store.runs.update(runId, {
+        status: "succeeded",
+        output,
+        error: undefined,
+        finishedAt: new Date().toISOString(),
+      });
+      return this.deps.store.runs.findById(runId)!;
+    }
+    const next = graph.nodes.find((item) => item.id === edge.target);
+    if (!next) throw new Error(`edge points to missing node: ${edge.target}`);
+    this.deps.store.runs.update(runId, { status: "running", error: undefined, finishedAt: undefined });
+    this.deps.events.publish({
+      type: "run.updated",
+      projectSlug: run.projectSlug,
+      runId: run.id,
+      workflowId: run.workflowId,
+      status: "running",
+      nodeId,
+      stepStatus: "succeeded",
+    });
+    return this.runGraph(
+      graph,
+      run.input,
+      {
+        run: { ...run, status: "running", error: undefined, finishedAt: undefined },
+        priorOutputs,
+        resumeNodeId: next.id,
+        codeBundle: snapshot.codeBundle,
+      },
+      {},
+    );
+  }
+
   protected async runGraph(
     graph: WorkflowGraph,
     payload: unknown,
@@ -481,9 +529,54 @@ export class ExecuteWorkflowRunUseCase {
             nodeId: current.id,
           });
         } else if (current.type === "delay") {
+          const waitUntil =
+            typeof current.config.waitUntil === "string" ? Date.parse(current.config.waitUntil) : undefined;
           const ms = Math.min(Math.max(Number(current.config.ms) || 0, 0), 60_000);
-          await new Promise((resolve) => setTimeout(resolve, ms));
-          output = currentInput;
+          const dueAt = new Date(
+            Number.isFinite(waitUntil) && waitUntil! > Date.now() ? waitUntil! : Date.now() + ms,
+          );
+          if (dueAt.getTime() > Date.now() + 60_000 || current.config.waitUntil !== undefined) {
+            if (dueAt.getTime() <= Date.now()) {
+              output = currentInput;
+            } else {
+              const now = new Date().toISOString();
+              store.runs.insertStep({
+                id: crypto.randomUUID(),
+                runId: state.run.id,
+                nodeId: current.id,
+                status: "succeeded",
+                input: currentInput,
+                output: currentInput,
+                durationMs: 0,
+                startedAt,
+                finishedAt: now,
+              });
+              store.timers.create({
+                id: crypto.randomUUID(),
+                runId: state.run.id,
+                nodeId: current.id,
+                dueAt: dueAt.toISOString(),
+                status: "pending",
+                payload: currentInput,
+                createdAt: now,
+                updatedAt: now,
+              });
+              store.runs.update(state.run.id, { status: "paused" });
+              events.publish({
+                type: "run.updated",
+                projectSlug: state.run.projectSlug,
+                runId: state.run.id,
+                workflowId: state.run.workflowId,
+                status: "paused",
+                nodeId: current.id,
+                stepStatus: "succeeded",
+              });
+              return store.runs.findById(state.run.id)!;
+            }
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, ms));
+            output = currentInput;
+          }
         } else if (current.type === "transform") {
           output = executeTransform(current, currentInput);
         } else if (current.type === "validate") {

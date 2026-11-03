@@ -177,6 +177,18 @@ describe("workflow scheduler state", () => {
     store.close();
   });
 
+  it("fires a one-off schedule exactly once", async () => {
+    const now = new Date("2026-11-02T10:00:00.000Z");
+    const { scheduler, store, runs } = await setupScheduler(
+      tickingGraph({ mode: "once", runAt: new Date(now.getTime() - 60_000).toISOString() }),
+    );
+    await scheduler.syncFromWorkspaces(now);
+    expect(await scheduler.tick(now)).toHaveLength(1);
+    expect(await scheduler.tick(new Date(now.getTime() + 60_000))).toHaveLength(0);
+    expect(runs).toHaveLength(1);
+    store.close();
+  });
+
   it("catches up missed windows within the configured limit", async () => {
     const { scheduler, store, runs } = await setupScheduler(
       tickingGraph({ catchUp: true, catchUpWindowMinutes: 10, overlapPolicy: "allow" }),

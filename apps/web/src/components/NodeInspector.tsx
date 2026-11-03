@@ -328,13 +328,31 @@ export function NodeInspector({
               {String(node.config.kind ?? "manual") === "schedule" && (
                 <>
                   <label>
-                    Expresión Cron (5 campos)
-                    <input
-                      value={String(node.config.cron ?? "")}
-                      onChange={(event) => onConfig({ cron: event.target.value })}
-                      placeholder="0 9 * * 1-5"
-                    />
+                    Modo
+                    <select value={String(node.config.mode ?? "cron")} onChange={(event) => onConfig({ mode: event.target.value })}>
+                      <option value="cron">Cron recurrente</option>
+                      <option value="once">Ejecución única</option>
+                    </select>
                   </label>
+                  {String(node.config.mode ?? "cron") === "once" ? (
+                    <label>
+                      Fecha y hora (ISO)
+                      <input
+                        value={String(node.config.runAt ?? "")}
+                        onChange={(event) => onConfig({ runAt: event.target.value })}
+                        placeholder="2026-11-05T15:00:00.000Z"
+                      />
+                    </label>
+                  ) : (
+                    <label>
+                      Expresión Cron (5 campos)
+                      <input
+                        value={String(node.config.cron ?? "")}
+                        onChange={(event) => onConfig({ cron: event.target.value })}
+                        placeholder="0 9 * * 1-5"
+                      />
+                    </label>
+                  )}
                   <label>
                     Zona horaria (IANA)
                     <input
@@ -511,16 +529,26 @@ export function NodeInspector({
           )}
 
           {node.type === "delay" && (
-            <label>
-              Espera (ms, máx. 60000)
-              <input
-                type="number"
-                min={0}
-                max={60000}
-                value={Number(node.config.ms ?? 1000)}
-                onChange={(event) => onConfig({ ms: Number(event.target.value) })}
-              />
-            </label>
+            <>
+              <label>
+                Espera (ms, máx. 60000)
+                <input
+                  type="number"
+                  min={0}
+                  max={60000}
+                  value={Number(node.config.ms ?? 1000)}
+                  onChange={(event) => onConfig({ ms: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                Esperar hasta (ISO, durable)
+                <input
+                  value={String(node.config.waitUntil ?? "")}
+                  onChange={(event) => onConfig({ waitUntil: event.target.value || undefined })}
+                  placeholder="2026-11-05T15:00:00.000Z"
+                />
+              </label>
+            </>
           )}
 
           {node.type === "transform" && (

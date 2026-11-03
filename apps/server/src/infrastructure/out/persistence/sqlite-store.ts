@@ -1,4 +1,4 @@
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, lte, or, sql } from "drizzle-orm";
 import type {
   ApprovalRecord,
   ChatMessageRecord,
@@ -17,6 +17,7 @@ import type {
   WorkflowDeliveryRecord,
   WorkflowScheduleStateRecord,
   SessionContextRecord,
+  WorkflowTimerRecord,
 } from "../../../domain/entities.ts";
 import type { WorkflowGraph } from "@platform/shared";
 import type { Store } from "../../../application/ports/store.ts";
@@ -41,6 +42,7 @@ import {
   workflowStepRuns,
   workflowVersions,
   sessionContexts,
+  workflowTimers,
 } from "./schema.ts";
 
 const json = (value: unknown): string => JSON.stringify(value ?? null);
@@ -698,6 +700,59 @@ export class SqliteStore implements Store {
     },
   };
 
+  timers = {
+    create: (record: WorkflowTimerRecord): void => {
+      this.handle.db
+        .insert(workflowTimers)
+        .values({
+          id: record.id,
+          runId: record.runId,
+          nodeId: record.nodeId,
+          dueAt: record.dueAt,
+          status: record.status,
+          payload: record.payload === undefined ? null : json(record.payload),
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        })
+        .run();
+    },
+    claimDue: (now: Date, limit: number): WorkflowTimerRecord[] => {
+      const claim = this.handle.sqlite.transaction(() => {
+        const rows = this.handle.db
+          .select()
+          .from(workflowTimers)
+          .where(and(eq(workflowTimers.status, "pending"), lte(workflowTimers.dueAt, now.toISOString())))
+          .orderBy(workflowTimers.dueAt)
+          .limit(limit)
+          .all();
+        for (const row of rows) {
+          this.handle.db
+            .update(workflowTimers)
+            .set({ status: "running", updatedAt: new Date().toISOString() })
+            .where(eq(workflowTimers.id, row.id))
+            .run();
+        }
+        return rows.map((row) => this.mapTimer({ ...row, status: "running" }));
+      });
+      return claim();
+    },
+    markFired: (id: string): void => {
+      this.handle.db
+        .update(workflowTimers)
+        .set({ status: "fired", updatedAt: new Date().toISOString() })
+        .where(eq(workflowTimers.id, id))
+        .run();
+    },
+    listByRun: (runId: string): WorkflowTimerRecord[] =>
+      this.handle.db
+        .select()
+        .from(workflowTimers)
+        .where(eq(workflowTimers.runId, runId))
+        .orderBy(workflowTimers.createdAt)
+        .all()
+        .map((row) => this.mapTimer(row)),
+  };
+
   chatThreads = {
     findOrCreate: (input: {
       scope: ChatThreadRecord["scope"];
@@ -929,6 +984,9 @@ export class SqliteStore implements Store {
         .run(projectSlug);
       this.handle.sqlite.query("DELETE FROM session_context WHERE project_slug = ?").run(projectSlug);
       this.handle.sqlite
+        .query("DELETE FROM workflow_timers WHERE run_id IN (SELECT id FROM workflow_runs WHERE project_slug = ?)")
+        .run(projectSlug);
+      this.handle.sqlite
         .query("DELETE FROM workflow_approvals WHERE run_id IN (SELECT id FROM workflow_runs WHERE project_slug = ?)")
         .run(projectSlug);
       this.handle.sqlite
@@ -1084,6 +1142,19 @@ export class SqliteStore implements Store {
       providerMessageId: row.providerMessageId ?? undefined,
       attempts: row.attempts,
       lastError: row.lastError ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private mapTimer(row: typeof workflowTimers.$inferSelect): WorkflowTimerRecord {
+    return {
+      id: row.id,
+      runId: row.runId,
+      nodeId: row.nodeId,
+      dueAt: row.dueAt,
+      status: row.status as WorkflowTimerRecord["status"],
+      payload: parse(row.payload),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

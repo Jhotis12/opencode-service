@@ -275,9 +275,11 @@ export class WorkflowScheduler {
       nodeId: trigger.id,
     });
     const nextWindow =
-      config.cron && isValidCronExpression(config.cron)
-        ? nextCronDate(config.cron, now, config.timezone)
-        : undefined;
+      config.mode === "once" && config.runAt
+        ? new Date(config.runAt)
+        : config.cron && isValidCronExpression(config.cron)
+          ? nextCronDate(config.cron, now, config.timezone)
+          : undefined;
     this.deps.store.scheduleStates.upsert({
       id: current?.id ?? crypto.randomUUID(),
       projectSlug,
@@ -297,6 +299,23 @@ export class WorkflowScheduler {
 
   async tick(now = new Date()): Promise<WorkflowRunRecord[]> {
     const triggered: WorkflowRunRecord[] = [];
+    const dueTimers = this.deps.store.timers.claimDue(now, 20);
+    for (const timer of dueTimers) {
+      try {
+        const run = await this.deps.executor.resumeFromTimer(timer.runId, timer.nodeId);
+        this.deps.store.timers.markFired(timer.id);
+        triggered.push(run);
+      } catch (error) {
+        this.deps.store.timers.markFired(timer.id);
+        this.deps.logger.error({
+          event: "workflow_timer_failed",
+          entryPoint: "scheduler",
+          runId: timer.runId,
+          nodeId: timer.nodeId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     const currentMinute = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
     const projects = await this.deps.workspace.listProjects();
     for (const slug of projects) {
@@ -316,7 +335,7 @@ export class WorkflowScheduler {
         continue;
       }
       const config = parsed.data;
-      if (!config.cron || !isValidCronExpression(config.cron)) {
+      if (config.mode !== "once" && (!config.cron || !isValidCronExpression(config.cron))) {
         this.deps.logger.warn({
           event: "workflow_schedule_invalid",
           entryPoint: "scheduler",
@@ -345,13 +364,67 @@ export class WorkflowScheduler {
         continue;
       }
 
+      if (config.mode === "once") {
+        const runAt = config.runAt ? new Date(config.runAt) : undefined;
+        if (!runAt || Number.isNaN(runAt.getTime())) continue;
+        if (state.lastWindowAt) continue;
+        if (now.getTime() < runAt.getTime()) {
+          this.deps.store.scheduleStates.update(
+            { projectSlug: slug, workflowId: graph.id, nodeId: trigger.id },
+            { nextWindowAt: runAt.toISOString() },
+          );
+          continue;
+        }
+        if (state.overlapPolicy === "skip" && this.deps.store.runs.findInFlight(slug, graph.id)) {
+          this.deps.logger.info({
+            event: "workflow_schedule_skip",
+            entryPoint: "scheduler",
+            projectSlug: slug,
+            workflowId: graph.id,
+            nodeId: trigger.id,
+            reason: "overlap_skip",
+            window: runAt.toISOString(),
+          });
+          continue;
+        }
+        const idempotencyKey = `once:${graph.id}:${trigger.id}:${runAt.toISOString()}`;
+        try {
+          const run = await this.deps.executor.start({
+            projectSlug: slug,
+            graph,
+            payload: { scheduledAt: runAt.toISOString(), timezone: state.timezone, mode: "once" },
+            entryPoint: "schedule",
+            idempotencyKey,
+            launchedBy: "scheduler",
+            sourceDetail: "once",
+          });
+          triggered.push(run);
+          this.deps.store.scheduleStates.update(
+            { projectSlug: slug, workflowId: graph.id, nodeId: trigger.id },
+            { lastWindowAt: runAt.toISOString(), nextWindowAt: undefined, lastRunId: run.id },
+          );
+        } catch (error) {
+          this.deps.logger.warn({
+            event: "workflow_schedule_skip",
+            entryPoint: "scheduler",
+            projectSlug: slug,
+            workflowId: graph.id,
+            nodeId: trigger.id,
+            reason: "start_failed",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        continue;
+      }
+
       const from = state.lastWindowAt
         ? new Date(new Date(state.lastWindowAt).getTime() + 60_000)
         : currentMinute;
       const limit = state.catchUp ? Math.max(1, Math.min(1_000, state.catchUpWindowMinutes)) : 1;
-      const windows = cronWindowsBetween(config.cron, from, now, state.timezone, limit);
+      const cron = config.cron ?? "";
+      const windows = cronWindowsBetween(cron, from, now, state.timezone, limit);
       for (const window of windows) {
-        const nextWindowAt = nextCronDate(config.cron, window, state.timezone)?.toISOString();
+        const nextWindowAt = nextCronDate(cron, window, state.timezone)?.toISOString();
         if (state.overlapPolicy === "skip" && this.deps.store.runs.findInFlight(slug, graph.id)) {
           this.deps.logger.info({
             event: "workflow_schedule_skip",

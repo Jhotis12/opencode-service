@@ -81,11 +81,11 @@
 
 ## 11. Timers durables y schedules únicos P1
 
-- [ ] 11.1 Crear `workflow_timers` y su repositorio con reclamo atómico y recuperación al arrancar; verificar con tests de doble claim y reinicio.
-- [ ] 11.2 Implementar `delay` durable para esperas mayores a 60 s y `waitUntil`, pausando y reanudando el run; verificar con un test que simula reinicio y vencimiento.
-- [ ] 11.3 Agregar `mode: "once"` y `runAt` al trigger schedule, con idempotencia y catch-up al arrancar; verificar que se ejecuta una sola vez y que una fecha perdida se recupera según configuración.
-- [ ] 11.4 Agregar la configuración de espera/fecha única al inspector; verificar con tests de componente que se guarda y se muestra la próxima ejecución.
-- [ ] 11.5 Documentar timers durables y ejecuciones únicas; verificar que el ejemplo de espera de días funciona en el test de integración.
+- [x] 11.1 Crear `workflow_timers` y su repositorio con reclamo atómico y recuperación al arrancar; verificar con tests de doble claim y reinicio.
+- [x] 11.2 Implementar `delay` durable para esperas mayores a 60 s y `waitUntil`, pausando y reanudando el run; verificar con un test que simula reinicio y vencimiento.
+- [x] 11.3 Agregar `mode: "once"` y `runAt` al trigger schedule, con idempotencia y catch-up al arrancar; verificar que se ejecuta una sola vez y que una fecha perdida se recupera según configuración.
+- [x] 11.4 Agregar la configuración de espera/fecha única al inspector; verificar con tests de componente que se guarda y se muestra la próxima ejecución.
+- [x] 11.5 Documentar timers durables y ejecuciones únicas; verificar que el ejemplo de espera de días funciona en el test de integración.
 
 ## 12. Foreach y subworkflows P1
 

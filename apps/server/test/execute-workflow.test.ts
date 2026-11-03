@@ -705,6 +705,45 @@ describe("workflow execution", () => {
     expect(store.runs.listSteps(run.id).find((step) => step.nodeId === "review")?.status).toBe("succeeded");
   });
 
+  it("persists durable delays and resumes from a timer", async () => {
+    const graph = baseGraph();
+    graph.nodes.push(
+      {
+        id: "wait",
+        type: "delay",
+        position: { x: 2, y: 0 },
+        config: { waitUntil: new Date(Date.now() + 3_600_000).toISOString() },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "after",
+        type: "code",
+        codeFile: "nodes/after.ts",
+        position: { x: 3, y: 0 },
+        config: {},
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+    );
+    graph.edges.push({ id: "e2", source: "double", target: "wait" }, { id: "e3", source: "wait", target: "after" });
+    const { executor, store } = await setup(graph, {
+      "nodes/double.ts": `export default async (input: { n: number }) => ({ doubled: input.n * 2 });`,
+      "nodes/after.ts": `export default async () => "done";`,
+    });
+    const paused = await executor.execute({ projectSlug: "p1", graph, payload: { n: 2 }, entryPoint: "web_ui" });
+    expect(paused.status).toBe("paused");
+    const timers = store.timers.listByRun(paused.id);
+    expect(timers).toHaveLength(1);
+    expect(timers[0]?.nodeId).toBe("wait");
+    const resumed = await executor.resumeFromTimer(paused.id, "wait");
+    expect(resumed.status).toBe("succeeded");
+    expect(resumed.output).toBe("done");
+    store.close();
+  });
+
   it("routes decision nodes down the matching branch", async () => {
     const graph = baseGraph();
     graph.nodes.push(

@@ -674,83 +674,93 @@ describe("application HTTP surface", () => {
   });
 
   it("streams control-chat progress and a non-empty reply", async () => {
-    const originalPrompt = application.agent.prompt;
-    const originalSubscribe = application.agent.subscribe;
-    let handler: ((event: unknown, sessionId: string) => void) | undefined;
-    application.agent.subscribe = async (next) => {
-      handler = next as (event: unknown, sessionId: string) => void;
-      return () => undefined;
+    const fake = application.agent as typeof application.agent & {
+      scriptedReplies: string[];
+      scriptedEvents: Array<{ type: string; data?: Record<string, unknown> }>;
     };
-    application.agent.prompt = async (sessionId: string) => {
-      handler?.({ type: "session.text.delta", data: { sessionID: sessionId, delta: "respuesta " } }, sessionId);
-      handler?.(
-        {
-          type: "session.tool.called",
-          data: { sessionID: sessionId, id: "t1", name: "platform_workflow_get", input: {} },
-        },
-        sessionId,
-      );
-      handler?.({ type: "session.tool.success", data: { sessionID: sessionId, id: "t1" } }, sessionId);
-      return "respuesta de prueba";
-    };
-    try {
-      const response = await app.request("/api/control/chat", {
-        method: "POST",
-        headers: {
-          accept: "text/event-stream",
-          cookie,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ message: "hola" }),
-      });
-      const body = await response.text();
-      expect(body).toContain("event: delta");
-      expect(body).toContain("event: activity");
-      expect(body).toContain("Revisando el flujo");
-      expect(body).toContain("event: done");
-      expect(body).toContain("respuesta de prueba");
-      expect(body).not.toContain('"reply":""');
-    } finally {
-      application.agent.prompt = originalPrompt;
-      application.agent.subscribe = originalSubscribe;
-    }
+    fake.scriptedReplies.push("respuesta de prueba");
+    fake.scriptedEvents.push(
+      { type: "session.tool.called", data: { id: "t1", name: "platform_workflow_get", input: {} } },
+      { type: "session.tool.success", data: { id: "t1" } },
+    );
+    const response = await app.request("/api/control/chat", {
+      method: "POST",
+      headers: {
+        accept: "text/event-stream",
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ message: "hola" }),
+    });
+    const body = await response.text();
+    expect(body).toContain("event: delta");
+    expect(body).toContain("event: activity");
+    expect(body).toContain("Revisando el flujo");
+    expect(body).toContain("event: done");
+    expect(body).toContain("respuesta de prueba");
+    expect(body).not.toContain('"reply":""');
+  });
+
+  it("exposes a durable turn for status and reattachment", async () => {
+    const fake = application.agent as typeof application.agent & { scriptedReplies: string[] };
+    fake.scriptedReplies.push("respuesta durable");
+    const stream = await app.request("/api/control/chat", {
+      method: "POST",
+      headers: { accept: "text/event-stream", cookie, "content-type": "application/json" },
+      body: JSON.stringify({ message: "turno durable" }),
+    });
+    const body = await stream.text();
+    const first = body.split("\n\n")[0] ?? "";
+    const payload = JSON.parse(first.replace(/^event: turn\ndata: /, "")) as { turn: { id: string } };
+    const turnId = payload.turn.id;
+
+    const status = await app.request(`/api/control/chat/turns/${turnId}`, { headers: { cookie } });
+    expect(status.status).toBe(200);
+    const statusBody = (await status.json()) as { turn: { status: string; assistantMessageId?: string } };
+    expect(statusBody.turn.status).toBe("succeeded");
+    expect(statusBody.turn.assistantMessageId).toBeTruthy();
+
+    const attach = await app.request(`/api/control/chat/turns/${turnId}/events`, {
+      headers: { accept: "text/event-stream", cookie },
+    });
+    expect(await attach.text()).toContain("respuesta durable");
+
+    const forbidden = await app.request(`/api/projects/ventas-bot/chat/turns/${turnId}`, { headers: { cookie } });
+    expect(forbidden.status).toBe(403);
   });
 
   it("returns 502 and a visible error for an empty control-chat reply", async () => {
-    const originalPrompt = application.agent.prompt;
-    application.agent.prompt = async () => "";
-    try {
-      const response = await json("/api/control/chat", {
-        method: "POST",
-        body: JSON.stringify({ message: "consulta vacía" }),
-      });
-      expect(response.status).toBe(502);
-      const payload = (await response.json()) as { error?: { message?: string } };
-      expect(payload.error?.message).toContain("empty response");
+    const fake = application.agent as typeof application.agent & { scriptedReplies: string[] };
+    fake.scriptedReplies.push("");
+    const response = await json("/api/control/chat", {
+      method: "POST",
+      body: JSON.stringify({ message: "consulta vacía" }),
+    });
+    expect(response.status).toBe(502);
+    const payload = (await response.json()) as { error?: { message?: string } };
+    expect(payload.error?.message).toMatch(/textual|empty/i);
 
-      const stream = await app.request("/api/control/chat", {
-        method: "POST",
-        headers: {
-          accept: "text/event-stream",
-          cookie,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ message: "consulta vacía SSE" }),
-      });
-      const body = await stream.text();
-      expect(body).toContain("event: error");
-      expect(body).not.toContain('"reply":""');
+    fake.scriptedReplies.push("");
+    const stream = await app.request("/api/control/chat", {
+      method: "POST",
+      headers: {
+        accept: "text/event-stream",
+        cookie,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ message: "consulta vacía SSE" }),
+    });
+    const body = await stream.text();
+    expect(body).toContain("event: error");
+    expect(body).not.toContain('"reply":""');
 
-      const historyResponse = await json("/api/control/chat?limit=20");
-      const history = (await historyResponse.json()) as {
-        data: Array<{ role: string; content: string }>;
-      };
-      expect(history.data.some((message) => message.role === "system" && message.content.includes("empty response"))).toBe(
-        true,
-      );
-      expect(history.data.some((message) => message.role === "agent" && message.content.trim() === "")).toBe(false);
-    } finally {
-      application.agent.prompt = originalPrompt;
-    }
+    const historyResponse = await json("/api/control/chat?limit=20");
+    const history = (await historyResponse.json()) as {
+      data: Array<{ role: string; content: string }>;
+    };
+    expect(history.data.some((message) => message.role === "system" && /textual|empty/i.test(message.content))).toBe(
+      true,
+    );
+    expect(history.data.some((message) => message.role === "agent" && message.content.trim() === "")).toBe(false);
   });
 });

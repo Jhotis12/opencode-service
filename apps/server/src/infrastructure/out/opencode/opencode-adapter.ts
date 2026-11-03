@@ -1,6 +1,13 @@
 import { OpenCode } from "@opencode/client";
 import { Service } from "@opencode/client/service";
-import type { AgentModelInfo, AgentRuntimePort } from "../../../application/ports/runtime.ts";
+import type {
+  AgentInboxItem,
+  AgentMessage,
+  AgentModelInfo,
+  AgentPromptInput,
+  AgentRuntimePort,
+  AgentSessionState,
+} from "../../../application/ports/runtime.ts";
 import { AgentPromptTimeoutError } from "../../../application/ports/runtime.ts";
 import { parseModelRef } from "@platform/shared";
 
@@ -13,8 +20,11 @@ interface ModelLike {
 }
 
 interface MessageLike {
+  id?: string;
   type?: string;
+  text?: string;
   content?: Array<{ type?: string; text?: string }>;
+  time?: { created?: number };
 }
 
 export interface OpenCodeClientLike {
@@ -27,13 +37,35 @@ export interface OpenCodeClientLike {
       agent?: string;
       model?: { providerID: string; id: string; variant?: string };
     }): Promise<{ id: string }>;
-    prompt(input: { sessionID: string; text: string }): Promise<unknown>;
+    prompt(input: {
+      sessionID: string;
+      text: string;
+      id?: string;
+      metadata?: Record<string, unknown>;
+      delivery?: "queue" | "steer";
+    }): Promise<{ id?: string }>;
+    get(input: { sessionID: string }): Promise<{
+      id?: string;
+      outcome?: "succeeded" | "failed" | "interrupted";
+      cost?: number;
+      tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number } };
+      time?: { created?: number; updated?: number; busy?: number; idle?: number };
+    }>;
+    active(): Promise<Record<string, { type?: string }>>;
+    inbox: { list(input: { sessionID: string }): Promise<AgentInboxItem[]> };
+    message: { get(input: { sessionID: string; messageID: string }): Promise<MessageLike> };
     interrupt(input: { sessionID: string }): Promise<unknown>;
     switchModel(input: { sessionID: string; model: { providerID: string; id: string; variant?: string } }): Promise<void>;
     switchAgent(input: { sessionID: string; agent: string }): Promise<void>;
     context(input: { sessionID: string }): Promise<MessageLike[]>;
   };
-  experimental: { session: { wait(input: { sessionID: string }): Promise<void> } };
+  message: { list(input: { sessionID: string; order?: "asc" | "desc"; limit?: number }): Promise<{ data: MessageLike[] }> };
+  experimental: {
+    session: {
+      wait(input: { sessionID: string }): Promise<void>;
+      log?(input: { sessionID: string; after?: number; follow?: boolean }): AsyncIterable<unknown>;
+    };
+  };
   integration: { connect: { key(input: { integrationID: string; key: string }): Promise<void> } };
   location: { reload(): Promise<void> };
   event: { subscribe(): AsyncIterable<unknown> };
@@ -69,9 +101,12 @@ export class ServiceClientFactory implements OpenCodeClientFactory {
           ...(this.options.serviceFile ? { file: this.options.serviceFile } : {}),
           ...(this.options.env ? { env: this.options.env } : {}),
         });
+    const longLivedFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+      fetch(input, { ...(init ?? {}), timeout: 20 * 60_000 } as RequestInit)) as unknown as typeof fetch;
     const client = OpenCode.make({
       baseUrl: endpoint.url,
       headers: Service.headers(endpoint as never),
+      fetch: longLivedFetch,
     }) as unknown as OpenCodeClientLike;
     return { client, url: endpoint.url };
   }
@@ -92,6 +127,16 @@ export class OpenCodeV2Adapter implements AgentRuntimePort {
       });
     }
     return (await this.readyPromise).client;
+  }
+
+  private resetClient(): void {
+    this.ready = undefined;
+    this.readyPromise = undefined;
+  }
+
+  private isTransportError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /transport|timed out|timeout|fetch|econn|socket|connection/i.test(message);
   }
 
   async ensureReady(): Promise<{ url: string; version?: string }> {
@@ -144,6 +189,120 @@ export class OpenCodeV2Adapter implements AgentRuntimePort {
       model: model ? { providerID: model.providerID, id: model.modelID, variant: model.variant } : undefined,
     });
     return { id: session.id };
+  }
+
+  async sendPrompt(sessionId: string, input: AgentPromptInput): Promise<{ inboxId?: string }> {
+    const send = async () => {
+      const client = await this.client();
+      const result = await client.session.prompt({
+        sessionID: sessionId,
+        text: input.text,
+        id: input.id,
+        metadata: input.metadata,
+        delivery: input.delivery,
+      });
+      return { inboxId: result?.id };
+    };
+    try {
+      return await send();
+    } catch (error) {
+      if (!this.isTransportError(error)) throw error;
+      this.resetClient();
+      return send();
+    }
+  }
+
+  async getSession(sessionId: string): Promise<AgentSessionState | undefined> {
+    const read = async () => {
+      const client = await this.client();
+      try {
+        const info = await client.session.get({ sessionID: sessionId });
+        const active = (await client.session.active().catch(() => ({}))) as Record<string, { type?: string }>;
+        return {
+          id: info.id ?? sessionId,
+          active: Boolean(active[sessionId]),
+          outcome: info.outcome,
+          cost: info.cost,
+          tokens: info.tokens
+            ? {
+                input: info.tokens.input,
+                output: info.tokens.output,
+                reasoning: info.tokens.reasoning,
+                cacheRead: info.tokens.cache?.read,
+              }
+            : undefined,
+          time: info.time,
+        } satisfies AgentSessionState;
+      } catch (error) {
+        if (/session not found/i.test(error instanceof Error ? error.message : String(error))) return undefined;
+        throw error;
+      }
+    };
+    try {
+      return await read();
+    } catch (error) {
+      if (!this.isTransportError(error)) throw error;
+      this.resetClient();
+      return read();
+    }
+  }
+
+  async listActiveSessions(): Promise<Set<string>> {
+    const client = await this.client();
+    const active = await client.session.active();
+    return new Set(Object.keys(active));
+  }
+
+  async listInbox(sessionId: string): Promise<AgentInboxItem[]> {
+    const client = await this.client();
+    return client.session.inbox.list({ sessionID: sessionId });
+  }
+
+  async getMessages(sessionId: string, options: { order?: "asc" | "desc"; limit?: number } = {}): Promise<AgentMessage[]> {
+    const client = await this.client();
+    const result = await client.message.list({
+      sessionID: sessionId,
+      order: options.order ?? "asc",
+      limit: options.limit ?? 50,
+    });
+    return (result.data ?? []).map((message) => this.toAgentMessage(message));
+  }
+
+  async *openSessionLog(sessionId: string, options: { after?: number; follow?: boolean } = {}): AsyncIterable<unknown> {
+    const client = await this.client();
+    if (!client.experimental.session.log) return;
+    for await (const event of client.experimental.session.log({
+      sessionID: sessionId,
+      after: options.after ?? 0,
+      follow: options.follow ?? true,
+    })) {
+      yield event;
+    }
+  }
+
+  async getMessage(sessionId: string, messageId: string): Promise<AgentMessage | undefined> {
+    const client = await this.client();
+    try {
+      return this.toAgentMessage(await client.session.message.get({ sessionID: sessionId, messageID: messageId }));
+    } catch {
+      return undefined;
+    }
+  }
+
+  private toAgentMessage(message: MessageLike): AgentMessage {
+    const text =
+      typeof message.text === "string"
+        ? message.text
+        : (message.content ?? [])
+            .filter((part) => part.type === "text" && typeof part.text === "string")
+            .map((part) => part.text)
+            .join("\n");
+    return {
+      id: message.id ?? "",
+      type: message.type ?? "unknown",
+      text: text || undefined,
+      created: message.time?.created,
+    };
   }
 
   async prompt(
@@ -206,16 +365,20 @@ export class OpenCodeV2Adapter implements AgentRuntimePort {
   }
 
   async subscribe(handler: (event: unknown) => void): Promise<() => void> {
-    const client = await this.client();
     let stopped = false;
     void (async () => {
-      try {
-        for await (const event of client.event.subscribe()) {
+      while (!stopped) {
+        try {
+          const client = await this.client();
+          for await (const event of client.event.subscribe()) {
+            if (stopped) break;
+            handler(event);
+          }
+        } catch {
           if (stopped) break;
-          handler(event);
+          this.resetClient();
         }
-      } catch {
-        // Live-only subscription: consumers re-subscribe after a source failure.
+        if (!stopped) await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     })();
     return async () => {

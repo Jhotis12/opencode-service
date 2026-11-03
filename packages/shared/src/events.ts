@@ -43,6 +43,15 @@ export const SseEventSchema = z.discriminatedUnion("type", [
     message: z.string(),
   }),
   z.object({
+    type: z.literal("chat.turn.updated"),
+    turnId: z.string(),
+    threadId: z.string(),
+    scope: z.enum(["project", "global"]),
+    projectSlug: z.string().optional(),
+    status: z.string(),
+    activity: z.string().optional(),
+  }),
+  z.object({
     type: z.literal("ping"),
     at: z.string(),
   }),
@@ -54,12 +63,14 @@ export const ChatMessageRequestSchema = z.object({
   message: z.string().min(1).max(20_000),
   metadata: z.record(z.unknown()).optional(),
   webhookUrl: z.string().url().optional(),
+  clientMessageId: z.string().min(1).max(200).optional(),
 });
 export type ChatMessageRequest = z.infer<typeof ChatMessageRequestSchema>;
 
 export const ChatMessageResponseSchema = z.object({
   threadId: z.string(),
   sessionId: z.string(),
+  turnId: z.string().optional(),
   reply: z.string(),
 });
 export type ChatMessageResponse = z.infer<typeof ChatMessageResponseSchema>;

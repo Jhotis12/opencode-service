@@ -39,7 +39,14 @@ export interface Metrics {
       | "workflow_runs_queued"
       | "workflow_runs_dispatched"
       | "channel_messages"
-      | "worker_timeouts",
+      | "worker_timeouts"
+      | "chat_turns_started"
+      | "chat_turns_succeeded"
+      | "chat_turns_failed"
+      | "chat_turns_timed_out"
+      | "chat_turns_cancelled"
+      | "chat_turns_recovered"
+      | "chat_transport_retries",
   ): void;
   snapshot(): MetricsSnapshot;
 }

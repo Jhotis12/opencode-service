@@ -1,244 +1,244 @@
-# Graph Report - Opencode-server  (2026-11-02)
+# Graph Report - Opencode-server  (2026-11-03)
 
 ## Corpus Check
-- 214 files · ~249,823 words
+- 222 files · ~270,121 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 9 file(s) not represented in the graph (top: (none) 6, .example 1, .css 1)
 
 ## Summary
-- 2028 nodes · 5288 edges · 98 communities (80 shown, 18 thin omitted)
-- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 165 edges (avg confidence: 0.85)
+- 2184 nodes · 5776 edges · 110 communities (86 shown, 24 thin omitted)
+- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 175 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `ad9f47a8`
+- Built from commit: `296dcc30`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- LogBindings
+- logger.ts
 - HttpPlatformClient
 - auth-routes.ts
 - SqliteStore
-- agents.test.ts
-- bootstrap.ts
+- MarkdownAgentAdapter
+- AgentRuntimePort
 - App.tsx
-- manage-integrations.ts
-- react
-- shared/src/index.ts
-- IntegrationEgressPort
-- IntegrationValidationError
+- Store
+- ChatTurnRecord
+- app.ts
+- channel-manager.ts
+- Store
 - server/package.json
-- NodeInspectorModal.tsx
+- WorkflowVersionRecord
 - src/integrations.ts
 - ui.test.tsx
 - sqlite-store.ts
-- search-knowledge.ts
+- input-contract.test.ts
 - workflow.ts
 - SafeFsWorkspaceAdapter
-- ProjectPage
-- channel-adapters.test.ts
+- AlertService
+- agents.test.ts
 - FakeRuntime
 - environment
-- WorkflowRunRecord
-- RouteProjectIntegrationMessageUseCase
+- knowledge.test.ts
+- channel-router.test.ts
 - web/tsconfig.json
 - scripts
-- shared/src/api.ts
 - web/package.json
-- knowledge.test.ts
+- InMemoryMetrics
+- extractors.ts
 - chat.ts
-- setup.ts
-- steps
 - web/src/api.ts
+- steps
+- ChatPanel.tsx
 - opencode-adapter.ts
-- send-notification.ts
+- WorkflowRunRecord
 - opencode-plugin/package.json
-- AgentRuntimePort
+- FakeAgentRuntime
 - GrammyTransport
-- legacy-migration.ts
-- chat-recovery.test.ts
-- Store
+- ChatTurnService
+- store.ts
+- NotebookRecord
 - tools.ts
+- ProjectPage
 - cron.ts
-- WorkflowVersionRecord
 - artifacts
 - compilerOptions
-- execute-workflow.ts
+- validation.ts
 - FakeClient
 - input.ts
-- EmbeddingPort
-- execute-workflow.test.ts
-- SessionContextRecord
+- AgentCatalog.tsx
+- BaileysTransport
+- OpenCodeV2Adapter
 - ChatThreadRecord
-- migrate.ts
+- execute-workflow.ts
 - RunQueueRepository
-- ProjectRecord
-- NotebookRecord
-- app.ts
+- WorkflowCanvasProps
+- NodeInspectorModal.tsx
+- IntegrationManager
 - shared/package.json
 - PlatformClient
-- store.ts
+- SettingsRepository
 - WorkflowScheduleStateRecord
-- WorkflowRunRepository
+- ProjectPage.tsx
 - WorkflowTimerRecord
 - KbSourceRecord
-- entities.ts
-- extractors.ts
+- ManageIntegrationsUseCase
+- SqliteStore
 - WorkflowDeliveryRecord
-- OpenCodeV2Adapter
-- IntegrationManagerPort
-- ChatPanel.tsx
+- graph-edits.ts
+- FakeAgent
+- IntegrationRecord
 - telemetry.ts
-- FakeAgentRuntime
+- agents.ts
 - WorkflowCanvas.tsx
-- ErrorBoundary
+- ChatMessageRecord
 - entrypoint.sh
 - config.yaml
-- alerts.ts
-- FakeAgent
-- worker-pool.test.ts
+- legacy-migration.ts
+- WorkflowCanvas.tsx
+- EmbeddingPort
 - server/tsconfig.json
-- FakeAgent
-- chat-progress.ts
+- legacy-migration.ts
+- KnowledgeError
 - scripts
 - worker-entry.ts
-- ControlChannelsPanel
-- .start
-- contracts.test.ts
-- src/events.ts
+- shared/src/api.ts
+- search-knowledge.ts
+- chat-progress.ts
+- FakeAgent
 - opencode-plugin/tsconfig.json
-- createAgentRuntime
+- ChatTurnStatus
 - shared/tsconfig.json
-- ErrorEventRecord
-- migrate-legacy.ts
-- CanvasActions
-- json
+- bootstrap.ts
+- IntegrationValidationError
+- canvas-actions.ts
+- RouteProjectIntegrationMessageUseCase
+- setup.ts
+- SessionContextRecord
+- alerts.test.ts
+- notify-approval.test.ts
+- ProjectsPage
+- integration-manager.test.ts
+- AgentModelInfo
+- start-server.ts
+- NodeInspector.tsx
+- .waitForTerminal
+- createApplication
+- TurnTimeoutError
 
 ## God Nodes (most connected - your core abstractions)
-1. `createApplication()` - 130 edges
-2. `Store` - 61 edges
-3. `SqliteStore` - 56 edges
-4. `Logger` - 54 edges
-5. `IntegrationRecord` - 47 edges
-6. `SafeFsWorkspaceAdapter` - 42 edges
-7. `WorkspacePort` - 42 edges
-8. `AgentRuntimePort` - 41 edges
-9. `WorkflowGraph` - 39 edges
-10. `ProjectPage()` - 39 edges
+1. `createApplication()` - 145 edges
+2. `SqliteStore` - 64 edges
+3. `Store` - 63 edges
+4. `Logger` - 56 edges
+5. `AgentRuntimePort` - 50 edges
+6. `ChatTurnService` - 47 edges
+7. `IntegrationRecord` - 47 edges
+8. `WorkflowGraph` - 46 edges
+9. `SafeFsWorkspaceAdapter` - 42 edges
+10. `WorkspacePort` - 42 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `WorkflowRunRecord` --references--> `EntryPointType`  [EXTRACTED]
-  apps/server/src/domain/entities.ts → packages/shared/src/telemetry.ts
-- `ProjectSettingsView` --references--> `IntegrationRecord`  [EXTRACTED]
-  apps/web/src/api.ts → packages/shared/src/integrations.ts
+- `LogBindings` --references--> `EntryPointType`  [EXTRACTED]
+  apps/server/src/domain/telemetry/index.ts → packages/shared/src/telemetry.ts
+- `ExecuteRunInput` --references--> `WorkflowGraph`  [EXTRACTED]
+  apps/server/src/application/use-cases/execute-workflow.ts → packages/shared/src/workflow.ts
 - `WorkflowVersionRecord` --references--> `WorkflowGraph`  [EXTRACTED]
   apps/server/src/domain/entities.ts → packages/shared/src/workflow.ts
-- `IntegrationRecord` --references--> `IntegrationStatus`  [EXTRACTED]
-  apps/server/src/domain/entities.ts → packages/shared/src/integrations.ts
 - `WorkflowCanvasProps` --references--> `WorkflowGraph`  [EXTRACTED]
   apps/web/src/components/WorkflowCanvas.tsx → packages/shared/src/workflow.ts
+- `ChatHistoryMessage` --references--> `ChatTurnStatus`  [EXTRACTED]
+  apps/web/src/api.ts → packages/shared/src/chat.ts
 
 ## Import Cycles
 - None detected.
 
-## Communities (98 total, 18 thin omitted)
+## Communities (110 total, 24 thin omitted)
 
-### Community 0 - "LogBindings"
-Cohesion: 0.08
-Nodes (13): ErrorTracker, LogBindings, Metrics, MetricsSnapshot, redact(), SECRET_KEY_PATTERN, InMemoryMetrics, createMemoryLogger() (+5 more)
+### Community 0 - "logger.ts"
+Cohesion: 0.14
+Nodes (9): ErrorTracker, LogBindings, redact(), createLogger(), createMemoryLogger(), LoggerOptions, PinoLoggerAdapter, sanitizeSentryEvent() (+1 more)
 
 ### Community 2 - "auth-routes.ts"
 Cohesion: 0.08
-Nodes (25): PasswordHasher, UserRepository, ChangePasswordUseCase, InvalidCredentialsError, LoginUseCase, UserRecord, assertPasswordPolicy(), MIN_PASSWORD_LENGTH (+17 more)
+Nodes (26): integrationError(), PasswordHasher, UserRepository, ChangePasswordUseCase, InvalidCredentialsError, LoginUseCase, UserRecord, assertPasswordPolicy() (+18 more)
 
 ### Community 3 - "SqliteStore"
-Cohesion: 0.09
-Nodes (18): ExecuteDatabaseActionUseCase, GetProjectSettingsUseCase, UpdateProjectSettingsUseCase, SqliteStore, createLogger(), PROJECT_ISOLATION_PERMISSIONS, dirs, integration() (+10 more)
+Cohesion: 0.07
+Nodes (26): Application, Aes256GcmVaultAdapter, loadOrCreateMasterKey(), VaultError, json(), logEntries, testLogger, waitForApproval() (+18 more)
 
-### Community 4 - "agents.test.ts"
-Cohesion: 0.08
-Nodes (23): ManageSubagentsUseCase, AgentMarkdownError, agentRelativePath(), parseAgentMarkdown(), parseAgentPath(), serializeAgentMarkdown(), MarkdownAgentAdapter, McpServerConfig (+15 more)
+### Community 4 - "MarkdownAgentAdapter"
+Cohesion: 0.16
+Nodes (5): ManageSubagentsUseCase, MarkdownAgentAdapter, McpServerConfig, setup(), SubagentFrontmatter
 
-### Community 5 - "bootstrap.ts"
-Cohesion: 0.11
-Nodes (15): BootstrapOptions, BootstrapResult, BootstrapSystemUseCase, DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME, ensureControlWorkspace(), SUBDIRECTORIES, writeIfMissing() (+7 more)
+### Community 5 - "AgentRuntimePort"
+Cohesion: 0.06
+Nodes (21): AgentRuntimePort, ChatSessionFactory, ensureChatSession(), isSessionNotFoundError(), promptWithSessionRecovery(), registerSessionContext(), assertChatTimeoutsCoverOpenCode(), ChatTurnPolicy (+13 more)
 
 ### Community 6 - "App.tsx"
-Cohesion: 0.11
-Nodes (26): App(), RequireAuth(), AuthContext, AuthProvider(), AuthState, useAuth(), BrandLockup(), BrandMark() (+18 more)
+Cohesion: 0.10
+Nodes (27): App(), RequireAuth(), AuthContext, AuthProvider(), AuthState, useAuth(), BrandLockup(), BrandMark() (+19 more)
 
-### Community 7 - "manage-integrations.ts"
-Cohesion: 0.21
-Nodes (9): ChannelAuthError, deliverWebhook(), SendExternalChatMessageUseCase, signWebhook(), verifyIntegrationKey(), createExternalChatRoutes(), cleanups, fakeManager (+1 more)
+### Community 7 - "Store"
+Cohesion: 0.13
+Nodes (6): AppConfig, SendNotificationInput, SendNotificationResult, SendNotificationUseCase, SUPPORTED_CHANNELS, Logger
 
-### Community 8 - "react"
-Cohesion: 0.09
-Nodes (52): api, AgentFormState, AgentMode, KINDS, ModalSize, SIZE_CLASS, ProjectKnowledgePanel(), CHANNEL_KINDS (+44 more)
+### Community 9 - "app.ts"
+Cohesion: 0.10
+Nodes (17): AppEnv, EventBus, WorkspacePort, GetProjectSettingsUseCase, ProjectReadinessItem, readinessFor(), UpdateProjectSettingsUseCase, captureCodeBundle() (+9 more)
 
-### Community 9 - "shared/src/index.ts"
-Cohesion: 0.11
-Nodes (13): EventBus, WorkspacePort, captureCodeBundle(), CreateProjectUseCase, DeleteProjectUseCase, RollbackWorkflowVersionUseCase, SaveWorkflowUseCase, syncProjectsFromDisk() (+5 more)
-
-### Community 10 - "IntegrationEgressPort"
+### Community 10 - "channel-manager.ts"
 Cohesion: 0.15
 Nodes (8): EgressSendResult, IntegrationEgressPort, ManagedIntegration, IntegrationEgressRouter, TelegramChannelAdapter, FakeEgress, RecordingEgress, FakeEgress
 
-### Community 11 - "IntegrationValidationError"
-Cohesion: 0.13
-Nodes (14): ConnectProviderUseCase, databaseConfig(), OPENCODE_GO_PROVIDER_ID, QueryDatabaseIntegrationUseCase, TestDatabaseIntegrationUseCase, DatabaseActionValidationError, ExecuteDatabaseActionInput, ExecuteDatabaseActionResult (+6 more)
+### Community 11 - "Store"
+Cohesion: 0.10
+Nodes (22): AgentSessionRef, ExternalDatabaseAdapter, SecretVault, Store, ConnectProviderUseCase, OPENCODE_GO_PROVIDER_ID, QueryDatabaseIntegrationUseCase, DatabaseActionValidationError (+14 more)
 
 ### Community 12 - "server/package.json"
-Cohesion: 0.05
-Nodes (55): dependencies, drizzle-orm@^0.38.3, grammy@^1.32.0, hono@^4.6.14, mammoth@^1.9.0, mssql@^11.0.1, mysql2@^3.12.0, @opencode/client@^2.2.5 (+47 more)
-
-### Community 13 - "NodeInspectorModal.tsx"
-Cohesion: 0.08
-Nodes (27): ModelInfo, nodeIssues(), CodeEditor(), FallbackEditor(), Monaco, DATABASE_KINDS, DatabaseNodeFields(), HTTP_KINDS (+19 more)
+Cohesion: 0.06
+Nodes (53): dependencies, drizzle-orm@^0.38.3, grammy@^1.32.0, hono@^4.6.14, mammoth@^1.9.0, mssql@^11.0.1, mysql2@^3.12.0, @opencode/client@2.2.5 (+45 more)
 
 ### Community 14 - "src/integrations.ts"
 Cohesion: 0.06
-Nodes (30): CHANNEL_CAPABILITIES, ChannelModeSchema, ChannelRouting, CreateIntegrationInput, CreateIntegrationInputSchema, DATABASE_CAPABILITIES, DatabaseAccessPolicy, defaultRouting (+22 more)
+Nodes (30): CHANNEL_CAPABILITIES, ChannelMode, ChannelModeSchema, ChannelRouting, ChannelRoutingSchema, CreateIntegrationInput, DATABASE_CAPABILITIES, DatabaseAccessPolicy (+22 more)
 
 ### Community 15 - "ui.test.tsx"
-Cohesion: 0.11
-Nodes (21): formatDate(), ProjectsPage(), onNameChange(), slugify(), apiMock, primary, renderCatalog(), subagent (+13 more)
+Cohesion: 0.17
+Nodes (13): apiMock, graph, renderPage(), apiMock, { project }, renderPage(), renderWithProviders(), graph (+5 more)
 
 ### Community 16 - "sqlite-store.ts"
-Cohesion: 0.14
-Nodes (23): AppDatabase, DatabaseHandle, chatMessages, chatThreads, integrations, kbChunks, kbSources, notebooks (+15 more)
+Cohesion: 0.12
+Nodes (26): chatMessages, chatThreads, chatTurns, integrations, kbChunks, kbSources, notebooks, projects (+18 more)
 
-### Community 17 - "search-knowledge.ts"
-Cohesion: 0.44
-Nodes (4): KnowledgeSearchResult, buildGroundedContext(), SearchKnowledgeUseCase, cosineSimilarity()
+### Community 17 - "input-contract.test.ts"
+Cohesion: 0.16
+Nodes (9): CodeWorkerPort, WorkerRpcHandlers, WorkerTimeoutError, NoopErrorTracker, BunWorkerPoolAdapter, RpcMessage, dirs, logger (+1 more)
 
 ### Community 18 - "workflow.ts"
 Cohesion: 0.06
 Nodes (32): AgentNodeConfig, DatabaseNodeConfig, DatabaseStatementSchema, EdgeSchema, ForeachNodeConfig, ForeachNodeConfigSchema, InputFieldSchema, InputFieldType (+24 more)
 
 ### Community 19 - "SafeFsWorkspaceAdapter"
-Cohesion: 0.10
-Nodes (22): TriggerRef, ApprovalCommand, normalizeSender(), parseApprovalCommand(), ProjectRouteDecision, routeGlobalMessage(), routeProjectMessage(), senderMatchesAllowlist() (+14 more)
+Cohesion: 0.18
+Nodes (8): SafeFsWorkspaceAdapter, WorkspaceError, setup(), setup(), setup(), fakeExecutor(), setupScheduler(), workspace()
 
-### Community 20 - "ProjectPage"
-Cohesion: 0.07
-Nodes (36): changeEdgeCondition(), connectNodes(), cycleNodes(), visit(), getConnectionIssue(), getGraphIssues(), issue(), MappedIssue (+28 more)
-
-### Community 21 - "channel-adapters.test.ts"
-Cohesion: 0.10
-Nodes (5): parseCloudWebhook(), WhatsAppCloudTransport, WhatsAppTransport, FakeWhatsApp, silentLogger
+### Community 21 - "agents.test.ts"
+Cohesion: 0.23
+Nodes (7): AgentMarkdownError, agentRelativePath(), parseAgentMarkdown(), parseAgentPath(), serializeAgentMarkdown(), dirs, SubagentProfile
 
 ### Community 23 - "environment"
-Cohesion: 0.09
-Nodes (22): EMBEDDINGS_API_KEY, EMBEDDINGS_MODEL, EMBEDDINGS_URL, INITIAL_ADMIN_PASSWORD, OPENCODE_DB, OPENCODE_MODE, ORCHESTRATOR_MODEL, PLATFORM_GLOBAL_TOKEN (+14 more)
+Cohesion: 0.06
+Nodes (30): AGENT_CHAT_TIMEOUT_MS, AGENT_TURN_IDLE_MS, AGENT_TURN_MAX_MS, AGENT_TURN_POLL_MS, AGENT_TURN_RETRY_MS, CHAT_TURN_ENGINE, EMBEDDINGS_API_KEY, EMBEDDINGS_MODEL (+22 more)
 
-### Community 24 - "WorkflowRunRecord"
-Cohesion: 0.32
-Nodes (4): ExecuteWorkflowRunUseCase, WorkflowRunRecord, nextEdge(), WorkflowRunStatus
+### Community 24 - "knowledge.test.ts"
+Cohesion: 0.18
+Nodes (12): chunkMarkdown(), ChunkOptions, KnowledgeChunk, splitLongText(), summarize(), assertSafeUrl(), ipv4Parts(), isPrivateAddress() (+4 more)
 
-### Community 25 - "RouteProjectIntegrationMessageUseCase"
-Cohesion: 0.30
-Nodes (3): IncomingIntegrationMessage, RouteGlobalIntegrationMessageUseCase, RouteProjectIntegrationMessageUseCase
+### Community 25 - "channel-router.test.ts"
+Cohesion: 0.19
+Nodes (12): TriggerRef, ApprovalCommand, normalizeSender(), parseApprovalCommand(), ProjectRouteDecision, routeGlobalMessage(), routeProjectMessage(), senderMatchesAllowlist() (+4 more)
 
 ### Community 26 - "web/tsconfig.json"
 Cohesion: 0.25
@@ -248,73 +248,73 @@ Nodes (7): compilerOptions, jsx, lib, types, extends, include, ../../tsconfig.ba
 Cohesion: 0.08
 Nodes (21): devDependencies, @playwright/test@^1.49.1, @types/bun@latest, typescript@^5.7.2, @types/bun, typescript, name, private (+13 more)
 
-### Community 28 - "shared/src/api.ts"
-Cohesion: 0.18
-Nodes (9): ApiError, ApiErrorSchema, CreateProjectRequest, CreateProjectRequestSchema, PaginationMeta, PaginationMetaSchema, PaginationQuery, PaginationQuerySchema (+1 more)
-
-### Community 29 - "web/package.json"
+### Community 28 - "web/package.json"
 Cohesion: 0.06
-Nodes (47): dependencies, @fontsource-variable/inter@^5.3.0, @monaco-editor/react@^4.6.0, @platform/shared@workspace:*, qrcode@^1.5.4, react@^19.0.0, react-dom@^19.0.0, react-markdown@^9.0.3 (+39 more)
+Nodes (48): dependencies, @fontsource-variable/inter@^5.3.0, @monaco-editor/react@^4.6.0, @platform/shared@workspace:*, qrcode@^1.5.4, react@^19.0.0, react-dom@^19.0.0, react-markdown@^9.0.3 (+40 more)
 
-### Community 30 - "knowledge.test.ts"
-Cohesion: 0.18
-Nodes (12): chunkMarkdown(), ChunkOptions, KnowledgeChunk, splitLongText(), summarize(), assertSafeUrl(), ipv4Parts(), isPrivateAddress() (+4 more)
+### Community 29 - "InMemoryMetrics"
+Cohesion: 0.14
+Nodes (5): Metrics, MetricsSnapshot, InMemoryMetrics, SseHub, setup()
+
+### Community 30 - "extractors.ts"
+Cohesion: 0.19
+Nodes (8): KnowledgeExtractor, IngestDeps, ALLOWED_EXTENSIONS, csvToMarkdown(), DocumentExtractor, extensionOf(), extractDocx(), extractPdf()
 
 ### Community 31 - "chat.ts"
-Cohesion: 0.14
-Nodes (13): ChatMessage, ChatMessageSchema, ChatProgressEventSchema, ChatRole, ChatRoleSchema, ChatScope, ChatScopeSchema, ChatThread (+5 more)
+Cohesion: 0.09
+Nodes (22): ChatMessage, ChatMessageSchema, ChatProgressEventSchema, ChatRole, ChatRoleSchema, ChatScope, ChatScopeSchema, ChatThread (+14 more)
 
-### Community 32 - "setup.ts"
-Cohesion: 0.13
-Nodes (4): @testing-library/jest-dom@^6.6.3, EventSourceStub, ResizeObserverStub, @testing-library/jest-dom
+### Community 32 - "web/src/api.ts"
+Cohesion: 0.12
+Nodes (18): ApiClientError, ApprovalRecord, attachTurnStream(), chatStream(), ChatTurnStreamError, DeliveryRecord, HealthPayload, ModelInfo (+10 more)
 
 ### Community 33 - "steps"
 Cohesion: 0.10
 Nodes (19): OPENCODE_MODE, jobs, verify, name, on, pull_request, push, branches (+11 more)
 
-### Community 34 - "web/src/api.ts"
-Cohesion: 0.12
-Nodes (18): ApiClientError, ApprovalRecord, chatStream(), DeliveryRecord, HealthPayload, NotebookSummary, OrchestratorOverview, ProjectReadinessItem (+10 more)
+### Community 34 - "ChatPanel.tsx"
+Cohesion: 0.17
+Nodes (13): ChatHistoryMessage, ChatActivity, ChatMessage, ChatPanel(), submit(), upsertActivity(), ChatSurface, copyText() (+5 more)
 
 ### Community 35 - "opencode-adapter.ts"
-Cohesion: 0.10
-Nodes (6): AgentPromptTimeoutError, extractAssistantText(), MessageLike, ModelLike, OpenCodeClientLike, adapterWith()
+Cohesion: 0.08
+Nodes (9): AgentInboxItem, createAgentRuntime(), extractAssistantText(), MessageLike, ModelLike, OpenCodeClientFactory, OpenCodeClientLike, ServiceClientFactory (+1 more)
 
-### Community 36 - "send-notification.ts"
-Cohesion: 0.15
-Nodes (9): NotifyApprovalUseCase, SendNotificationInput, SendNotificationResult, SendNotificationUseCase, SUPPORTED_CHANNELS, FakeEgress, integration(), logger() (+1 more)
+### Community 36 - "WorkflowRunRecord"
+Cohesion: 0.10
+Nodes (12): WorkflowRunRepository, ApprovalDecisionError, DecideApprovalUseCase, buildNodePrompt(), ExecuteRunInput, ExecuteWorkflowRunUseCase, RunState, ApprovalRecord (+4 more)
 
 ### Community 37 - "opencode-plugin/package.json"
 Cohesion: 0.12
 Nodes (20): dependencies, @opencode/plugin@^2.2.5, @platform/shared@workspace:*, zod@^3.24.1, devDependencies, @types/bun@latest, typescript@^5.7.2, exports (+12 more)
 
-### Community 38 - "AgentRuntimePort"
-Cohesion: 0.15
-Nodes (6): AgentRuntimePort, ChatSessionFactory, ensureChatSession(), isSessionNotFoundError(), promptWithSessionRecovery(), registerSessionContext()
-
 ### Community 39 - "GrammyTransport"
 Cohesion: 0.12
 Nodes (4): IntegrationTransport, GrammyTransport, TelegramTransport, FakeTelegram
 
-### Community 40 - "legacy-migration.ts"
-Cohesion: 0.22
-Nodes (13): channelKind(), createMigrationBackup(), databaseKind(), ensureIntegrationsTable(), hasColumn(), LegacyChannelRow, LegacyDatabaseRow, LegacyMigrationMapping (+5 more)
+### Community 40 - "ChatTurnService"
+Cohesion: 0.26
+Nodes (5): AgentSessionState, ChatTurnService, extractTurnReply(), isTransportError(), nowIso()
 
-### Community 41 - "chat-recovery.test.ts"
-Cohesion: 0.10
-Nodes (14): ChatRepository, ChatWithOrchestratorUseCase, EmptyAgentReplyError, OrchestratorConfigurationError, OrchestratorOverview, resolveOrchestratorModel(), ChatWithProjectUseCase, ChatMessageRecord (+6 more)
+### Community 41 - "store.ts"
+Cohesion: 0.12
+Nodes (11): ErrorEventRepository, ProjectRepository, ProjectSettingsView, ChatTurnDeliveryState, ChatTurnEventRecord, DeliveryStatus, ErrorEventRecord, ProjectRecord (+3 more)
 
-### Community 42 - "Store"
-Cohesion: 0.20
-Nodes (6): ExternalDatabaseAdapter, SecretVault, Store, ExecutorDeps, Logger, ExternalChatRouteDeps
+### Community 42 - "NotebookRecord"
+Cohesion: 0.21
+Nodes (4): NotebookRepository, IngestKnowledgeUseCase, NotebookRecord, setup()
 
 ### Community 43 - "tools.ts"
-Cohesion: 0.14
-Nodes (15): setup(), agentSegment, createPlatformTools(), GLOBAL_READ_ONLY_TOOLS, objectSchema(), PlatformClientScope, PlatformTool, PlatformToolContext (+7 more)
+Cohesion: 0.13
+Nodes (16): setup(), agentSegment, createPlatformTools(), GLOBAL_READ_ONLY_TOOLS, objectSchema(), PlatformClientScope, PlatformTool, PlatformToolContext (+8 more)
 
-### Community 44 - "cron.ts"
-Cohesion: 0.16
-Nodes (16): cronMinuteKey(), cronWindowsBetween(), FIELD_RANGES, formatterCache, matchesCron(), matchesCronInTimeZone(), matchesParts(), nextCronDate() (+8 more)
+### Community 44 - "ProjectPage"
+Cohesion: 0.25
+Nodes (15): ProjectPage(), addNode(), changeEdgeCondition(), changeGraph(), closeInspector(), connect(), deleteEdge(), duplicateNode() (+7 more)
+
+### Community 45 - "cron.ts"
+Cohesion: 0.13
+Nodes (21): cronMinuteKey(), cronWindowsBetween(), FIELD_RANGES, formatterCache, isValidCronExpression(), matchesCron(), matchesCronInTimeZone(), matchesParts() (+13 more)
 
 ### Community 46 - "artifacts"
 Cohesion: 0.13
@@ -324,85 +324,89 @@ Nodes (14): apply, instruction, requires, tracks, artifacts, description, genera
 Cohesion: 0.13
 Nodes (14): compilerOptions, allowImportingTsExtensions, allowSyntheticDefaultImports, esModuleInterop, forceConsistentCasingInFileNames, lib, module, moduleResolution (+6 more)
 
-### Community 48 - "execute-workflow.ts"
-Cohesion: 0.13
-Nodes (9): buildNodePrompt(), evaluateCondition(), ExecuteRunInput, executeTransform(), RunState, renderParams(), renderTemplate(), resolvePath() (+1 more)
+### Community 48 - "validation.ts"
+Cohesion: 0.26
+Nodes (11): IntegrationCommand, assertIntegrationInScope(), DATABASE_KINDS, requiredSecretRefs(), ValidatedIntegrationInput, validateIntegrationInput(), CreateIntegrationInputSchema, defaultCapabilities() (+3 more)
 
 ### Community 50 - "input.ts"
-Cohesion: 0.21
-Nodes (11): parseAndValidateAgentOutput(), checkField(), NodeValidationError, validateInputPayload(), validateNodeRules(), valueAt(), WorkflowInputValidationError, InputField (+3 more)
+Cohesion: 0.33
+Nodes (6): checkField(), valueAt(), InputField, InputSchema, ValidateConfig, ValidateRule
 
-### Community 51 - "EmbeddingPort"
-Cohesion: 0.26
-Nodes (5): EmbeddingPort, createEmbeddingAdapter(), fnv1a(), HashEmbeddingAdapter, HttpEmbeddingAdapter
+### Community 51 - "AgentCatalog.tsx"
+Cohesion: 0.09
+Nodes (24): AgentCard(), AgentCatalog(), agentKey(), deniedTools(), AgentEditorModal(), AgentFormState, AgentMode, toForm() (+16 more)
 
-### Community 52 - "execute-workflow.test.ts"
-Cohesion: 0.17
-Nodes (14): executeHttpNode(), isValidCronExpression(), computePayloadHash(), effectiveEdges(), IdempotencyMismatchError, reachableFrom(), RunInFlightError, stableStringify() (+6 more)
+### Community 52 - "BaileysTransport"
+Cohesion: 0.08
+Nodes (6): BaileysTransport, parseCloudWebhook(), WhatsAppCloudTransport, WhatsAppTransport, FakeWhatsApp, silentLogger
+
+### Community 53 - "OpenCodeV2Adapter"
+Cohesion: 0.15
+Nodes (3): AgentMessage, OpenCodeV2Adapter, parseModelRef()
 
 ### Community 54 - "ChatThreadRecord"
-Cohesion: 0.17
-Nodes (5): ChatThreadRepository, VaultRepository, ChatThreadRecord, EntityScope, VaultSecretRecord
+Cohesion: 0.16
+Nodes (6): ChatThreadRepository, VaultRepository, StartChatTurnInput, ChatThreadRecord, EntityScope, VaultSecretRecord
 
-### Community 55 - "migrate.ts"
-Cohesion: 0.31
-Nodes (8): openDatabase(), addColumnIfMissing(), backfillDatabasePolicies(), columnsOf(), migrate(), SQLITE_DDL, tableExists(), now
+### Community 55 - "execute-workflow.ts"
+Cohesion: 0.10
+Nodes (28): AgentPromptTimeoutError, evaluateCondition(), executeHttpNode(), executeTransform(), parseAndValidateAgentOutput(), computeGraphHash(), computePayloadHash(), effectiveEdges() (+20 more)
 
-### Community 57 - "ProjectRecord"
-Cohesion: 0.21
-Nodes (5): ProjectRepository, ProjectReadinessItem, ProjectSettingsView, readinessFor(), ProjectRecord
+### Community 57 - "WorkflowCanvasProps"
+Cohesion: 0.16
+Nodes (3): handleConnect(), handleNodeClick(), WorkflowCanvasProps
 
-### Community 58 - "NotebookRecord"
-Cohesion: 0.21
-Nodes (4): NotebookRepository, IngestKnowledgeUseCase, NotebookRecord, setup()
+### Community 58 - "NodeInspectorModal.tsx"
+Cohesion: 0.14
+Nodes (17): ProjectSettingsView, StepRun, GraphIssue, nodeIssues(), conditionLabel(), defaultBranch(), edgeSourceLabel(), edgeTargetLabel() (+9 more)
 
-### Community 59 - "app.ts"
-Cohesion: 0.07
-Nodes (18): AppConfig, AppEnv, Application, createApplication(), integrationError(), resolveProjectRouteTool(), safeEqual(), ApprovalDecisionError (+10 more)
+### Community 59 - "IntegrationManager"
+Cohesion: 0.18
+Nodes (4): deliverWebhook(), signWebhook(), IntegrationManager, WhatsAppChannelAdapter
 
 ### Community 60 - "shared/package.json"
 Cohesion: 0.14
 Nodes (16): dependencies, zod@^3.24.1, devDependencies, @types/bun@latest, typescript@^5.7.2, exports, @types/bun, typescript (+8 more)
 
-### Community 62 - "store.ts"
-Cohesion: 0.23
-Nodes (5): AgentSessionRef, SettingsRepository, ENTRY_POINTS, validateWorkflowResources(), ChannelRoutingSchema
-
-### Community 64 - "WorkflowRunRepository"
-Cohesion: 0.13
-Nodes (4): WorkflowRunRepository, ApprovalRecord, StepRunRecord, StepStatus
-
-### Community 65 - "WorkflowTimerRecord"
-Cohesion: 0.18
-Nodes (4): WorkflowTimerRepository, WorkflowTimerRecord, workflowTimers, parse()
+### Community 64 - "ProjectPage.tsx"
+Cohesion: 0.09
+Nodes (44): api, RunRecord, ControlChannelsPanel(), KINDS, ProjectKnowledgePanel(), CHANNEL_KINDS, DATABASE_KINDS, DatabasePolicyEditor() (+36 more)
 
 ### Community 66 - "KbSourceRecord"
 Cohesion: 0.27
 Nodes (3): KnowledgeRepository, KbChunkRecord, KbSourceRecord
 
-### Community 67 - "entities.ts"
-Cohesion: 0.12
-Nodes (19): IntegrationRepository, hashIntegrationKey(), IntegrationCommand, IntegrationUpdateCommand, ManageIntegrationsUseCase, DeliveryStatus, IntegrationRecord, assertIntegrationInScope() (+11 more)
+### Community 67 - "ManageIntegrationsUseCase"
+Cohesion: 0.26
+Nodes (5): hashIntegrationKey(), ManageIntegrationsUseCase, withDatabaseDefaults(), useCase(), IntegrationScope
 
-### Community 68 - "extractors.ts"
-Cohesion: 0.13
-Nodes (9): KnowledgeExtractor, KnowledgeFilePort, IngestDeps, ALLOWED_EXTENSIONS, csvToMarkdown(), DocumentExtractor, extensionOf(), KnowledgeError (+1 more)
+### Community 68 - "SqliteStore"
+Cohesion: 0.16
+Nodes (7): DatabaseHandle, createStore(), parse(), SqliteStore, captureLogger(), dirs, setup()
 
-### Community 69 - "WorkflowDeliveryRecord"
-Cohesion: 0.36
-Nodes (3): WorkflowDeliveryRepository, WorkflowDeliveryRecord, workflowDeliveries
+### Community 70 - "graph-edits.ts"
+Cohesion: 0.19
+Nodes (14): changeEdgeCondition(), connectNodes(), cycleNodes(), visit(), getConnectionIssue(), getGraphIssues(), issue(), MappedIssue (+6 more)
 
-### Community 72 - "ChatPanel.tsx"
-Cohesion: 0.18
-Nodes (12): ChatHistoryMessage, ChatActivity, ChatMessage, ChatPanel(), submit(), upsertActivity(), ChatSurface, copyText() (+4 more)
+### Community 72 - "IntegrationRecord"
+Cohesion: 0.15
+Nodes (4): IntegrationManagerPort, IntegrationRepository, IntegrationRecord, IntegrationStatus
 
 ### Community 73 - "telemetry.ts"
-Cohesion: 0.18
-Nodes (10): EntryPointTypeSchema, ErrorEvent, ErrorEventSchema, HealthSnapshotSchema, HealthStatus, HealthStatusSchema, MetricsSummary, MetricsSummarySchema (+2 more)
+Cohesion: 0.10
+Nodes (18): ChatMessageRequest, ChatMessageRequestSchema, ChatMessageResponse, ChatMessageResponseSchema, SseEventSchema, ChatHealthSummary, ChatHealthSummarySchema, EntryPointTypeSchema (+10 more)
+
+### Community 74 - "agents.ts"
+Cohesion: 0.17
+Nodes (11): AgentExecutionContextSchema, AgentMode, AgentModeSchema, ModelRef, ModelRefSchema, modelRefToString(), PermissionRuleSchema, PlatformToolName (+3 more)
 
 ### Community 75 - "WorkflowCanvas.tsx"
-Cohesion: 0.07
-Nodes (42): @xyflow/react@^12.3.6, AgentCard(), AgentCatalog(), agentKey(), deniedTools(), AgentEditorModal(), toForm(), GraphIssue (+34 more)
+Cohesion: 0.14
+Nodes (19): NodePaletteModal(), ShapePreview(), NODE_CATALOG, NODE_CATEGORY_COLORS, NODE_META, PALETTE_GROUPS, NodeIcon(), NODE_SHAPES (+11 more)
+
+### Community 76 - "ChatMessageRecord"
+Cohesion: 0.24
+Nodes (4): ChatRepository, TurnFailureError, ChatMessageRecord, ChatTurnErrorCode
 
 ### Community 77 - "entrypoint.sh"
 Cohesion: 0.25
@@ -412,21 +416,29 @@ Nodes (7): OPENCODE_DB, OPENCODE_MODE, PLATFORM_API_URL, PLATFORM_GLOBAL_TOKEN, 
 Cohesion: 0.25
 Nodes (7): guidance, guidance, context, operations, apply, archive, schema
 
-### Community 79 - "alerts.ts"
-Cohesion: 0.13
-Nodes (7): AlertService, redact(), SseHub, FakeEgress, logger, FakeEvents, SseEvent
+### Community 79 - "legacy-migration.ts"
+Cohesion: 0.16
+Nodes (14): [databasePath, mappingPath, backupPath], mapping, sqlite, AppDatabase, openDatabase(), addColumnIfMissing(), backfillDatabasePolicies(), columnsOf() (+6 more)
 
-### Community 81 - "worker-pool.test.ts"
-Cohesion: 0.24
-Nodes (7): CodeWorkerPort, WorkerRpcHandlers, WorkerTimeoutError, BunWorkerPoolAdapter, RpcMessage, dirs, pool
+### Community 80 - "WorkflowCanvas.tsx"
+Cohesion: 0.21
+Nodes (11): resolveConnection(), edgeTypes, EMPTY_ISSUES, nodeTypes, RunProgress, subtitle(), toEdges(), toNodes() (+3 more)
+
+### Community 81 - "EmbeddingPort"
+Cohesion: 0.25
+Nodes (7): EmbeddingPort, buildGroundedContext(), cosineSimilarity(), createEmbeddingAdapter(), fnv1a(), HashEmbeddingAdapter, HttpEmbeddingAdapter
 
 ### Community 82 - "server/tsconfig.json"
 Cohesion: 0.25
 Nodes (7): compilerOptions, jsx, lib, types, extends, include, ../../tsconfig.base.json
 
-### Community 84 - "chat-progress.ts"
-Cohesion: 0.28
-Nodes (9): commandText(), createChatProgressHandler(), fileEditText(), filePathFromInput(), fileReadText(), normalizeToolName(), RawAgentEvent, toolText() (+1 more)
+### Community 83 - "legacy-migration.ts"
+Cohesion: 0.23
+Nodes (12): channelKind(), createMigrationBackup(), databaseKind(), ensureIntegrationsTable(), hasColumn(), LegacyChannelRow, LegacyDatabaseRow, LegacyMigrationMapping (+4 more)
+
+### Community 84 - "KnowledgeError"
+Cohesion: 0.27
+Nodes (3): KnowledgeFilePort, KnowledgeError, KnowledgeFileStore
 
 ### Community 85 - "scripts"
 Cohesion: 0.33
@@ -436,53 +448,77 @@ Nodes (6): scripts, build, dev, preview, test, typecheck
 Cohesion: 0.33
 Nodes (4): allowlistedEnv, ctx, pending, RpcMethod
 
-### Community 89 - "contracts.test.ts"
-Cohesion: 0.20
-Nodes (9): AgentNodeConfigSchema, DatabaseNodeConfigSchema, NodeErrorPolicySchema, NodeSpecSchema, NotifyNodeConfigSchema, ProjectTemplateSchema, TriggerConfigSchema, WorkflowVersionSchema (+1 more)
+### Community 87 - "shared/src/api.ts"
+Cohesion: 0.12
+Nodes (16): ApiError, ApiErrorSchema, CreateProjectRequest, CreateProjectRequestSchema, PaginationMeta, PaginationMetaSchema, PaginationQuery, PaginationQuerySchema (+8 more)
 
-### Community 90 - "src/events.ts"
-Cohesion: 0.22
-Nodes (7): ChatMessageRequest, ChatMessageRequestSchema, ChatMessageResponse, ChatMessageResponseSchema, SseEventSchema, StepStatusSchema, WorkflowGraphSchema
+### Community 89 - "chat-progress.ts"
+Cohesion: 0.30
+Nodes (9): commandText(), createChatProgressHandler(), fileEditText(), filePathFromInput(), fileReadText(), normalizeToolName(), RawAgentEvent, toolText() (+1 more)
 
 ### Community 91 - "opencode-plugin/tsconfig.json"
 Cohesion: 0.50
 Nodes (3): extends, include, ../../tsconfig.base.json
 
-### Community 92 - "createAgentRuntime"
-Cohesion: 0.33
-Nodes (3): createAgentRuntime(), OpenCodeClientFactory, ServiceClientFactory
+### Community 92 - "ChatTurnStatus"
+Cohesion: 0.16
+Nodes (8): ChatTurnResult, ChatTurnActions, ChatTurnConnection, ChatTurnController, statusFromEvent(), useChatTurn(), ChatTurnEvent, ChatTurnStatus
 
 ### Community 93 - "shared/tsconfig.json"
 Cohesion: 0.50
 Nodes (3): extends, include, ../../tsconfig.base.json
 
-### Community 94 - "ErrorEventRecord"
-Cohesion: 0.50
-Nodes (3): ErrorEventRepository, ErrorEventRecord, EntryPointType
+### Community 94 - "bootstrap.ts"
+Cohesion: 0.20
+Nodes (8): BootstrapOptions, BootstrapResult, BootstrapSystemUseCase, DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME, ensureControlWorkspace(), SUBDIRECTORIES, writeIfMissing()
 
-### Community 95 - "migrate-legacy.ts"
-Cohesion: 0.50
-Nodes (3): [databasePath, mappingPath, backupPath], mapping, sqlite
+### Community 95 - "IntegrationValidationError"
+Cohesion: 0.38
+Nodes (3): databaseConfig(), TestDatabaseIntegrationUseCase, IntegrationValidationError
+
+### Community 96 - "canvas-actions.ts"
+Cohesion: 0.16
+Nodes (7): CanvasActions, CanvasActionsContext, useCanvasActions(), PlatformEdge(), PlatformEdgeData, PlatformFlowEdge, @xyflow/react
+
+### Community 98 - "setup.ts"
+Cohesion: 0.13
+Nodes (4): @testing-library/jest-dom@^6.6.3, EventSourceStub, ResizeObserverStub, @testing-library/jest-dom
+
+### Community 101 - "notify-approval.test.ts"
+Cohesion: 0.39
+Nodes (5): NotifyApprovalUseCase, FakeEgress, integration(), logger(), setup()
+
+### Community 102 - "ProjectsPage"
+Cohesion: 0.40
+Nodes (4): formatDate(), ProjectsPage(), onNameChange(), slugify()
+
+### Community 106 - "NodeInspector.tsx"
+Cohesion: 0.18
+Nodes (13): ExecuteDatabaseActionInput, CodeEditor(), FallbackEditor(), Monaco, DATABASE_KINDS, DatabaseNodeFields(), HTTP_KINDS, InputFieldsEditor() (+5 more)
+
+### Community 112 - "createApplication"
+Cohesion: 0.12
+Nodes (10): createApplication(), resolveProjectRouteTool(), safeEqual(), ChatWithOrchestratorUseCase, EmptyAgentReplyError, OrchestratorConfigurationError, ChatWithProjectUseCase, withTimeout() (+2 more)
 
 ## Knowledge Gaps
 - **10 isolated node(s):** `../../tsconfig.base.json`, `OPENCODE_DB`, `OPENCODE_MODE`, `PLATFORM_API_URL`, `PLATFORM_GLOBAL_TOKEN` (+5 more)
-  These have ≤1 connection - possible missing edges. (Counts symbols only; 700 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **18 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges. (Counts symbols only; 749 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **24 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `WorkflowGraph` connect `shared/src/index.ts` to `web/src/api.ts`, `entities.ts`, `SqliteStore`, `react`, `WorkflowCanvas.tsx`, `WorkflowVersionRecord`, `NodeInspectorModal.tsx`, `ui.test.tsx`, `sqlite-store.ts`, `workflow.ts`, `SafeFsWorkspaceAdapter`, `execute-workflow.test.ts`, `ProjectPage`, `ProjectRecord`, `app.ts`, `store.ts`?**
-  _High betweenness centrality (0.056) - this node is a cross-community bridge._
-- **Are the 65 inferred relationships involving `createApplication()` (e.g. with `.start()` and `.stop()`) actually correct?**
-  _`createApplication()` has 65 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `createApplication()` connect `createApplication` to `logger.ts`, `auth-routes.ts`, `SqliteStore`, `MarkdownAgentAdapter`, `AgentRuntimePort`, `Store`, `ChatTurnRecord`, `app.ts`, `channel-manager.ts`, `Store`, `server/package.json`, `input-contract.test.ts`, `SafeFsWorkspaceAdapter`, `AlertService`, `agents.test.ts`, `InMemoryMetrics`, `extractors.ts`, `opencode-adapter.ts`, `WorkflowRunRecord`, `ChatTurnService`, `NotebookRecord`, `tools.ts`, `cron.ts`, `execute-workflow.ts`, `IntegrationManager`, `ManageIntegrationsUseCase`, `SqliteStore`, `EmbeddingPort`, `KnowledgeError`, `search-knowledge.ts`, `ChatTurnStatus`, `bootstrap.ts`, `IntegrationValidationError`, `RouteProjectIntegrationMessageUseCase`, `notify-approval.test.ts`, `start-server.ts`, `.waitForTerminal`?**
+  _High betweenness centrality (0.094) - this node is a cross-community bridge._
+- **Are the 74 inferred relationships involving `createApplication()` (e.g. with `.start()` and `.stop()`) actually correct?**
+  _`createApplication()` has 74 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `../../tsconfig.base.json`, `OPENCODE_DB`, `OPENCODE_MODE` to the rest of the system?**
   _10 weakly-connected nodes found - possible missing edges._
-- **Should `LogBindings` be split into smaller, more focused modules?**
-  _Cohesion score 0.0797979797979798 - nodes in this community are weakly interconnected._
-- **Why does `createApplication()` connect `app.ts` to `LogBindings`, `auth-routes.ts`, `SqliteStore`, `agents.test.ts`, `bootstrap.ts`, `manage-integrations.ts`, `shared/src/index.ts`, `IntegrationEgressPort`, `IntegrationValidationError`, `server/package.json`, `search-knowledge.ts`, `SafeFsWorkspaceAdapter`, `WorkflowRunRecord`, `RouteProjectIntegrationMessageUseCase`, `send-notification.ts`, `AgentRuntimePort`, `chat-recovery.test.ts`, `cron.ts`, `EmbeddingPort`, `ProjectRecord`, `NotebookRecord`, `store.ts`, `entities.ts`, `extractors.ts`, `alerts.ts`, `worker-pool.test.ts`, `chat-progress.ts`, `createAgentRuntime`?**
-  _High betweenness centrality (0.039) - this node is a cross-community bridge._
+- **Should `logger.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.13756613756613756 - nodes in this community are weakly interconnected._
+- **Why does `AgentRuntimePort` connect `AgentRuntimePort` to `SqliteStore`, `MarkdownAgentAdapter`, `opencode-adapter.ts`, `FakeAgentRuntime`, `Store`, `FakeAgent`, `app.ts`, `Store`, `input-contract.test.ts`, `OpenCodeV2Adapter`, `FakeRuntime`, `execute-workflow.ts`, `FakeAgent`?**
+  _High betweenness centrality (0.059) - this node is a cross-community bridge._
 - **Should `auth-routes.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.07683000604960677 - nodes in this community are weakly interconnected._
-- **Why does `vitest` connect `ui.test.tsx` to `setup.ts`, `App.tsx`, `react`, `WorkflowCanvas.tsx`, `NodeInspectorModal.tsx`, `ProjectPage`, `web/package.json`?**
-  _High betweenness centrality (0.024) - this node is a cross-community bridge._
+  _Cohesion score 0.0750151240169389 - nodes in this community are weakly interconnected._
+- **Why does `WorkflowGraph` connect `app.ts` to `SqliteStore`, `WorkflowVersionRecord`, `ui.test.tsx`, `sqlite-store.ts`, `input-contract.test.ts`, `workflow.ts`, `SafeFsWorkspaceAdapter`, `web/src/api.ts`, `WorkflowRunRecord`, `store.ts`, `cron.ts`, `AgentCatalog.tsx`, `execute-workflow.ts`, `WorkflowCanvasProps`, `NodeInspectorModal.tsx`, `ProjectPage.tsx`, `graph-edits.ts`, `WorkflowCanvas.tsx`, `WorkflowCanvas.tsx`?**
+  _High betweenness centrality (0.045) - this node is a cross-community bridge._

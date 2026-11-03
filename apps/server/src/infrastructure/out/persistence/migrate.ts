@@ -219,6 +219,39 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS chat_messages_thread ON chat_messages(thread_id, created_at);
+CREATE TABLE IF NOT EXISTS chat_turns (
+  id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  project_slug TEXT NOT NULL DEFAULT '',
+  integration_id TEXT NOT NULL DEFAULT '',
+  external_thread_id TEXT NOT NULL DEFAULT '',
+  session_id TEXT,
+  user_message_id TEXT,
+  assistant_message_id TEXT,
+  inbox_id TEXT,
+  assistant_opencode_message_id TEXT,
+  status TEXT NOT NULL,
+  delivery_state TEXT NOT NULL DEFAULT 'created',
+  attempt INTEGER NOT NULL DEFAULT 0,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  last_activity_at TEXT NOT NULL,
+  last_seq INTEGER,
+  error_code TEXT,
+  error_message TEXT,
+  usage_json TEXT,
+  has_side_effects INTEGER NOT NULL DEFAULT 0,
+  idempotency_key TEXT,
+  entry_point TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_turns_active_thread ON chat_turns(thread_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS chat_turns_active_thread_unique
+  ON chat_turns(thread_id) WHERE status IN ('queued','running','recovering');
+CREATE UNIQUE INDEX IF NOT EXISTS chat_turns_idempotency ON chat_turns(thread_id, idempotency_key);
+CREATE INDEX IF NOT EXISTS chat_turns_project ON chat_turns(project_slug, created_at);
 CREATE TABLE IF NOT EXISTS notebooks (
   id TEXT PRIMARY KEY,
   project_slug TEXT NOT NULL,
@@ -347,6 +380,9 @@ export function migrate(sqlite: Database): void {
     addColumnIfMissing(sqlite, "integrations", "key_hash", "TEXT");
     addColumnIfMissing(sqlite, "workflow_step_runs", "agent_id", "TEXT");
     addColumnIfMissing(sqlite, "workflow_step_runs", "logs", "TEXT");
+    addColumnIfMissing(sqlite, "chat_messages", "turn_id", "TEXT");
+    addColumnIfMissing(sqlite, "chat_messages", "error_code", "TEXT");
+    addColumnIfMissing(sqlite, "chat_turns", "has_side_effects", "INTEGER NOT NULL DEFAULT 0");
     backfillDatabasePolicies(sqlite);
 
     // Preserve old vault values as global secrets. Provider/Sentry keys used to

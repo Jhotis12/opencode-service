@@ -9,6 +9,7 @@ import type { ExecuteWorkflowRunUseCase } from "./execute-workflow.ts";
 import { verifyIntegrationKey } from "./manage-integrations.ts";
 import { validateWorkflowResources } from "./workflow-resources.ts";
 import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
+import type { ChatTarget, ChatTurnService } from "./chat-turns.ts";
 import type { Logger } from "../../domain/telemetry/index.ts";
 
 export class ChannelAuthError extends Error {
@@ -46,6 +47,7 @@ export class SendExternalChatMessageUseCase {
       store: Store;
       vault: SecretVault;
       agent: AgentRuntimePort;
+      turns?: ChatTurnService;
       workspace: WorkspacePort;
       executor: Pick<ExecuteWorkflowRunUseCase, "execute">;
       controlDirectory: string;
@@ -62,8 +64,9 @@ export class SendExternalChatMessageUseCase {
     message: string;
     metadata?: Record<string, unknown>;
     webhookUrl?: string;
+    messageId?: string;
     onSession?: (sessionId: string) => Promise<void> | void;
-  }): Promise<{ threadId: string; sessionId: string; reply: string; integrationId: string }> {
+  }): Promise<{ threadId: string; sessionId: string; reply: string; integrationId: string; turnId?: string }> {
     const integration = this.deps.store.integrations.findById(input.integrationId);
     if (
       !integration ||
@@ -123,6 +126,37 @@ export class SendExternalChatMessageUseCase {
     const directory = integration.projectSlug
       ? await this.deps.workspace.projectDirectory(integration.projectSlug)
       : this.deps.controlDirectory;
+    if (this.deps.turns) {
+      const target: ChatTarget = {
+        scope: integration.scope,
+        projectSlug: integration.projectSlug,
+        directory,
+        agentId: project?.primaryAgent,
+        model: project?.defaultModel,
+        context: "external_channel",
+        entryPoint: "external_chat",
+        readOnly: !integration.projectSlug,
+      };
+      const turn = await this.deps.turns.start({ thread, target, message: input.message, idempotencyKey: input.messageId });
+      await input.onSession?.(turn.sessionId ?? "");
+      const final = await this.deps.turns.waitForTerminal(turn.id);
+      const reply = final.status === "succeeded" ? this.deps.turns.replyForTurn(turn.id) : "";
+      this.deps.store.chatThreads.touch(thread.id);
+      await this.maybeDeliver(integration, input.webhookUrl, {
+        threadId: input.threadId,
+        turnId: turn.id,
+        sessionId: final.sessionId,
+        reply,
+        status: final.status,
+      });
+      return {
+        threadId: input.threadId,
+        sessionId: final.sessionId ?? "",
+        turnId: turn.id,
+        reply,
+        integrationId: integration.id,
+      };
+    }
     const create = () =>
       this.deps.agent.createSession({
         directory,

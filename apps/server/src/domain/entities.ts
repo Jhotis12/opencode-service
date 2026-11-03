@@ -7,6 +7,9 @@ import type {
   StepStatus,
   WorkflowGraph,
   WorkflowRunStatus,
+  ChatTurnStatus,
+  ChatTurnErrorCode,
+  ChatTurnUsage,
 } from "@platform/shared";
 
 export type EntityScope = "project" | "global";
@@ -197,8 +200,49 @@ export interface ChatThreadRecord {
 export interface ChatMessageRecord {
   id: string;
   threadId: string;
+  turnId?: string;
   role: "user" | "agent" | "system";
   content: string;
+  errorCode?: ChatTurnErrorCode;
+  createdAt: string;
+}
+
+export type ChatTurnDeliveryState = "created" | "enqueued" | "delivered" | "completed";
+
+export interface ChatTurnRecord {
+  id: string;
+  threadId: string;
+  scope: EntityScope;
+  projectSlug?: string;
+  integrationId?: string;
+  externalThreadId?: string;
+  sessionId?: string;
+  userMessageId?: string;
+  assistantMessageId?: string;
+  inboxId?: string;
+  assistantOpencodeMessageId?: string;
+  status: ChatTurnStatus;
+  deliveryState: ChatTurnDeliveryState;
+  attempt: number;
+  startedAt: string;
+  finishedAt?: string;
+  lastActivityAt: string;
+  lastSeq?: number;
+  errorCode?: ChatTurnErrorCode;
+  errorMessage?: string;
+  usage?: ChatTurnUsage;
+  hasSideEffects?: boolean;
+  idempotencyKey?: string;
+  entryPoint: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatTurnEventRecord {
+  turnId: string;
+  seq: number;
+  type: string;
+  payload: string;
   createdAt: string;
 }
 

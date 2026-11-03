@@ -31,8 +31,15 @@ function fakeClient(overrides: Partial<OpenCodeClientLike> = {}): OpenCodeClient
       },
       prompt: async (input) => {
         record("prompt", input);
-        return {};
+        return { id: "msg_fake" };
       },
+      get: async (input) => {
+        record("get", input);
+        return { id: input.sessionID, outcome: "succeeded", tokens: { input: 1, output: 1 }, time: { busy: 1, idle: 2 } };
+      },
+      active: async () => ({}),
+      inbox: { list: async (input) => { record("inbox", input); return []; } },
+      message: { get: async (input) => ({ id: input.messageID, type: "assistant", content: [{ type: "text", text: "ok" }] }) },
       interrupt: async (input) => record("interrupt", input),
       switchModel: async (input) => record("switchModel", input),
       switchAgent: async (input) => record("switchAgent", input),
@@ -48,6 +55,7 @@ function fakeClient(overrides: Partial<OpenCodeClientLike> = {}): OpenCodeClient
         },
       ],
     },
+    message: { list: async (input) => { record("messages", input); return { data: [] }; } },
     experimental: { session: { wait: async (input) => record("wait", input) } },
     integration: { connect: { key: async (input) => record("key", input) } },
     location: { reload: async () => record("reload", {}) },
@@ -108,6 +116,34 @@ describe("opencode v2 adapter contract", () => {
     expect((client as OpenCodeClientLike & { calls: Record<string, unknown[]> }).calls.interrupt?.[0]).toEqual({
       sessionID: "s1",
     });
+  });
+
+  it("exposes the turn primitives without changing the workflow prompt contract", async () => {
+    const { adapter, client } = adapterWith(fakeClient());
+    const sent = await adapter.sendPrompt("s1", { id: "msg_turn_1", text: "hola", metadata: { turn: "t1" } });
+    expect(sent.inboxId).toBe("msg_fake");
+    expect(client.calls.prompt?.[0]).toMatchObject({ sessionID: "s1", id: "msg_turn_1", text: "hola" });
+    const session = await adapter.getSession("s1");
+    expect(session?.outcome).toBe("succeeded");
+    expect(await adapter.listActiveSessions()).toEqual(new Set());
+    expect(await adapter.listInbox("s1")).toEqual([]);
+    expect(await adapter.getMessages("s1")).toEqual([]);
+    expect((await adapter.getMessage("s1", "msg_a"))?.id).toBe("msg_a");
+  });
+
+  it("recreates the client after a transport failure", async () => {
+    let attempts = 0;
+    const factory: OpenCodeClientFactory = {
+      create: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("Transport: connection refused");
+        return { client: fakeClient(), url: "http://fake", version: "2.2.5" };
+      },
+    };
+    const adapter = new OpenCodeV2Adapter(factory);
+    const result = await adapter.sendPrompt("s1", { text: "hola" });
+    expect(result.inboxId).toBe("msg_fake");
+    expect(attempts).toBe(2);
   });
 
   it("switches models and agents with the generated client shape", async () => {

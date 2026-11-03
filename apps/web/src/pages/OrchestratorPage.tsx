@@ -1,6 +1,7 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import type { ChatProgressEvent } from "@platform/shared";
+import type { ChatTurnEvent } from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { ChatPanel } from "../components/ChatPanel.tsx";
@@ -20,7 +21,7 @@ export function OrchestratorPage() {
     queryFn: () => api.controlChatHistory().then((result) => result.data),
   });
   const chat = useMutation({
-    mutationFn: ({ message, onEvent }: { message: string; onEvent?: (event: ChatProgressEvent) => void }) =>
+    mutationFn: ({ message, onEvent }: { message: string; onEvent?: (event: ChatTurnEvent) => void }) =>
       api.controlChat(message, onEvent),
     onSuccess: async () => {
       await Promise.all([
@@ -29,6 +30,19 @@ export function OrchestratorPage() {
       ]);
     },
   });
+  useEffect(() => {
+    const source = new EventSource("/api/events");
+    source.addEventListener("chat.turn.updated", (event) => {
+      const data = JSON.parse((event as MessageEvent).data) as { scope?: string; status: string };
+      if (data.scope !== "global") return;
+      if (["succeeded", "failed", "timed_out", "cancelled", "unknown"].includes(data.status)) {
+        void queryClient.invalidateQueries({ queryKey: qk.controlChat });
+        void queryClient.invalidateQueries({ queryKey: qk.controlOverview });
+      }
+    });
+    return () => source.close();
+  }, [queryClient]);
+
   const overview = overviewQuery.data;
   const failedRuns = (overview?.recentRuns ?? []).filter((run) => run.status === "failed" || run.status === "timed_out");
   const downIntegrations = (overview?.integrations ?? []).filter(
@@ -111,7 +125,10 @@ export function OrchestratorPage() {
 
         <aside className="flex flex-col gap-3 xl:sticky xl:top-5 xl:max-h-[calc(100vh-40px)] xl:overflow-auto">
           <ChatPanel
-            onSend={(message, onEvent) => chat.mutateAsync({ message, onEvent }).then((result) => result.reply)}
+            onSend={(message, onEvent) => chat.mutateAsync({ message, onEvent })}
+            onAttachTurn={(turnId, onEvent) => api.attachControlChatTurn(turnId, onEvent)}
+            onCancelTurn={(turnId) => api.cancelControlChatTurn(turnId)}
+            onRetryTurn={(turnId) => api.retryControlChatTurn(turnId)}
             hint="Pregunta por fallos, estado de proyectos o conocimiento. El orquestador consulta datos reales y no edita proyectos."
             initialMessages={chatQuery.data ?? []}
             title="Orquestador global"

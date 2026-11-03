@@ -8,7 +8,10 @@ import type { Logger } from "../../../domain/telemetry/index.ts";
 
 export interface WhatsAppTransport {
   readonly type: "whatsapp";
-  start(handler: (message: { senderId: string; text: string }) => void, onQr: (qr: string) => void): Promise<void>;
+  start(
+    handler: (message: { senderId: string; text: string; messageId?: string }) => void,
+    onQr: (qr: string) => void,
+  ): Promise<void>;
   send(senderId: string, text: string): Promise<EgressSendResult | void>;
   stop(): Promise<void>;
   status(): string;
@@ -23,7 +26,7 @@ export class BaileysTransport implements WhatsAppTransport {
   constructor(private readonly authDir: string) {}
 
   async start(
-    handler: (message: { senderId: string; text: string }) => void,
+    handler: (message: { senderId: string; text: string; messageId?: string }) => void,
     onQr: (qr: string) => void,
   ): Promise<void> {
     const moduleName = "@whiskeysockets/baileys";
@@ -40,7 +43,9 @@ export class BaileysTransport implements WhatsAppTransport {
       for (const message of event.messages ?? []) {
         if (message.key?.fromMe) continue;
         const text = message.message?.conversation ?? message.message?.extendedTextMessage?.text;
-        if (text && message.key?.remoteJid) handler({ senderId: message.key.remoteJid, text });
+        if (text && message.key?.remoteJid) {
+          handler({ senderId: message.key.remoteJid, text, messageId: message.key?.id ? String(message.key.id) : undefined });
+        }
       }
     });
   }
@@ -65,7 +70,7 @@ export class BaileysTransport implements WhatsAppTransport {
 /** Official Meta Cloud API transport (webhook-driven). */
 export class WhatsAppCloudTransport implements WhatsAppTransport {
   readonly type = "whatsapp" as const;
-  private handler?: (message: { senderId: string; text: string }) => void;
+  private handler?: (message: { senderId: string; text: string; messageId?: string }) => void;
 
   constructor(
     private readonly token: string,
@@ -73,7 +78,7 @@ export class WhatsAppCloudTransport implements WhatsAppTransport {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
-  async start(handler: (message: { senderId: string; text: string }) => void): Promise<void> {
+  async start(handler: (message: { senderId: string; text: string; messageId?: string }) => void): Promise<void> {
     this.handler = handler;
   }
 
@@ -104,17 +109,17 @@ export class WhatsAppCloudTransport implements WhatsAppTransport {
   }
 }
 
-export function parseCloudWebhook(payload: unknown): Array<{ senderId: string; text: string }> {
-  const messages: Array<{ senderId: string; text: string }> = [];
+export function parseCloudWebhook(payload: unknown): Array<{ senderId: string; text: string; messageId?: string }> {
+  const messages: Array<{ senderId: string; text: string; messageId?: string }> = [];
   const entries = (payload as { entry?: unknown[] })?.entry ?? [];
   for (const entry of entries) {
     const changes = (entry as { changes?: unknown[] }).changes ?? [];
     for (const change of changes) {
       const value = (change as { value?: Record<string, unknown> }).value ?? {};
       for (const message of (value.messages as unknown[]) ?? []) {
-        const item = message as { from?: string; text?: { body?: string }; button?: { text?: string } };
+        const item = message as { from?: string; id?: string; text?: { body?: string }; button?: { text?: string } };
         const text = item.text?.body ?? item.button?.text;
-        if (item.from && text) messages.push({ senderId: item.from, text });
+        if (item.from && text) messages.push({ senderId: item.from, text, messageId: item.id });
       }
     }
   }
@@ -144,6 +149,7 @@ export class WhatsAppChannelAdapter implements IntegrationEgressPort {
             kind: "whatsapp",
             senderId: message.senderId,
             text: message.text,
+            externalMessageId: message.messageId,
           })
           .catch((error) =>
             this.options.logger.error({

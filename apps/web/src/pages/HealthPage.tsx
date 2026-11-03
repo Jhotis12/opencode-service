@@ -47,6 +47,22 @@ export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Pro
         ))}
       </div>
 
+      {health.chat && (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {[
+            { label: "Turnos activos", value: health.chat.active },
+            { label: "Turno más viejo", value: health.chat.oldestActiveAgeMs ? `${Math.floor(health.chat.oldestActiveAgeMs / 60_000)} min` : "—" },
+            { label: "Recuperados 24h", value: health.chat.recovered24h },
+            { label: "Fallidos 24h", value: health.chat.failed24h },
+          ].map((metric) => (
+            <article className={`${card} gap-1 p-4`} key={metric.label}>
+              <small className="text-xs text-muted">{metric.label}</small>
+              <strong className="text-xl font-semibold tabular-nums text-slate-100">{metric.value}</strong>
+            </article>
+          ))}
+        </div>
+      )}
+
       <section className={card}>
         <h2 className="text-base font-semibold text-slate-100">Servicios</h2>
         <div className="overflow-x-auto">

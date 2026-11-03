@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ChatProgressEvent, NodeSpec, WorkflowGraph } from "@platform/shared";
+import type { ChatTurnEvent, NodeSpec, WorkflowGraph } from "@platform/shared";
 import { api, ApiClientError, type RunRecord } from "../api.ts";
 import { qk } from "../query.ts";
 import { AgentCatalog } from "../components/AgentCatalog.tsx";
@@ -222,6 +222,17 @@ export function ProjectPage() {
       }
       void queryClient.invalidateQueries({ queryKey: qk.runs(slug) });
     });
+    source.addEventListener("chat.turn.updated", (event) => {
+      const data = JSON.parse((event as MessageEvent).data) as {
+        projectSlug?: string;
+        status: string;
+      };
+      if (data.projectSlug !== slug) return;
+      if (["succeeded", "failed", "timed_out", "cancelled", "unknown"].includes(data.status)) {
+        void queryClient.invalidateQueries({ queryKey: qk.chat(slug) });
+        if (!chatOpenRef.current) setChatUnread(true);
+      }
+    });
     return () => source.close();
   }, [slug, queryClient]);
 
@@ -314,7 +325,7 @@ export function ProjectPage() {
   });
 
   const chat = useMutation({
-    mutationFn: ({ message, onEvent }: { message: string; onEvent?: (event: ChatProgressEvent) => void }) =>
+    mutationFn: ({ message, onEvent }: { message: string; onEvent?: (event: ChatTurnEvent) => void }) =>
       api.chat(slug, message, onEvent),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: qk.chat(slug) });
@@ -758,9 +769,10 @@ export function ProjectPage() {
             onMinimize={() => setChatOpen(false)}
             onBusyChange={setChatBusy}
             onActivityChange={setChatActivity}
-            onSend={(message, onProgress) =>
-              chat.mutateAsync({ message, onEvent: onProgress }).then((result) => result.reply)
-            }
+            onSend={(message, onProgress) => chat.mutateAsync({ message, onEvent: onProgress })}
+            onAttachTurn={(turnId, onEvent) => api.attachChatTurn(slug, turnId, onEvent)}
+            onCancelTurn={(turnId) => api.cancelChatTurn(slug, turnId)}
+            onRetryTurn={(turnId) => api.retryChatTurn(slug, turnId)}
             hint="El canvas se sincroniza en vivo cuando el agente edita archivos. Puede tardar varios minutos."
             initialMessages={chatHistory}
             storageKey={slug}

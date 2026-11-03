@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ChatProgressEvent } from "@platform/shared";
-import type { ChatHistoryMessage } from "../api.ts";
+import type { ChatTurnEvent, ChatTurnStatus } from "@platform/shared";
+import { ChatTurnStreamError, type ChatHistoryMessage, type ChatTurnResult } from "../api.ts";
+import { useChatTurn } from "../useChatTurn.ts";
 import { BrandMark } from "./Brand.tsx";
 import { buttonGhost, buttonPrimary } from "../ui.ts";
 
@@ -25,6 +26,22 @@ const WELCOME =
 function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+function turnStatusLabel(status: ChatTurnStatus | undefined, connection: string): string {
+  if (connection === "reconnecting") return "Reconectando con el turno…";
+  switch (status) {
+    case "queued":
+      return "En cola";
+    case "retrying":
+      return "El proveedor está reintentando";
+    case "recovering":
+      return "Recuperando el turno";
+    case "running":
+      return "Agente trabajando";
+    default:
+      return "Agente trabajando";
+  }
 }
 
 function nodeText(node: ReactNode): string {
@@ -98,6 +115,9 @@ function MarkdownMessage({ text }: { text: string }) {
 
 export function ChatPanel({
   onSend,
+  onAttachTurn,
+  onCancelTurn,
+  onRetryTurn,
   disabled,
   hint,
   initialMessages,
@@ -109,7 +129,10 @@ export function ChatPanel({
   onBusyChange,
   onActivityChange,
 }: {
-  onSend(message: string, onEvent: (event: ChatProgressEvent) => void): Promise<string>;
+  onSend(message: string, onEvent: (event: ChatTurnEvent) => void): Promise<ChatTurnResult | string>;
+  onAttachTurn?: (turnId: string, onEvent: (event: ChatTurnEvent) => void) => Promise<ChatTurnResult>;
+  onCancelTurn?: (turnId: string) => Promise<unknown>;
+  onRetryTurn?: (turnId: string) => Promise<{ turn: { id: string }; warning?: string }>;
   disabled?: boolean;
   hint?: string;
   initialMessages?: ChatHistoryMessage[];
@@ -121,6 +144,7 @@ export function ChatPanel({
   onBusyChange?: (busy: boolean) => void;
   onActivityChange?: (activity: string | undefined) => void;
 }) {
+  const turn = useChatTurn({ attachTurn: onAttachTurn, cancelTurn: onCancelTurn, retryTurn: onRetryTurn });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -137,6 +161,9 @@ export function ChatPanel({
   const endRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef(busy);
   busyRef.current = busy;
+  const reconnectRef = useRef(turn.reconnect);
+  reconnectRef.current = turn.reconnect;
+  const attachedTurnRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     // A query refetch can deliver the persisted agent reply while the streamed
@@ -156,9 +183,34 @@ export function ChatPanel({
       setElapsed(0);
       return;
     }
-    const timer = setInterval(() => setElapsed((value) => value + 1), 1000);
+    const started = turn.startedAt ? Date.parse(turn.startedAt) : Date.now();
+    const tick = () => setElapsed(Math.max(0, Math.floor((Date.now() - started) / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [busy]);
+  }, [busy, turn.startedAt]);
+
+  useEffect(() => {
+    if (busyRef.current || !onAttachTurn || !initialMessages?.length) return;
+    const active = [...initialMessages]
+      .reverse()
+      .find((message) => message.turnId && ["queued", "running", "recovering", "retrying"].includes(message.turnStatus ?? ""));
+    if (!active?.turnId || attachedTurnRef.current === active.turnId) return;
+    attachedTurnRef.current = active.turnId;
+    setBusy(true);
+    onBusyChange?.(true);
+    onActivityChange?.("Reconectando con el turno…");
+    void reconnectRef
+      .current(active.turnId)
+      .then((result) => {
+        if (result?.reply) setMessages((current) => [...current, { role: "agent", text: result.reply }]);
+      })
+      .finally(() => {
+        setBusy(false);
+        onBusyChange?.(false);
+        onActivityChange?.(undefined);
+      });
+  }, [initialMessages, onAttachTurn, onBusyChange, onActivityChange]);
 
   function scrollToLatest() {
     if (typeof endRef.current?.scrollIntoView !== "function") return;
@@ -172,7 +224,7 @@ export function ChatPanel({
     scrollToLatest();
   }, [messages, busy, draft, activities, surface, atBottom]);
 
-  function upsertActivity(event: ChatProgressEvent & { type: "activity" }) {
+  function upsertActivity(event: Extract<ChatTurnEvent, { type: "activity" }>) {
     setActivities((current) => {
       const next = [...current];
       const index = next.findIndex((item) => item.id === event.id);
@@ -190,28 +242,44 @@ export function ChatPanel({
     if (!message || busy) return;
     setInput("");
     setMessages((current) => [...current, { role: "user", text: message }]);
+    attachedTurnRef.current = undefined;
     setBusy(true);
     setDraft("");
     setActivities([]);
     setAtBottom(true);
     onBusyChange?.(true);
     onActivityChange?.("Preparando respuesta…");
+    turn.begin();
     let textStarted = false;
     try {
-      const reply = await onSend(message, (progress) => {
+      const result = await onSend(message, (progress) => {
+        turn.handleEvent(progress);
         if (progress.type === "text") {
           setDraft((current) => current + progress.text);
           if (!textStarted) {
             textStarted = true;
             onActivityChange?.("Redactando respuesta…");
           }
-        } else {
+        } else if (progress.type === "activity") {
           upsertActivity(progress);
         }
       });
+      const reply = typeof result === "string" ? result : result.reply;
       setDraft("");
       setMessages((current) => [...current, { role: "agent", text: reply }]);
     } catch (error) {
+      const recoverable =
+        error instanceof ChatTurnStreamError &&
+        Boolean(error.turnId) &&
+        ["transport_interrupted", "unknown", "opencode_unavailable"].includes(error.code ?? "");
+      if (recoverable && error.turnId) {
+        const result = await turn.reconnect(error.turnId);
+        if (result?.reply) {
+          setDraft("");
+          setMessages((current) => [...current, { role: "agent", text: result.reply }]);
+          return;
+        }
+      }
       setMessages((current) => [
         ...current,
         { role: "system", text: `Error: ${error instanceof Error ? error.message : String(error)}` },
@@ -297,9 +365,24 @@ export function ChatPanel({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="flex items-center gap-1.5 text-[11px] font-medium text-accent">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
-                Agente trabajando
+                {turnStatusLabel(turn.status, turn.connection)}
               </span>
-              <small className="text-[11px] text-muted">{elapsed > 0 ? formatElapsed(elapsed) : "ahora"}</small>
+              <div className="flex items-center gap-2">
+                <small className="text-[11px] text-muted">{elapsed > 0 ? formatElapsed(elapsed) : "ahora"}</small>
+                {turn.turnId && onCancelTurn && (
+                  <button
+                    type="button"
+                    className={buttonGhost}
+                    onClick={() => {
+                      if (window.confirm("¿Cancelar este turno? Puede quedar trabajo parcial en el proyecto.")) {
+                        void turn.cancel();
+                      }
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
             </div>
             {activities.length > 0 && (
               <ul className="flex flex-col gap-1 text-[11px] text-muted" aria-label="Actividad del agente">
@@ -328,6 +411,27 @@ export function ChatPanel({
               <small className="text-muted">Preparando respuesta…</small>
             )}
           </article>
+        )}
+        {!busy && turn.connection === "error" && turn.turnId && onRetryTurn && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className={buttonGhost}
+              onClick={() => {
+                void (async () => {
+                  const result = await onRetryTurn(turn.turnId!);
+                  setBusy(true);
+                  onBusyChange?.(true);
+                  const attached = await turn.reconnect(result.turn.id);
+                  if (attached?.reply) setMessages((current) => [...current, { role: "agent", text: attached.reply }]);
+                  setBusy(false);
+                  onBusyChange?.(false);
+                })();
+              }}
+            >
+              Reintentar
+            </button>
+          </div>
         )}
         <div ref={endRef} />
       </div>

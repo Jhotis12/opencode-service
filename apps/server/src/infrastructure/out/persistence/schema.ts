@@ -262,10 +262,49 @@ export const chatThreads = sqliteTable(
 export const chatMessages = sqliteTable("chat_messages", {
   id: text("id").primaryKey(),
   threadId: text("thread_id").notNull(),
+  turnId: text("turn_id"),
   role: text("role").notNull(),
   content: text("content").notNull(),
+  errorCode: text("error_code"),
   createdAt: text("created_at").notNull(),
 });
+
+export const chatTurns = sqliteTable(
+  "chat_turns",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id").notNull(),
+    scope: text("scope").notNull(),
+    projectSlug: text("project_slug").notNull().default(""),
+    integrationId: text("integration_id").notNull().default(""),
+    externalThreadId: text("external_thread_id").notNull().default(""),
+    sessionId: text("session_id"),
+    userMessageId: text("user_message_id"),
+    assistantMessageId: text("assistant_message_id"),
+    inboxId: text("inbox_id"),
+    assistantOpencodeMessageId: text("assistant_opencode_message_id"),
+    status: text("status").notNull(),
+    deliveryState: text("delivery_state").notNull().default("created"),
+    attempt: integer("attempt").notNull().default(0),
+    startedAt: text("started_at").notNull(),
+    finishedAt: text("finished_at"),
+    lastActivityAt: text("last_activity_at").notNull(),
+    lastSeq: integer("last_seq"),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    usageJson: text("usage_json"),
+    hasSideEffects: integer("has_side_effects", { mode: "boolean" }).notNull().default(false),
+    idempotencyKey: text("idempotency_key"),
+    entryPoint: text("entry_point").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    activeThread: index("chat_turns_active_thread").on(table.threadId, table.status),
+    idempotency: uniqueIndex("chat_turns_idempotency").on(table.threadId, table.idempotencyKey),
+    project: index("chat_turns_project").on(table.projectSlug, table.createdAt),
+  }),
+);
 
 export const notebooks = sqliteTable(
   "notebooks",

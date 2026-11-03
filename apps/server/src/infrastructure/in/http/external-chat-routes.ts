@@ -4,6 +4,7 @@ import { ChatMessageRequestSchema, apiError } from "@platform/shared";
 import type { Store } from "../../../application/ports/store.ts";
 import type { SecretVault } from "../../../application/ports/security.ts";
 import type { AgentRuntimePort } from "../../../application/ports/runtime.ts";
+import type { ChatTurnService } from "../../../application/use-cases/chat-turns.ts";
 import type { WorkspacePort } from "../../../application/ports/workspace.ts";
 import {
   ChannelAuthError,
@@ -17,6 +18,7 @@ export interface ExternalChatRouteDeps {
   store: Store;
   vault: SecretVault;
   agent: AgentRuntimePort;
+  turns?: ChatTurnService;
   workspace: WorkspacePort;
   executor: Pick<ExecuteWorkflowRunUseCase, "execute">;
   controlDirectory: string;
@@ -60,6 +62,7 @@ export function createExternalChatRoutes(deps: ExternalChatRouteDeps): Hono {
               message: parsed.data.message,
               metadata: parsed.data.metadata,
               webhookUrl: parsed.data.webhookUrl,
+              messageId: c.req.header("x-message-id") ?? parsed.data.clientMessageId,
               onSession: async (sessionId) => {
                 unsubscribe = await deps.agent.subscribe((event) => {
                   const delta = event as { type?: string; sessionID?: string; text?: string };
@@ -94,8 +97,9 @@ export function createExternalChatRoutes(deps: ExternalChatRouteDeps): Hono {
         message: parsed.data.message,
         metadata: parsed.data.metadata,
         webhookUrl: parsed.data.webhookUrl,
+        messageId: c.req.header("x-message-id") ?? parsed.data.clientMessageId,
       });
-      return c.json({ threadId: result.threadId, sessionId: result.sessionId, reply: result.reply });
+      return c.json({ threadId: result.threadId, sessionId: result.sessionId, turnId: result.turnId, reply: result.reply });
     } catch (error) {
       if (error instanceof ChannelAuthError) return c.json(apiError("UNAUTHORIZED", "invalid integration key"), 401);
       throw error;

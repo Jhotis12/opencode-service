@@ -1,6 +1,9 @@
 import type {
   ChatProgressEvent,
   ChatThread,
+  ChatTurn,
+  ChatTurnEvent,
+  ChatTurnStatus,
   HealthSnapshot,
   IntegrationRecord,
   NodeSpec,
@@ -174,9 +177,33 @@ export interface SearchHit {
 export interface ChatHistoryMessage {
   id: string;
   threadId: string;
+  turnId?: string;
   role: "user" | "agent" | "system";
   content: string;
+  errorCode?: string;
+  turnStatus?: ChatTurnStatus;
   createdAt: string;
+}
+
+export interface ChatTurnResult {
+  reply: string;
+  sessionId?: string;
+  threadId?: string;
+  turnId?: string;
+  status?: ChatTurnStatus;
+  startedAt?: string;
+}
+
+export class ChatTurnStreamError extends Error {
+  constructor(
+    message: string,
+    public readonly turnId?: string,
+    public readonly code?: string,
+    public readonly retryable = false,
+  ) {
+    super(message);
+    this.name = "ChatTurnStreamError";
+  }
 }
 
 export interface HealthPayload extends HealthSnapshot {}
@@ -210,20 +237,13 @@ export interface OrchestratorOverview {
   integrations: Array<{ id: string; scope: string; projectSlug?: string; kind: string; name: string; status: string }>;
 }
 
-async function chatStream(
-  path: string,
-  message: string,
-  onEvent?: (event: ChatProgressEvent) => void,
-): Promise<{ reply: string; sessionId: string; threadId?: string }> {
-  const response = await fetch(path, {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json", accept: "text/event-stream" },
-    body: JSON.stringify({ message }),
-  });
+async function readTurnStream(
+  response: Response,
+  onEvent?: (event: ChatTurnEvent) => void,
+): Promise<ChatTurnResult> {
   if (!response.ok) {
     const payload = (await response.json().catch(() => undefined)) as
-      | { error?: { code?: string; message?: string } }
+      | { error?: { code?: string; message?: string; details?: { turnId?: string } } }
       | undefined;
     throw new ApiClientError(
       response.status,
@@ -233,12 +253,13 @@ async function chatStream(
   }
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/event-stream") || !response.body) {
-    return (await response.json()) as { reply: string; sessionId: string; threadId?: string };
+    return (await response.json()) as ChatTurnResult;
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let result: { reply: string; sessionId: string; threadId?: string } | undefined;
+  let result: ChatTurnResult | undefined;
+  let lastTurnId: string | undefined;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -249,19 +270,66 @@ async function chatStream(
       buffer = buffer.slice(separator + 2);
       const event = /event:\s*(.+)/.exec(block)?.[1]?.trim();
       const data = /data:\s*([\s\S]*)/.exec(block)?.[1]?.trim();
-      if (event === "done" && data) result = JSON.parse(data) as { reply: string; sessionId: string; threadId?: string };
-      if ((event === "delta" || event === "activity") && data && onEvent) {
-        const progress = JSON.parse(data) as ChatProgressEvent;
-        if (progress.type === "text" || progress.type === "activity") onEvent(progress);
+      if (!data || !event || event === "heartbeat") {
+        separator = buffer.indexOf("\n\n");
+        continue;
       }
-      if (event === "error" && data) {
-        throw new Error((JSON.parse(data) as { message?: string }).message ?? "the agent failed");
+      const payload = JSON.parse(data) as any;
+      if (event === "error" && !payload.type) {
+        throw new ChatTurnStreamError(payload.message ?? "the agent failed", payload.turnId, payload.code, true);
       }
+      if (payload.type === "turn") {
+        lastTurnId = payload.turn.id;
+      } else if ("turnId" in payload && payload.turnId) {
+        lastTurnId = payload.turnId;
+      }
+      if (payload.type === "done") {
+        result = {
+          reply: payload.reply,
+          turnId: payload.turnId,
+          threadId: payload.threadId,
+          sessionId: payload.sessionId,
+          status: payload.status,
+          startedAt: payload.startedAt,
+        };
+      }
+      if (payload.type === "error") {
+        throw new ChatTurnStreamError(payload.message, payload.turnId, payload.code, payload.retryable);
+      }
+      onEvent?.(payload);
       separator = buffer.indexOf("\n\n");
     }
   }
-  if (!result) throw new Error("the chat stream ended without a reply");
+  if (!result) {
+    throw new ChatTurnStreamError("the chat stream ended without a reply", lastTurnId, "transport_interrupted", true);
+  }
   return result;
+}
+
+async function chatStream(
+  path: string,
+  message: string,
+  onEvent?: (event: ChatTurnEvent) => void,
+  clientMessageId?: string,
+): Promise<ChatTurnResult> {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    body: JSON.stringify({ message, clientMessageId }),
+  });
+  return readTurnStream(response, onEvent);
+}
+
+async function attachTurnStream(
+  path: string,
+  onEvent?: (event: ChatTurnEvent) => void,
+): Promise<ChatTurnResult> {
+  const response = await fetch(path, {
+    credentials: "include",
+    headers: { accept: "text/event-stream" },
+  });
+  return readTurnStream(response, onEvent);
 }
 
 export const api = {
@@ -322,9 +390,17 @@ export const api = {
     }),
   replayRun: (runId: string, fromNodeId?: string) =>
     request<RunRecord>(`/api/runs/${runId}/replay`, { method: "POST", body: JSON.stringify({ fromNodeId }) }),
-  chat: (slug: string, message: string, onEvent?: (event: ChatProgressEvent) => void) =>
-    chatStream(`/api/projects/${slug}/chat`, message, onEvent),
+  chat: (slug: string, message: string, onEvent?: (event: ChatTurnEvent) => void, clientMessageId?: string) =>
+    chatStream(`/api/projects/${slug}/chat`, message, onEvent, clientMessageId),
   chatHistory: (slug: string) => request<{ data: ChatHistoryMessage[] }>(`/api/projects/${slug}/chat?limit=200`),
+  getChatTurn: (slug: string, turnId: string) =>
+    request<{ turn: ChatTurn; messages: ChatHistoryMessage[] }>(`/api/projects/${slug}/chat/turns/${turnId}`),
+  attachChatTurn: (slug: string, turnId: string, onEvent?: (event: ChatTurnEvent) => void) =>
+    attachTurnStream(`/api/projects/${slug}/chat/turns/${turnId}/events`, onEvent),
+  cancelChatTurn: (slug: string, turnId: string) =>
+    request<{ turn: ChatTurn }>(`/api/projects/${slug}/chat/turns/${turnId}/cancel`, { method: "POST" }),
+  retryChatTurn: (slug: string, turnId: string) =>
+    request<{ turn: ChatTurn; warning?: string }>(`/api/projects/${slug}/chat/turns/${turnId}/retry`, { method: "POST" }),
   getRun: (id: string) => request<RunRecord>(`/api/runs/${id}`),
   listApprovals: (slug: string, runId: string) =>
     request<{ data: ApprovalRecord[] }>(`/api/projects/${slug}/runs/${runId}/approvals`),
@@ -485,9 +561,17 @@ export const api = {
     request<{ ok: boolean }>(`/api/control/integrations/${id}/disconnect`, { method: "POST" }),
   controlIntegrationQr: (id: string) => request<{ qr: string }>(`/api/control/integrations/${id}/qr`),
   controlOverview: () => request<OrchestratorOverview>("/api/control/overview"),
-  controlChat: (message: string, onEvent?: (event: ChatProgressEvent) => void) =>
-    chatStream("/api/control/chat", message, onEvent),
+  controlChat: (message: string, onEvent?: (event: ChatTurnEvent) => void, clientMessageId?: string) =>
+    chatStream("/api/control/chat", message, onEvent, clientMessageId),
   controlChatHistory: () => request<{ data: ChatHistoryMessage[] }>("/api/control/chat?limit=200"),
+  getControlChatTurn: (turnId: string) =>
+    request<{ turn: ChatTurn; messages: ChatHistoryMessage[] }>(`/api/control/chat/turns/${turnId}`),
+  attachControlChatTurn: (turnId: string, onEvent?: (event: ChatTurnEvent) => void) =>
+    attachTurnStream(`/api/control/chat/turns/${turnId}/events`, onEvent),
+  cancelControlChatTurn: (turnId: string) =>
+    request<{ turn: ChatTurn }>(`/api/control/chat/turns/${turnId}/cancel`, { method: "POST" }),
+  retryControlChatTurn: (turnId: string) =>
+    request<{ turn: ChatTurn; warning?: string }>(`/api/control/chat/turns/${turnId}/retry`, { method: "POST" }),
   controlKnowledgeSearch: (query: string, projectSlug?: string) =>
     request<{ data: SearchHit[] }>("/api/control/knowledge/search", {
       method: "POST",

@@ -5,6 +5,7 @@ import type { ChatMessageRecord } from "../../domain/entities.ts";
 import type { Logger } from "../../domain/telemetry/index.ts";
 import { createChatProgressHandler } from "./chat-progress.ts";
 import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
+import type { ChatTarget, ChatTurnService } from "./chat-turns.ts";
 
 export interface OrchestratorOverview {
   projects: Array<{ slug: string; name: string; description: string; status: string }>;
@@ -53,6 +54,7 @@ export class ChatWithOrchestratorUseCase {
     private readonly deps: {
       store: Store;
       agent: AgentRuntimePort;
+      turns?: ChatTurnService;
       controlDirectory: string;
       orchestratorAgent: string;
       timeoutMs?: number;
@@ -67,15 +69,57 @@ export class ChatWithOrchestratorUseCase {
       externalThreadId: "web",
       title: "Orquestador global",
     });
-    return this.deps.store.chat
-      .listByThread(thread.id, limit)
-      .filter((message) => message.role !== "agent" || message.content.trim().length > 0);
+    const messages = this.deps.turns
+      ? (this.deps.turns.history(thread.id, limit) as ChatMessageRecord[])
+      : this.deps.store.chat.listByThread(thread.id, limit);
+    return messages.filter((message) => message.role !== "agent" || message.content.trim().length > 0);
+  }
+
+  async start(
+    message: string,
+    idempotencyKey?: string,
+  ): Promise<{ turn: import("../../domain/entities.ts").ChatTurnRecord; threadId: string }> {
+    if (!this.deps.turns) throw new Error("chat turn service is not configured");
+    const thread = this.deps.store.chatThreads.findOrCreate({
+      scope: "global",
+      externalThreadId: "web",
+      title: "Orquestador global",
+    });
+    const target: ChatTarget = {
+      scope: "global",
+      directory: this.deps.controlDirectory,
+      agentId: this.deps.orchestratorAgent,
+      model: this.resolveModel(),
+      context: "chat",
+      entryPoint: "global_orchestrator",
+      readOnly: true,
+      timeoutMs: this.deps.timeoutMs,
+    };
+    const turn = await this.deps.turns.start({ thread, target, message, idempotencyKey });
+    return { turn, threadId: thread.id };
   }
 
   async execute(
     message: string,
     onProgress?: (event: ChatProgressEvent) => void,
   ): Promise<{ reply: string; sessionId: string; threadId: string }> {
+    if (this.deps.turns) {
+      let started = await this.start(message);
+      let final = await this.deps.turns.waitForTerminal(started.turn.id);
+      if (final.status !== "succeeded" && final.errorCode === "empty_reply") {
+        this.deps.store.chatThreads.setSession(started.threadId, "");
+        started = await this.start(message);
+        final = await this.deps.turns.waitForTerminal(started.turn.id);
+      }
+      if (final.status !== "succeeded") {
+        throw new Error(final.errorMessage ?? `orchestrator turn ended as ${final.status}`);
+      }
+      return {
+        reply: this.deps.turns.replyForTurn(started.turn.id),
+        sessionId: final.sessionId ?? "",
+        threadId: started.threadId,
+      };
+    }
     const thread = this.deps.store.chatThreads.findOrCreate({
       scope: "global",
       externalThreadId: "web",

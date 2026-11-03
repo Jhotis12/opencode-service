@@ -8,7 +8,6 @@ import {
   apiError,
   evaluateToolPermission,
   type AgentExecutionContext,
-  type ChatProgressEvent,
   type WorkflowGraph,
 } from "@platform/shared";
 import type { IntegrationRecord, UserRecord } from "./domain/entities.ts";
@@ -74,6 +73,8 @@ import { ManageIntegrationsUseCase, type IntegrationCommand, type IntegrationUpd
 import { IntegrationValidationError } from "./domain/integrations/validation.ts";
 import { GetProjectSettingsUseCase, UpdateProjectSettingsUseCase } from "./application/use-cases/project-settings.ts";
 import { ChatWithOrchestratorUseCase, resolveOrchestratorModel } from "./application/use-cases/orchestrator.ts";
+import { ChatTurnService, TurnInProgressError } from "./application/use-cases/chat-turns.ts";
+import { assertChatTimeoutsCoverOpenCode, resolveChatTurnPolicy } from "./application/use-cases/chat-turn-policy.ts";
 import { AlertService } from "./application/use-cases/alerts.ts";
 import { validateWorkflowResources } from "./application/use-cases/workflow-resources.ts";
 import { WorkflowScheduler } from "./domain/workflow/cron.ts";
@@ -103,6 +104,7 @@ export interface Application {
   store: SqliteStore;
   events: SseHub;
   agent: import("./application/ports/runtime.ts").AgentRuntimePort;
+  chatTurns: ChatTurnService;
   integrationManager: IntegrationManager;
   scheduler: WorkflowScheduler;
   close(): void;
@@ -202,6 +204,28 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const errorTracker = config.sentryDsn
     ? new SentryErrorTracker(config.sentryDsn, env.SENTRY_ENVIRONMENT ?? "production")
     : new NoopErrorTracker();
+  const chatTurnPolicy = resolveChatTurnPolicy(env);
+  const chatTurns = new ChatTurnService({
+    store,
+    agent,
+    events,
+    logger,
+    metrics,
+    errors: errorTracker,
+    policy: chatTurnPolicy,
+  });
+  try {
+    assertChatTimeoutsCoverOpenCode(chatTurnPolicy, {
+      providerMs: Number(env.OPENCODE_PROVIDER_TIMEOUT_MS),
+      bashMs: Number(env.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS),
+    });
+  } catch (error) {
+    logger.warn({
+      event: "chat_timeout_budget_mismatch",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  const useTurnEngine = (env.CHAT_TURN_ENGINE ?? "v2").toLowerCase() !== "legacy";
   const codec = new SessionCodec(masterKey.toString("base64"));
   const egress = new IntegrationEgressRouter();
   const externalDb = new DynamicDatabaseClientAdapter();
@@ -266,6 +290,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     store,
     workspace,
     agent,
+    turns: useTurnEngine ? chatTurns : undefined,
     executor,
     egress,
     events,
@@ -275,6 +300,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     store,
     workspace,
     agent,
+    turns: useTurnEngine ? chatTurns : undefined,
     executor,
     egress,
     events,
@@ -306,27 +332,35 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const saveWorkflow = new SaveWorkflowUseCase(store, workspace, events);
   const rollbackWorkflow = new RollbackWorkflowVersionUseCase(store, workspace, events);
   await executor.recoverInterruptedRuns().catch(() => undefined);
+  await chatTurns.recover().catch((error) =>
+    logger.warn({
+      event: "chat_turns_recovery_failed",
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
   const chat = new ChatWithProjectUseCase({
     store,
     workspace,
     agent,
+    turns: useTurnEngine ? chatTurns : undefined,
     events,
     defaultModel: () => store.settings.get("default_model") || undefined,
-    timeoutMs: Number(env.AGENT_CHAT_TIMEOUT_MS ?? 900_000),
+    timeoutMs: Number(env.AGENT_TURN_MAX_MS ?? env.AGENT_CHAT_TIMEOUT_MS ?? 1_800_000),
     logger,
   });
   const orchestrator = new ChatWithOrchestratorUseCase({
     store,
     agent,
+    turns: useTurnEngine ? chatTurns : undefined,
     controlDirectory,
     orchestratorAgent: "orchestrator/agente",
-    timeoutMs: Number(env.AGENT_CHAT_TIMEOUT_MS ?? 900_000),
+    timeoutMs: Number(env.AGENT_TURN_MAX_MS ?? env.AGENT_CHAT_TIMEOUT_MS ?? 1_800_000),
     model: () => resolveOrchestratorModel(env.ORCHESTRATOR_MODEL, store.settings.get("default_model")),
     logger,
   });
   const agents = new ManageSubagentsUseCase(workspace, new MarkdownAgentAdapter(workspace), agent, events);
   const connectProvider = new ConnectProviderUseCase(store, vault, agent);
-  const health = new GetHealthUseCase({ store, agent, metrics, startedAt: Date.now() });
+  const health = new GetHealthUseCase({ store, agent, metrics, chatTurns, startedAt: Date.now() });
   const projectSettings = new GetProjectSettingsUseCase(store, workspace);
   const updateProjectSettings = new UpdateProjectSettingsUseCase(store, events);
   const alerts = new AlertService({ store, egress, events, logger });
@@ -468,6 +502,94 @@ export async function createApplication(config: AppConfig): Promise<Application>
     await next();
   });
 
+  const streamLegacyTurn = (
+    c: any,
+    execute: (onProgress: (event: { type: string; text: string }) => void) => Promise<{ reply: string; sessionId: string; threadId?: string }>,
+  ) =>
+    streamSSE(c, async (stream: any) => {
+      let finished = false;
+      let writes: Promise<unknown> = Promise.resolve();
+      const heartbeat = setInterval(() => {
+        if (!finished && !stream.aborted) void stream.writeSSE({ event: "heartbeat", data: "{}" }).catch(() => undefined);
+      }, 15_000);
+      const publish = (event: { type: string; text: string }) => {
+        if (finished || stream.aborted) return;
+        writes = writes
+          .then(() =>
+            stream.writeSSE({
+              event: event.type === "text" ? "delta" : "activity",
+              data: JSON.stringify(event),
+            }),
+          )
+          .catch(() => undefined);
+      };
+      stream.onAbort(() => {
+        finished = true;
+        clearInterval(heartbeat);
+      });
+      try {
+        const result = await execute(publish);
+        await writes;
+        await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
+      } catch (error) {
+        await writes;
+        await stream
+          .writeSSE({ event: "error", data: JSON.stringify({ message: error instanceof Error ? error.message : String(error) }) })
+          .catch(() => undefined);
+      } finally {
+        finished = true;
+        clearInterval(heartbeat);
+      }
+    });
+
+  const streamTurn = (c: any, turnId: string) =>
+    streamSSE(c, async (stream: any) => {
+      let finished = false;
+      let writes: Promise<unknown> = Promise.resolve();
+      const heartbeat = setInterval(() => {
+        if (!finished && !stream.aborted) {
+          void stream.writeSSE({ event: "heartbeat", data: "{}" }).catch(() => undefined);
+        }
+      }, 15_000);
+      const write = (event: import("@platform/shared").ChatTurnEvent) => {
+        if (finished || stream.aborted) return;
+        const name = event.type === "text" ? "delta" : event.type;
+        writes = writes
+          .then(() => stream.writeSSE({ event: name, data: JSON.stringify(event) }))
+          .catch(() => undefined);
+      };
+      const unsubscribe = chatTurns.subscribe(turnId, write, 0);
+      stream.onAbort(() => {
+        finished = true;
+        clearInterval(heartbeat);
+        unsubscribe();
+      });
+      try {
+        await chatTurns.waitForTerminal(turnId);
+        await writes;
+      } catch (error) {
+        await writes;
+        if (!finished && !stream.aborted) {
+          await stream
+            .writeSSE({
+              event: "error",
+              data: JSON.stringify({
+                type: "error",
+                turnId,
+                code: "unknown",
+                message: error instanceof Error ? error.message : String(error),
+                retryable: true,
+              }),
+            })
+            .catch(() => undefined);
+        }
+      } finally {
+        finished = true;
+        clearInterval(heartbeat);
+        unsubscribe();
+      }
+    });
+
   app.route(
     "/api/auth",
     createAuthRoutes({ store, hasher, codec, secureCookies: config.secureCookies ?? env.NODE_ENV === "production" }),
@@ -478,6 +600,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
       store,
       vault,
       agent,
+      turns: useTurnEngine ? chatTurns : undefined,
       workspace,
       executor,
       controlDirectory,
@@ -678,51 +801,73 @@ export async function createApplication(config: AppConfig): Promise<Application>
     return c.json({ data: orchestrator.history(limit) });
   });
   app.post("/api/control/chat", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { message?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { message?: string; clientMessageId?: string };
     if (!body.message) return c.json(apiError("VALIDATION_ERROR", "message is required"), 422);
-    const messageText = body.message;
     const wantsStream = (c.req.header("accept") ?? "").includes("text/event-stream");
-    if (wantsStream) {
-      return streamSSE(c, async (stream) => {
-        let finished = false;
-        let writes = Promise.resolve();
-        const heartbeat = setInterval(() => {
-          if (!finished && !stream.aborted) void stream.writeSSE({ event: "heartbeat", data: "{}" }).catch(() => undefined);
-        }, 15_000);
-        stream.onAbort(() => {
-          finished = true;
-          clearInterval(heartbeat);
-        });
-        const publish = (event: ChatProgressEvent) => {
-          if (finished || stream.aborted) return;
-          writes = writes
-            .then(() =>
-              stream.writeSSE({
-                event: event.type === "text" ? "delta" : "activity",
-                data: JSON.stringify(event),
-              }),
-            )
-            .catch(() => undefined);
-        };
-        try {
-          const result = await orchestrator.execute(messageText, publish);
-          await writes;
-          await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
-        } catch (error) {
-          await writes;
-          await stream
-            .writeSSE({ event: "error", data: JSON.stringify({ message: error instanceof Error ? error.message : String(error) }) })
-            .catch(() => undefined);
-        } finally {
-          finished = true;
-          clearInterval(heartbeat);
-        }
-      });
+    if (!useTurnEngine) {
+      if (wantsStream) return streamLegacyTurn(c, (onProgress) => orchestrator.execute(body.message!, onProgress));
+      try {
+        return c.json(await orchestrator.execute(body.message!));
+      } catch (error) {
+        return c.json(apiError("AGENT_ERROR", error instanceof Error ? error.message : "orchestrator failed"), 502);
+      }
     }
     try {
-      return c.json(await orchestrator.execute(body.message));
+      const { turn, threadId } = await orchestrator.start(body.message, body.clientMessageId);
+      if (wantsStream) return streamTurn(c, turn.id);
+      const final = await chatTurns.waitForTerminal(turn.id);
+      if (final.status !== "succeeded") {
+        return c.json(apiError("AGENT_ERROR", final.errorMessage ?? "orchestrator turn failed", { turnId: turn.id }), 502);
+      }
+      return c.json({
+        turnId: turn.id,
+        threadId,
+        sessionId: final.sessionId,
+        reply: chatTurns.replyForTurn(turn.id),
+      });
     } catch (error) {
+      if (error instanceof TurnInProgressError) {
+        return c.json(apiError("TURN_IN_PROGRESS", error.message, { turnId: error.turnId }), 409);
+      }
       return c.json(apiError("AGENT_ERROR", error instanceof Error ? error.message : "orchestrator failed"), 502);
+    }
+  });
+
+  app.get("/api/control/chat/turns/:turnId", (c) => {
+    const turn = chatTurns.get(c.req.param("turnId"));
+    if (!turn) return c.json(apiError("NOT_FOUND", "chat turn not found"), 404);
+    if (turn.scope !== "global") return c.json(apiError("FORBIDDEN", "control scope mismatch"), 403);
+    return c.json({ turn, messages: store.chat.listByTurn(turn.id) });
+  });
+
+  app.get("/api/control/chat/turns/:turnId/events", (c) => {
+    const turn = chatTurns.get(c.req.param("turnId"));
+    if (!turn) return c.json(apiError("NOT_FOUND", "chat turn not found"), 404);
+    if (turn.scope !== "global") return c.json(apiError("FORBIDDEN", "control scope mismatch"), 403);
+    return streamTurn(c, turn.id);
+  });
+
+  app.post("/api/control/chat/turns/:turnId/cancel", async (c) => {
+    const turn = chatTurns.get(c.req.param("turnId"));
+    if (!turn) return c.json(apiError("NOT_FOUND", "chat turn not found"), 404);
+    if (turn.scope !== "global") return c.json(apiError("FORBIDDEN", "control scope mismatch"), 403);
+    return c.json({ turn: await chatTurns.cancel(turn.id) });
+  });
+
+  app.post("/api/control/chat/turns/:turnId/retry", async (c) => {
+    const turn = chatTurns.get(c.req.param("turnId"));
+    if (!turn) return c.json(apiError("NOT_FOUND", "chat turn not found"), 404);
+    if (turn.scope !== "global") return c.json(apiError("FORBIDDEN", "control scope mismatch"), 403);
+    const message = store.chat.listByTurn(turn.id).find((item) => item.role === "user")?.content;
+    if (!message) return c.json(apiError("VALIDATION_ERROR", "original message not found"), 422);
+    try {
+      const retried = await orchestrator.start(message, crypto.randomUUID());
+      return c.json({ turn: retried.turn, warning: turn.errorCode === "unknown" || turn.hasSideEffects ? "review possible side effects" : undefined });
+    } catch (error) {
+      if (error instanceof TurnInProgressError) {
+        return c.json(apiError("TURN_IN_PROGRESS", error.message, { turnId: error.turnId }), 409);
+      }
+      throw error;
     }
   });
   app.post("/api/control/knowledge/search", async (c) => {
@@ -1028,57 +1173,90 @@ export async function createApplication(config: AppConfig): Promise<Application>
   });
 
   app.post("/api/projects/:slug/chat", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { message?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { message?: string; clientMessageId?: string };
     if (!body.message) return c.json(apiError("VALIDATION_ERROR", "message is required"), 422);
-    const message = body.message;
     const projectSlug = c.req.param("slug");
     const wantsStream = (c.req.header("accept") ?? "").includes("text/event-stream");
-    if (wantsStream) {
-      return streamSSE(c, async (stream) => {
-        let finished = false;
-        let writes: Promise<unknown> = Promise.resolve();
-        const heartbeat = setInterval(() => {
-          if (!finished && !stream.aborted) {
-            void stream.writeSSE({ event: "heartbeat", data: "{}" }).catch(() => undefined);
-          }
-        }, 15_000);
-        stream.onAbort(() => {
-          finished = true;
-          clearInterval(heartbeat);
-        });
-        const publish = (event: ChatProgressEvent) => {
-          if (finished || stream.aborted) return;
-          writes = writes
-            .then(() =>
-              stream.writeSSE({
-                event: event.type === "text" ? "delta" : "activity",
-                data: JSON.stringify(event),
-              }),
-            )
-            .catch(() => undefined);
-        };
-        try {
-          const result = await chat.execute(projectSlug, message, publish);
-          await writes;
-          await stream.writeSSE({ event: "done", data: JSON.stringify(result) });
-        } catch (error) {
-          await writes;
-          const messageText = error instanceof Error ? error.message : String(error);
-          await stream.writeSSE({ event: "error", data: JSON.stringify({ message: messageText }) }).catch(() => undefined);
-        } finally {
-          finished = true;
-          clearInterval(heartbeat);
-        }
-      });
+    if (!useTurnEngine) {
+      if (wantsStream) return streamLegacyTurn(c, (onProgress) => chat.execute(projectSlug, body.message!, onProgress));
+      try {
+        return c.json(await chat.execute(projectSlug, body.message!));
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : "project not found";
+        return c.json(
+          apiError(messageText.startsWith("project not found") ? "NOT_FOUND" : "AGENT_ERROR", messageText),
+          messageText.startsWith("project not found") ? 404 : 502,
+        );
+      }
     }
     try {
-      return c.json(await chat.execute(projectSlug, message));
+      const { turn, threadId } = await chat.start(projectSlug, body.message, body.clientMessageId);
+      if (wantsStream) return streamTurn(c, turn.id);
+      const final = await chatTurns.waitForTerminal(turn.id);
+      if (final.status !== "succeeded") {
+        return c.json(apiError("AGENT_ERROR", final.errorMessage ?? "chat turn failed", { turnId: turn.id }), 502);
+      }
+      return c.json({
+        turnId: turn.id,
+        threadId,
+        sessionId: final.sessionId,
+        reply: chatTurns.replyForTurn(turn.id),
+      });
     } catch (error) {
+      if (error instanceof TurnInProgressError) {
+        return c.json(apiError("TURN_IN_PROGRESS", error.message, { turnId: error.turnId }), 409);
+      }
       const messageText = error instanceof Error ? error.message : "project not found";
       return c.json(
         apiError(messageText.startsWith("project not found") ? "NOT_FOUND" : "AGENT_ERROR", messageText),
         messageText.startsWith("project not found") ? 404 : 502,
       );
+    }
+  });
+
+  app.get("/api/projects/:slug/chat/turns/:turnId", (c) => {
+    const turn = chatTurns.get(c.req.param("turnId"));
+    if (!turn) return c.json(apiError("NOT_FOUND", "chat turn not found"), 404);
+    if (turn.projectSlug !== c.req.param("slug")) {
+      return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
+    }
+    return c.json({ turn, messages: store.chat.listByTurn(turn.id) });
+  });
+
+  app.get("/api/projects/:slug/chat/turns/:turnId/events", (c) => {
+    const turn = chatTurns.get(c.req.param("turnId"));
+    if (!turn) return c.json(apiError("NOT_FOUND", "chat turn not found"), 404);
+    if (turn.projectSlug !== c.req.param("slug")) {
+      return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
+    }
+    return streamTurn(c, turn.id);
+  });
+
+  app.post("/api/projects/:slug/chat/turns/:turnId/cancel", async (c) => {
+    const turn = chatTurns.get(c.req.param("turnId"));
+    if (!turn) return c.json(apiError("NOT_FOUND", "chat turn not found"), 404);
+    if (turn.projectSlug !== c.req.param("slug")) {
+      return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
+    }
+    return c.json({ turn: await chatTurns.cancel(turn.id) });
+  });
+
+  app.post("/api/projects/:slug/chat/turns/:turnId/retry", async (c) => {
+    const turn = chatTurns.get(c.req.param("turnId"));
+    if (!turn) return c.json(apiError("NOT_FOUND", "chat turn not found"), 404);
+    if (turn.projectSlug !== c.req.param("slug")) {
+      return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
+    }
+    const message = store.chat.listByTurn(turn.id).find((item) => item.role === "user")?.content;
+    if (!message) return c.json(apiError("VALIDATION_ERROR", "original message not found"), 422);
+    try {
+      const retried = await chat.start(c.req.param("slug"), message, crypto.randomUUID());
+      return c.json({ turn: retried.turn, warning: turn.errorCode === "unknown" || turn.hasSideEffects ? "review possible side effects" : undefined });
+    } catch (error) {
+      if (error instanceof TurnInProgressError) {
+        return c.json(apiError("TURN_IN_PROGRESS", error.message, { turnId: error.turnId }), 409);
+      }
+      throw error;
     }
   });
 
@@ -1444,11 +1622,13 @@ export async function createApplication(config: AppConfig): Promise<Application>
     store,
     events,
     agent,
+    chatTurns,
     integrationManager,
     scheduler,
     close: () => {
       scheduler.stop();
       alerts.stop();
+      chatTurns.shutdown();
       void integrationManager.stopAll();
       store.close();
     },

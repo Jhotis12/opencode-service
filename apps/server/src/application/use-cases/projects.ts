@@ -8,6 +8,7 @@ import { computeGraphHash } from "../../domain/workflow/graph.ts";
 import { validateWorkflowResources } from "./workflow-resources.ts";
 import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
 import { createChatProgressHandler } from "./chat-progress.ts";
+import type { ChatTarget, ChatTurnService } from "./chat-turns.ts";
 import type { Logger } from "../../domain/telemetry/index.ts";
 import { WorkspaceError } from "../../infrastructure/out/workspace-fs/safe-workspace.ts";
 
@@ -158,6 +159,7 @@ export class ChatWithProjectUseCase {
       store: Store;
       workspace: WorkspacePort;
       agent: AgentRuntimePort;
+      turns?: ChatTurnService;
       events: EventBus;
       defaultModel?: () => string | undefined;
       timeoutMs?: number;
@@ -172,7 +174,37 @@ export class ChatWithProjectUseCase {
       externalThreadId: "web",
       title: `Chat · ${slug}`,
     });
+    if (this.deps.turns) return this.deps.turns.history(thread.id, limit) as ChatMessageRecord[];
     return this.deps.store.chat.listByThread(thread.id, limit);
+  }
+
+  async start(
+    slug: string,
+    message: string,
+    idempotencyKey?: string,
+  ): Promise<{ turn: import("../../domain/entities.ts").ChatTurnRecord; threadId: string }> {
+    if (!this.deps.turns) throw new Error("chat turn service is not configured");
+    const project = this.deps.store.projects.findBySlug(slug);
+    if (!project) throw new Error(`project not found: ${slug}`);
+    const directory = await this.deps.workspace.projectDirectory(slug);
+    const thread = this.deps.store.chatThreads.findOrCreate({
+      scope: "project",
+      projectSlug: slug,
+      externalThreadId: "web",
+      title: `Chat · ${project.name}`,
+    });
+    const target: ChatTarget = {
+      scope: "project",
+      projectSlug: slug,
+      directory,
+      agentId: project.primaryAgent,
+      model: project.defaultModel ?? this.deps.defaultModel?.(),
+      context: "chat",
+      entryPoint: "web_ui",
+      timeoutMs: this.deps.timeoutMs,
+    };
+    const turn = await this.deps.turns.start({ thread, target, message, idempotencyKey });
+    return { turn, threadId: thread.id };
   }
 
   async execute(
@@ -180,6 +212,18 @@ export class ChatWithProjectUseCase {
     message: string,
     onProgress?: (event: ChatProgressEvent) => void,
   ): Promise<{ reply: string; sessionId: string; threadId: string }> {
+    if (this.deps.turns) {
+      const { turn, threadId } = await this.start(slug, message);
+      const final = await this.deps.turns.waitForTerminal(turn.id);
+      if (final.status !== "succeeded") {
+        throw new Error(final.errorMessage ?? `chat turn ended as ${final.status}`);
+      }
+      return {
+        reply: this.deps.turns.replyForTurn(turn.id),
+        sessionId: final.sessionId ?? "",
+        threadId,
+      };
+    }
     const project = this.deps.store.projects.findBySlug(slug);
     if (!project) throw new Error(`project not found: ${slug}`);
     const directory = await this.deps.workspace.projectDirectory(slug);

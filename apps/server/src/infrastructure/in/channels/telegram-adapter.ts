@@ -21,9 +21,9 @@ export class GrammyTransport implements TelegramTransport {
     this.bot = new Bot(token);
   }
 
-  async start(handler: (message: { senderId: string; text: string }) => void): Promise<void> {
+  async start(handler: (message: { senderId: string; text: string; messageId?: string }) => void): Promise<void> {
     this.bot.on("message:text", (ctx) => {
-      handler({ senderId: String(ctx.from.id), text: ctx.message.text });
+      handler({ senderId: String(ctx.from.id), text: ctx.message.text, messageId: String(ctx.message.message_id) });
     });
     await new Promise<void>((resolve, reject) => {
       void this.bot
@@ -73,6 +73,7 @@ export class TelegramChannelAdapter implements IntegrationEgressPort {
           kind: "telegram",
           senderId: message.senderId,
           text: message.text,
+          externalMessageId: message.messageId,
         })
         .catch((error) =>
           this.options.logger.error({

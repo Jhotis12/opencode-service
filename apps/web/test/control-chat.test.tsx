@@ -79,7 +79,7 @@ describe("control chat progress", () => {
           storageKey="control-chat-duplicate-test"
           initialMessages={history}
           onSend={async (_message, onEvent) => {
-            onEvent({ type: "text", text: "OK" });
+            onEvent({ type: "text", turnId: "turn-test", text: "OK" });
             setHistory([
               ...initial,
               {

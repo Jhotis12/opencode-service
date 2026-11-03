@@ -10,11 +10,13 @@ import type { ExecuteWorkflowRunUseCase } from "./execute-workflow.ts";
 import type { IntegrationRecord } from "../../domain/entities.ts";
 import { validateWorkflowResources } from "./workflow-resources.ts";
 import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
+import type { ChatTarget, ChatTurnService } from "./chat-turns.ts";
 
 export interface ChannelRouterDeps {
   store: Store;
   workspace: WorkspacePort;
   agent: AgentRuntimePort;
+  turns?: ChatTurnService;
   executor: Pick<ExecuteWorkflowRunUseCase, "execute" | "resumeWithApproval">;
   egress: IntegrationEgressPort;
   events: EventBus;
@@ -96,6 +98,25 @@ export class RouteProjectIntegrationMessageUseCase {
       title: `${integration.name} · ${message.senderId}`,
     });
     const directory = await this.deps.workspace.projectDirectory(integration.projectSlug!);
+    if (this.deps.turns) {
+      const target: ChatTarget = {
+        scope: "project",
+        projectSlug: integration.projectSlug,
+        directory,
+        agentId: primaryAgent,
+        model: defaultModel,
+        context: "external_channel",
+        entryPoint: ENTRY_POINTS[message.kind],
+      };
+      const turn = await this.deps.turns.start({
+        thread,
+        target,
+        message: message.text,
+        idempotencyKey: message.externalMessageId ? `${integration.id}:${message.externalMessageId}` : undefined,
+      });
+      void this.deliverTurn(integration.id, message.senderId, turn.id);
+      return;
+    }
     const create = () =>
       this.deps.agent.createSession({
         directory,
@@ -115,6 +136,32 @@ export class RouteProjectIntegrationMessageUseCase {
     );
     this.deps.store.chatThreads.touch(thread.id);
     await this.deps.egress.send(integration.id, result.reply || "(sin respuesta)", message.senderId);
+  }
+
+  private async deliverTurn(integrationId: string, recipient: string, turnId: string): Promise<void> {
+    if (!this.deps.turns) return;
+    try {
+      const turn = await this.deps.turns.waitForTerminal(turnId);
+      if (turn.status !== "succeeded") {
+        this.deps.logger?.warn({
+          event: "channel_chat_turn_failed",
+          turnId,
+          integrationId,
+          status: turn.status,
+          errorCode: turn.errorCode,
+        });
+        return;
+      }
+      const reply = this.deps.turns.replyForTurn(turnId);
+      await this.deps.egress.send(integrationId, reply || "(sin respuesta)", recipient);
+    } catch (error) {
+      this.deps.logger?.error({
+        event: "channel_chat_delivery_failed",
+        turnId,
+        integrationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async handleWorkflow(
@@ -211,6 +258,37 @@ export class RouteGlobalIntegrationMessageUseCase {
       externalThreadId: message.senderId,
       title: `Orquestador · ${message.senderId}`,
     });
+    if (this.deps.turns) {
+      const target: ChatTarget = {
+        scope: "global",
+        directory: this.deps.controlDirectory,
+        agentId: this.deps.orchestratorAgent,
+        context: "external_channel",
+        entryPoint: "global_orchestrator",
+        readOnly: true,
+      };
+      const turn = await this.deps.turns.start({
+        thread,
+        target,
+        message: message.text,
+        idempotencyKey: message.externalMessageId ? `${integration.id}:${message.externalMessageId}` : undefined,
+      });
+      void (async () => {
+        try {
+          const final = await this.deps.turns!.waitForTerminal(turn.id);
+          const reply = final.status === "succeeded" ? this.deps.turns!.replyForTurn(turn.id) : "";
+          await this.deps.egress.send(integration.id, reply || "(sin respuesta)", message.senderId);
+        } catch (error) {
+          this.deps.logger.error({
+            event: "global_channel_chat_delivery_failed",
+            turnId: turn.id,
+            integrationId: integration.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })();
+      return { decision: "orchestrator" };
+    }
     const create = () =>
       this.deps.agent.createSession({
         directory: this.deps.controlDirectory,

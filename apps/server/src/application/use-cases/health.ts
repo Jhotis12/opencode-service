@@ -2,6 +2,7 @@ import type { HealthSnapshot, ServiceHealth } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
 import type { Metrics } from "../../domain/telemetry/index.ts";
+import type { ChatTurnService } from "./chat-turns.ts";
 
 export class GetHealthUseCase {
   constructor(
@@ -9,6 +10,7 @@ export class GetHealthUseCase {
       store: Store;
       agent: AgentRuntimePort;
       metrics: Metrics;
+      chatTurns?: ChatTurnService;
       startedAt: number;
     },
   ) {}
@@ -87,6 +89,7 @@ export class GetHealthUseCase {
       uptimeSeconds: Math.floor((Date.now() - this.deps.startedAt) / 1000),
       services,
       metrics: this.deps.metrics.snapshot(),
+      chat: this.deps.chatTurns?.stats(),
       recentErrors: this.deps.store.errors.recent(20).map((row) => ({
         id: row.id,
         requestId: row.requestId,

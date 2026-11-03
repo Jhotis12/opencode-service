@@ -50,11 +50,21 @@ export const MetricsSummarySchema = z.object({
 });
 export type MetricsSummary = z.infer<typeof MetricsSummarySchema>;
 
+export const ChatHealthSummarySchema = z.object({
+  active: z.number(),
+  oldestActiveAgeMs: z.number().optional(),
+  recovered24h: z.number(),
+  failed24h: z.number(),
+  lastErrorAt: z.string().optional(),
+});
+export type ChatHealthSummary = z.infer<typeof ChatHealthSummarySchema>;
+
 export const HealthSnapshotSchema = z.object({
   status: HealthStatusSchema,
   uptimeSeconds: z.number(),
   services: z.array(ServiceHealthSchema),
   metrics: MetricsSummarySchema,
+  chat: ChatHealthSummarySchema.optional(),
   recentErrors: z.array(ErrorEventSchema),
   generatedAt: z.string(),
 });

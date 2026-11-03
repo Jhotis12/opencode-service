@@ -12,6 +12,93 @@ import { validateWorkflowResources } from "./workflow-resources.ts";
 import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
 import type { ChatTarget, ChatTurnService } from "./chat-turns.ts";
 
+const deliveriesInFlight = new Set<string>();
+
+async function deliverChatTurn(
+  deps: {
+    store: Store;
+    egress: IntegrationEgressPort;
+    turns?: ChatTurnService;
+    logger: Logger;
+  },
+  integrationId: string,
+  recipient: string,
+  turnId: string,
+): Promise<void> {
+  if (!deps.turns) return;
+  const actionKey = `chat:${turnId}`;
+  if (deliveriesInFlight.has(actionKey)) return;
+  deliveriesInFlight.add(actionKey);
+  try {
+  const existing = deps.store.deliveries.findByActionKey({ actionKey, integrationId });
+  if (existing?.status === "delivered") return;
+  const now = new Date().toISOString();
+  const delivery =
+    existing ?? {
+      id: crypto.randomUUID(),
+      projectSlug: deps.turns.get(turnId)?.projectSlug ?? "",
+      runId: undefined,
+      nodeId: undefined,
+      integrationId,
+      actionKey,
+      recipient,
+      status: "pending" as const,
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+  if (!existing) deps.store.deliveries.create(delivery);
+  try {
+    const final = await deps.turns.waitForTerminal(turnId);
+    if (final.status !== "succeeded") {
+      deps.store.deliveries.update(delivery.id, {
+        status: "failed",
+        lastError: `turn ${final.status}`,
+        attempts: delivery.attempts + 1,
+      });
+      deps.logger.warn({
+        event: "channel_chat_turn_failed",
+        turnId,
+        integrationId,
+        status: final.status,
+        errorCode: final.errorCode,
+      });
+      return;
+    }
+    const reply = deps.turns.replyForTurn(turnId) || "(sin respuesta)";
+    for (let attempt = delivery.attempts + 1; attempt <= 3; attempt += 1) {
+      try {
+        const result = await deps.egress.send(integrationId, reply, recipient);
+        deps.store.deliveries.update(delivery.id, {
+          status: "delivered",
+          providerMessageId: result.providerMessageId,
+          attempts: attempt,
+        });
+        return;
+      } catch (error) {
+        const lastError = error instanceof Error ? error.message : String(error);
+        deps.store.deliveries.update(delivery.id, { status: "failed", lastError, attempts: attempt });
+        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+      }
+    }
+  } catch (error) {
+    deps.store.deliveries.update(delivery.id, {
+      status: "failed",
+      lastError: error instanceof Error ? error.message : String(error),
+      attempts: delivery.attempts + 1,
+    });
+    deps.logger.error({
+      event: "channel_chat_delivery_failed",
+      turnId,
+      integrationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  } finally {
+    deliveriesInFlight.delete(actionKey);
+  }
+}
+
 export interface ChannelRouterDeps {
   store: Store;
   workspace: WorkspacePort;
@@ -139,29 +226,7 @@ export class RouteProjectIntegrationMessageUseCase {
   }
 
   private async deliverTurn(integrationId: string, recipient: string, turnId: string): Promise<void> {
-    if (!this.deps.turns) return;
-    try {
-      const turn = await this.deps.turns.waitForTerminal(turnId);
-      if (turn.status !== "succeeded") {
-        this.deps.logger?.warn({
-          event: "channel_chat_turn_failed",
-          turnId,
-          integrationId,
-          status: turn.status,
-          errorCode: turn.errorCode,
-        });
-        return;
-      }
-      const reply = this.deps.turns.replyForTurn(turnId);
-      await this.deps.egress.send(integrationId, reply || "(sin respuesta)", recipient);
-    } catch (error) {
-      this.deps.logger?.error({
-        event: "channel_chat_delivery_failed",
-        turnId,
-        integrationId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    await deliverChatTurn(this.deps, integrationId, recipient, turnId);
   }
 
   private async handleWorkflow(
@@ -273,20 +338,17 @@ export class RouteGlobalIntegrationMessageUseCase {
         message: message.text,
         idempotencyKey: message.externalMessageId ? `${integration.id}:${message.externalMessageId}` : undefined,
       });
-      void (async () => {
-        try {
-          const final = await this.deps.turns!.waitForTerminal(turn.id);
-          const reply = final.status === "succeeded" ? this.deps.turns!.replyForTurn(turn.id) : "";
-          await this.deps.egress.send(integration.id, reply || "(sin respuesta)", message.senderId);
-        } catch (error) {
-          this.deps.logger.error({
-            event: "global_channel_chat_delivery_failed",
-            turnId: turn.id,
-            integrationId: integration.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      })();
+      void deliverChatTurn(
+        {
+          store: this.deps.store,
+          egress: this.deps.egress,
+          turns: this.deps.turns,
+          logger: this.deps.logger,
+        },
+        integration.id,
+        message.senderId,
+        turn.id,
+      );
       return { decision: "orchestrator" };
     }
     const create = () =>

@@ -34,7 +34,7 @@ export class FakeAgentRuntime implements AgentRuntimePort {
   promptCalls: Array<{ sessionId: string; text: string }> = [];
   switchedModels: Array<{ sessionId: string; model: string }> = [];
   scriptedReplies: string[] = [];
-  scriptedEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
+  scriptedEvents: Array<{ type: string; data?: Record<string, unknown>; durable?: { seq?: number } }> = [];
   completionDelayMs = 5;
   interruptedSessions: string[] = [];
 

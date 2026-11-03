@@ -10,6 +10,8 @@ import {
   RouteProjectIntegrationMessageUseCase,
 } from "../src/application/use-cases/route-channel-message.ts";
 import { parseApprovalCommand, routeProjectMessage, senderMatchesAllowlist } from "../src/domain/channels/router.ts";
+import { ChatTurnService } from "../src/application/use-cases/chat-turns.ts";
+import { SseHub } from "../src/infrastructure/in/sse/sse-hub.ts";
 import type { IntegrationEgressPort, TriggerRef } from "../src/application/ports/channels.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
 import type { IntegrationRecord } from "../src/domain/entities.ts";
@@ -105,7 +107,7 @@ describe("project channel routing domain", () => {
   });
 });
 
-async function setup() {
+async function setup(useTurns = false) {
   const dir = await mkdtemp(join(tmpdir(), "platform-channels-"));
   dirs.push(dir);
   const workspace = new SafeFsWorkspaceAdapter(join(dir, "workspaces"));
@@ -157,6 +159,14 @@ async function setup() {
   });
   const agent = new FakeAgentRuntime();
   const egress = new FakeEgress();
+  const turns = useTurns
+    ? new ChatTurnService({
+        store,
+        agent,
+        events: new SseHub(),
+        policy: { maxMs: 2_000, idleMs: 2_000, pollMs: 20, transportRetryMs: 20 },
+      })
+    : undefined;
   const executed: unknown[] = [];
   const approvals: unknown[] = [];
   const executor = {
@@ -173,6 +183,7 @@ async function setup() {
     store,
     workspace,
     agent,
+    turns,
     executor: executor as never,
     egress,
     events: { publish() {} },
@@ -190,6 +201,26 @@ describe("route incoming project messages", () => {
     expect(agent.prompts).toHaveLength(2);
     expect(egress.sent).toHaveLength(2);
     expect(executed).toHaveLength(0);
+  });
+
+  it("deduplicates a repeated channel message and delivers once", async () => {
+    const { router, egress } = await setup(true);
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "estado",
+      externalMessageId: "tg-message-1",
+    });
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "estado",
+      externalMessageId: "tg-message-1",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(egress.sent).toHaveLength(1);
   });
 
   it("executes public workflow triggers for unknown senders", async () => {

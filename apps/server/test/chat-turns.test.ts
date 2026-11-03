@@ -67,6 +67,25 @@ describe("ChatTurnService", () => {
     expect(events).toContain("done");
   });
 
+  it("persists the event cursor across a restart without duplicating messages", async () => {
+    const { store, agent, service, thread } = setup();
+    agent.scriptedEvents.push({ type: "session.step.started", durable: { seq: 7 }, data: { id: "step-1" } });
+    const turn = await service.start({ thread, target: target(), message: "cursor" });
+    const final = await service.waitForTerminal(turn.id, 2_000);
+    expect(final.lastSeq).toBe(7);
+    const before = store.chat.listByTurn(turn.id).length;
+
+    const restarted = new ChatTurnService({
+      store,
+      agent,
+      events: new SseHub(),
+      policy: { maxMs: 2_000, idleMs: 2_000, pollMs: 20, transportRetryMs: 20 },
+    });
+    await restarted.recover();
+    expect(store.chat.listByTurn(turn.id)).toHaveLength(before);
+    expect(store.chatTurns.findById(turn.id)?.lastSeq).toBe(7);
+  });
+
   it("records side effects from mutating tool events", async () => {
     const { agent, service, thread } = setup();
     agent.scriptedEvents.push({ type: "session.tool.called", data: { id: "tool-1", name: "write", input: {} } });

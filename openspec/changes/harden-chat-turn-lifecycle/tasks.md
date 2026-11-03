@@ -13,7 +13,7 @@ Supuestos de planificación: el hilo web sigue siendo por proyecto/scope (no por
 - [x] 2.1 Añadir `chat_turns` (estado, scope, sesión, mensajes, inbox, uso, error, idempotencia, timestamps) y `chat_messages.turn_id/error_code` con migración aditiva; verificar que la migración corre sobre una copia de la DB actual y que las filas históricas quedan intactas.
 - [x] 2.2 Añadir los índices/constraints de un turno activo por hilo y de idempotencia `(thread_id, idempotency_key)`; verificar con tests de creación concurrente que no se insertan dos turnos activos ni dos turnos para el mismo mensaje.
 - [x] 2.3 Implementar el repositorio de turnos y la lectura de historial con metadata de turno; verificar con tests de persistencia, transición de estado y borrado en cascada al eliminar el proyecto/hilo.
-- [ ] 2.4 Añadir `session_event_cursors` (o el cursor equivalente en el turno) y persistir `last_seq`/`last_activity_at` con batching; verificar que un reinicio conserva el cursor y que la reconciliación no duplica eventos.
+- [x] 2.4 Añadir `session_event_cursors` (o el cursor equivalente en el turno) y persistir `last_seq`/`last_activity_at` con batching; verificar que un reinicio conserva el cursor y que la reconciliación no duplica eventos.
 
 ## 3. Runtime de OpenCode: enviar, esperar y reconciliar
 
@@ -55,7 +55,7 @@ Supuestos de planificación: el hilo web sigue siendo por proyecto/scope (no por
 
 - [x] 8.1 Migrar `RouteProjectIntegrationMessageUseCase` y `RouteGlobalIntegrationMessageUseCase` a `ChatTurnService`; el handler del canal crea el turno y no queda bloqueado; verificar con tests de Telegram/WhatsApp fake y entrega al completar.
 - [x] 8.2 Migrar `SendExternalChatMessageUseCase`/`external-chat-routes` a turno durable con SSE attach, JSON compatible y webhook al completar; verificar desconexión del cliente, entrega posterior y thread mapping.
-- [ ] 8.3 Añadir idempotencia de mensajes externos (`externalMessageId`/`clientMessageId`) y entrega idempotente por canal con ledger/reintento acotado; verificar duplicado de inbound, fallo de proveedor y recuperación sin doble entrega.
+- [x] 8.3 Añadir idempotencia de mensajes externos (`externalMessageId`/`clientMessageId`) y entrega idempotente por canal con ledger/reintento acotado; verificar duplicado de inbound, fallo de proveedor y recuperación sin doble entrega.
 - [x] 8.4 Verificar el alcance por proyecto/integración en turnos de canal y que un proyecto no puede leer, cancelar ni reintentar el turno de otro; añadir tests de aislamiento.
 
 ## 9. Presupuesto de timeouts y configuración

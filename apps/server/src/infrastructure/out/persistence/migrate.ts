@@ -192,6 +192,12 @@ CREATE TABLE IF NOT EXISTS workflow_timers (
 );
 CREATE INDEX IF NOT EXISTS workflow_timers_due ON workflow_timers(status, due_at);
 CREATE INDEX IF NOT EXISTS workflow_timers_run ON workflow_timers(run_id);
+CREATE TABLE IF NOT EXISTS workflow_run_queue (
+  run_id TEXT PRIMARY KEY,
+  project_slug TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS workflow_run_queue_project ON workflow_run_queue(project_slug, created_at);
 CREATE TABLE IF NOT EXISTS chat_threads (
   id TEXT PRIMARY KEY,
   scope TEXT NOT NULL,

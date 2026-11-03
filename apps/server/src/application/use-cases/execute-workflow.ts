@@ -57,6 +57,7 @@ export interface ExecutorDeps {
   vault?: SecretVault;
   databaseAction?: ExecuteDatabaseActionUseCase;
   notification?: SendNotificationUseCase;
+  maxConcurrentRuns?: number;
   notifyApproval?: (run: WorkflowRunRecord, nodeId: string) => Promise<void>;
   knowledgeContext?: (projectSlug: string, notebookIds: string[], query: unknown, strictGrounding: boolean) => Promise<string>;
   defaultModel?: () => string | undefined;
@@ -99,8 +100,27 @@ export class ExecuteWorkflowRunUseCase {
   }
 
   async start(input: ExecuteRunInput): Promise<WorkflowRunRecord> {
+    const maxConcurrentRuns = this.deps.maxConcurrentRuns ?? 2;
+    const shouldQueue = this.deps.store.runs.countInFlight(input.projectSlug) >= maxConcurrentRuns;
     const prepared = await this.prepare(input);
     if (!prepared.created) return prepared.run;
+    if (shouldQueue) {
+      const queuedAt = new Date().toISOString();
+      this.deps.store.runs.update(prepared.run.id, { status: "queued" });
+      this.deps.store.queue.enqueue({
+        runId: prepared.run.id,
+        projectSlug: input.projectSlug,
+        createdAt: queuedAt,
+      });
+      this.deps.events.publish({
+        type: "run.updated",
+        projectSlug: prepared.run.projectSlug,
+        runId: prepared.run.id,
+        workflowId: prepared.run.workflowId,
+        status: "queued",
+      });
+      return this.deps.store.runs.findById(prepared.run.id)!;
+    }
     void this.runGraph(input.graph, input.payload, {
       run: prepared.run,
       priorOutputs: undefined,
@@ -115,6 +135,42 @@ export class ExecuteWorkflowRunUseCase {
       });
     });
     return prepared.run;
+  }
+
+  async dispatchQueued(): Promise<WorkflowRunRecord[]> {
+    const maxConcurrentRuns = this.deps.maxConcurrentRuns ?? 2;
+    const started: WorkflowRunRecord[] = [];
+    const projects = await this.deps.workspace.listProjects();
+    for (const projectSlug of projects) {
+      while (this.deps.store.runs.countInFlight(projectSlug) < maxConcurrentRuns) {
+        const queued = this.deps.store.queue.claimNext(projectSlug);
+        if (!queued) break;
+        const run = this.deps.store.runs.findById(queued.runId);
+        if (!run || run.status !== "queued") continue;
+        const snapshot = await this.resolveRunSnapshot(run);
+        this.deps.store.runs.update(run.id, { status: "running" });
+        this.deps.events.publish({
+          type: "run.updated",
+          projectSlug: run.projectSlug,
+          runId: run.id,
+          workflowId: run.workflowId,
+          status: "running",
+        });
+        const result = await this.runGraph(
+          snapshot.graph,
+          run.input,
+          {
+            run: { ...run, status: "running" },
+            priorOutputs: undefined,
+            resumeNodeId: undefined,
+            codeBundle: snapshot.codeBundle,
+          },
+          {},
+        );
+        started.push(result);
+      }
+    }
+    return started;
   }
 
   private async prepare(

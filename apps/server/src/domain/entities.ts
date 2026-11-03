@@ -176,6 +176,12 @@ export interface WorkflowTimerRecord {
   updatedAt: string;
 }
 
+export interface QueuedRunRecord {
+  runId: string;
+  projectSlug: string;
+  createdAt: string;
+}
+
 export interface ChatThreadRecord {
   id: string;
   scope: EntityScope;

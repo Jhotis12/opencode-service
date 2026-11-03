@@ -18,6 +18,7 @@ import type {
   WorkflowScheduleStateRecord,
   SessionContextRecord,
   WorkflowTimerRecord,
+  QueuedRunRecord,
 } from "../../../domain/entities.ts";
 import type { WorkflowGraph } from "@platform/shared";
 import type { Store } from "../../../application/ports/store.ts";
@@ -43,6 +44,7 @@ import {
   workflowVersions,
   sessionContexts,
   workflowTimers,
+  workflowRunQueue,
 } from "./schema.ts";
 
 const json = (value: unknown): string => JSON.stringify(value ?? null);
@@ -393,6 +395,19 @@ export class SqliteStore implements Store {
         .orderBy(desc(workflowRuns.startedAt))
         .get();
       return this.mapRun(row);
+    },
+    countInFlight: (projectSlug: string): number => {
+      const row = this.handle.db
+        .select({ value: sql<number>`count(*)` })
+        .from(workflowRuns)
+        .where(
+          and(
+            eq(workflowRuns.projectSlug, projectSlug),
+            or(eq(workflowRuns.status, "running"), eq(workflowRuns.status, "paused")),
+          ),
+        )
+        .get();
+      return Number(row?.value ?? 0);
     },
     listByStatus: (status: WorkflowRunRecord["status"]): WorkflowRunRecord[] =>
       this.handle.db
@@ -754,6 +769,40 @@ export class SqliteStore implements Store {
         .map((row) => this.mapTimer(row)),
   };
 
+  queue = {
+    enqueue: (record: QueuedRunRecord): void => {
+      this.handle.db
+        .insert(workflowRunQueue)
+        .values({ runId: record.runId, projectSlug: record.projectSlug, createdAt: record.createdAt })
+        .run();
+    },
+    claimNext: (projectSlug: string): QueuedRunRecord | undefined => {
+      const claim = this.handle.sqlite.transaction(() => {
+        const row = this.handle.db
+          .select()
+          .from(workflowRunQueue)
+          .where(eq(workflowRunQueue.projectSlug, projectSlug))
+          .orderBy(workflowRunQueue.createdAt)
+          .get();
+        if (!row) return undefined;
+        this.handle.db.delete(workflowRunQueue).where(eq(workflowRunQueue.runId, row.runId)).run();
+        return { runId: row.runId, projectSlug: row.projectSlug, createdAt: row.createdAt };
+      });
+      return claim();
+    },
+    depth: (projectSlug: string): number => {
+      const row = this.handle.db
+        .select({ value: sql<number>`count(*)` })
+        .from(workflowRunQueue)
+        .where(eq(workflowRunQueue.projectSlug, projectSlug))
+        .get();
+      return Number(row?.value ?? 0);
+    },
+    removeByProject: (projectSlug: string): void => {
+      this.handle.db.delete(workflowRunQueue).where(eq(workflowRunQueue.projectSlug, projectSlug)).run();
+    },
+  };
+
   chatThreads = {
     findOrCreate: (input: {
       scope: ChatThreadRecord["scope"];
@@ -987,6 +1036,7 @@ export class SqliteStore implements Store {
       this.handle.sqlite
         .query("DELETE FROM workflow_timers WHERE run_id IN (SELECT id FROM workflow_runs WHERE project_slug = ?)")
         .run(projectSlug);
+      this.handle.sqlite.query("DELETE FROM workflow_run_queue WHERE project_slug = ?").run(projectSlug);
       this.handle.sqlite
         .query("DELETE FROM workflow_approvals WHERE run_id IN (SELECT id FROM workflow_runs WHERE project_slug = ?)")
         .run(projectSlug);

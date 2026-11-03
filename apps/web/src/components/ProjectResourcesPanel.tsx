@@ -45,6 +45,58 @@ const KIND_OPTIONS: Array<{ value: IntegrationRecord["kind"]; label: string; con
 ];
 
 const DATABASE_KINDS = new Set<IntegrationRecord["kind"]>(["postgres", "mysql", "mssql", "sqlite"]);
+const CHANNEL_KINDS = new Set<IntegrationRecord["kind"]>(["telegram", "whatsapp", "external_chat"]);
+
+function NotificationPolicyEditor({
+  projectSlug,
+  integration,
+  onSaved,
+}: {
+  projectSlug: string;
+  integration: IntegrationRecord;
+  onSaved(): void;
+}) {
+  const alerts = Array.isArray(integration.config.alerts) ? integration.config.alerts.join(", ") : "";
+  const [alertList, setAlertList] = useState(alerts);
+  const [alertRecipient, setAlertRecipient] = useState(String(integration.config.alertRecipient ?? ""));
+  const [rateLimit, setRateLimit] = useState(Number(integration.config.rateLimitPerMinute ?? 60));
+  const save = useMutation({
+    mutationFn: () =>
+      api.updateIntegration(projectSlug, integration.id, {
+        config: {
+          ...integration.config,
+          alerts: alertList
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+          alertRecipient: alertRecipient || undefined,
+          rateLimitPerMinute: rateLimit,
+        },
+      }),
+    onSuccess: onSaved,
+  });
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-line bg-well p-2">
+      <strong className="text-xs text-slate-200">Alertas y rate limit</strong>
+      <label className="text-[11px] text-muted">
+        Alertas (separadas por coma)
+        <input value={alertList} onChange={(event) => setAlertList(event.target.value)} placeholder="run.failed, integration.down" />
+      </label>
+      <label className="text-[11px] text-muted">
+        Destinatario de alertas
+        <input value={alertRecipient} onChange={(event) => setAlertRecipient(event.target.value)} placeholder="123456789" />
+      </label>
+      <label className="text-[11px] text-muted">
+        Máximo de mensajes por minuto
+        <input type="number" min={1} max={1000} value={rateLimit} onChange={(event) => setRateLimit(Number(event.target.value))} />
+      </label>
+      <button className={buttonGhost} disabled={save.isPending} onClick={() => save.mutate()}>
+        Guardar alertas
+      </button>
+      {save.error && <small className="text-danger">{save.error instanceof Error ? save.error.message : "Error"}</small>}
+    </div>
+  );
+}
 
 function DatabasePolicyEditor({
   projectSlug,
@@ -278,6 +330,13 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
             <small className="break-all text-xs text-muted">ID: {integration.id}</small>
             {DATABASE_KINDS.has(integration.kind) && (
               <DatabasePolicyEditor
+                projectSlug={projectSlug}
+                integration={integration}
+                onSaved={() => void queryClient.invalidateQueries({ queryKey: qk.integrations(projectSlug) })}
+              />
+            )}
+            {CHANNEL_KINDS.has(integration.kind) && (
+              <NotificationPolicyEditor
                 projectSlug={projectSlug}
                 integration={integration}
                 onSaved={() => void queryClient.invalidateQueries({ queryKey: qk.integrations(projectSlug) })}

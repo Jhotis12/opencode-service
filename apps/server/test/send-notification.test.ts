@@ -115,6 +115,19 @@ describe("send notification use case", () => {
     store.close();
   });
 
+  it("waits for the configured notification rate limit", async () => {
+    const store = new SqliteStore(":memory:");
+    store.integrations.create(integration({ config: { rateLimitPerMinute: 1, rateLimitWindowMs: 40 } }));
+    const egress = new FakeEgress();
+    const useCase = new SendNotificationUseCase(store, egress);
+    const started = Date.now();
+    await useCase.execute({ projectSlug: "ventas", integrationId: "tg1", recipient: "123", text: "uno", actionKey: "r1:notify" });
+    await useCase.execute({ projectSlug: "ventas", integrationId: "tg1", recipient: "123", text: "dos", actionKey: "r2:notify" });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(30);
+    expect(egress.sent).toHaveLength(2);
+    store.close();
+  });
+
   it("rejects integrations from another project", async () => {
     const store = new SqliteStore(":memory:");
     store.integrations.create(integration());

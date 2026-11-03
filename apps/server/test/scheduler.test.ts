@@ -92,6 +92,8 @@ function fakeExecutor() {
       runs.push(run);
       return run;
     },
+    dispatchQueued: async () => [],
+    resumeFromTimer: async () => undefined,
   } as unknown as ExecuteWorkflowRunUseCase;
   return { executor, runs };
 }

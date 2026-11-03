@@ -17,6 +17,7 @@ import type {
   WorkflowScheduleStateRecord,
   SessionContextRecord,
   WorkflowTimerRecord,
+  QueuedRunRecord,
 } from "../../domain/entities.ts";
 import type { EntityScope } from "../../domain/entities.ts";
 import type { WorkflowGraph } from "@platform/shared";
@@ -87,6 +88,7 @@ export interface WorkflowRunRepository {
   ): void;
   listByProject(projectSlug: string, limit: number): WorkflowRunRecord[];
   findInFlight(projectSlug: string, workflowId: string): WorkflowRunRecord | undefined;
+  countInFlight(projectSlug: string): number;
   listByStatus(status: WorkflowRunRecord["status"]): WorkflowRunRecord[];
   listRecent(limit: number): WorkflowRunRecord[];
   insertStep(record: StepRunRecord): void;
@@ -143,6 +145,13 @@ export interface WorkflowTimerRepository {
   claimDue(now: Date, limit: number): WorkflowTimerRecord[];
   markFired(id: string): void;
   listByRun(runId: string): WorkflowTimerRecord[];
+}
+
+export interface RunQueueRepository {
+  enqueue(record: QueuedRunRecord): void;
+  claimNext(projectSlug: string): QueuedRunRecord | undefined;
+  depth(projectSlug: string): number;
+  removeByProject(projectSlug: string): void;
 }
 
 export interface WorkflowVersionRepository {
@@ -212,6 +221,7 @@ export interface Store {
   scheduleStates: WorkflowScheduleStateRepository;
   sessionContexts: SessionContextRepository;
   timers: WorkflowTimerRepository;
+  queue: RunQueueRepository;
   versions: WorkflowVersionRepository;
   chatThreads: ChatThreadRepository;
   chat: ChatRepository;

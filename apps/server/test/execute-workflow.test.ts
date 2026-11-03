@@ -879,6 +879,28 @@ describe("workflow execution", () => {
     store.close();
   });
 
+  it("queues runs over the project concurrency limit and dispatches them", async () => {
+    const graph = baseGraph();
+    const { executor, store } = await setup(
+      graph,
+      { "nodes/double.ts": `export default async (input: { n: number }) => { await new Promise((r) => setTimeout(r, 30)); return { doubled: input.n * 2 }; };` },
+      { maxConcurrentRuns: 1 },
+    );
+    const first = await executor.start({ projectSlug: "p1", graph, payload: { n: 1 }, entryPoint: "web_ui" });
+    const second = await executor.start({ projectSlug: "p1", graph, payload: { n: 2 }, entryPoint: "web_ui" });
+    expect(second.status).toBe("queued");
+    expect(store.queue.depth("p1")).toBe(1);
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (store.runs.findById(first.id)?.status === "succeeded") break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(store.runs.findById(first.id)?.status).toBe("succeeded");
+    const dispatched = await executor.dispatchQueued();
+    expect(dispatched[0]?.id).toBe(second.id);
+    expect(store.runs.findById(second.id)?.status).toBe("succeeded");
+    store.close();
+  });
+
   it("routes decision nodes down the matching branch", async () => {
     const graph = baseGraph();
     graph.nodes.push(

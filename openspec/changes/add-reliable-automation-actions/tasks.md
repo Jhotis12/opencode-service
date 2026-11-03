@@ -97,11 +97,11 @@
 
 ## 13. Cola, rate limit y alertas por proyecto P1
 
-- [ ] 13.1 Crear `workflow_run_queue`, agregar el estado `queued` y persistir la cola; verificar con tests de encolado, despacho y recuperación tras reinicio.
-- [ ] 13.2 Implementar el límite de concurrencia por proyecto y el dispatcher; verificar que el exceso se encola y que no se pierde ni duplica trabajo.
-- [ ] 13.3 Implementar rate limit de notificaciones con entrega `queued` y espera acotada; verificar con tests de ráfaga, espera y timeout.
-- [ ] 13.4 Extender `AlertService` para usar integraciones y destinatario del proyecto con fallback global; verificar que un fallo de proyecto no se envía a un canal de otro proyecto.
-- [ ] 13.5 Exponer cola, rate limit y alertas en la UI de ajustes/salud; verificar con tests de componente y documentar la configuración.
+- [x] 13.1 Crear `workflow_run_queue`, agregar el estado `queued` y persistir la cola; verificar con tests de encolado, despacho y recuperación tras reinicio.
+- [x] 13.2 Implementar el límite de concurrencia por proyecto y el dispatcher; verificar que el exceso se encola y que no se pierde ni duplica trabajo.
+- [x] 13.3 Implementar rate limit de notificaciones con entrega `queued` y espera acotada; verificar con tests de ráfaga, espera y timeout.
+- [x] 13.4 Extender `AlertService` para usar integraciones y destinatario del proyecto con fallback global; verificar que un fallo de proyecto no se envía a un canal de otro proyecto.
+- [x] 13.5 Exponer cola, rate limit y alertas en la UI de ajustes/salud; verificar con tests de componente y documentar la configuración.
 
 ## 14. Observabilidad y verificación P1
 

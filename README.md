@@ -248,6 +248,13 @@ El servidor resuelve `secret:<alias>` y `{{secret.<alias>}}` en memoria antes de
 - El sistema rechaza ciclos directos y transitivos comparando la cadena de `parentRunId` con el `workflowId` de la versión invocada.
 - Los runs hijos quedan visibles en Ejecuciones con su `parentRunId`, lo que permite auditar el lote.
 
+## Cola, rate limit y alertas por proyecto (P1)
+
+- Los runs se encolan cuando el proyecto alcanza su límite de concurrencia (2 por defecto). El scheduler despacha la cola y el estado `queued` se muestra en Ejecuciones.
+- Las notificaciones respetan `rateLimitPerMinute` (60 por defecto); si se excede, la entrega espera la ventana configurada.
+- Las integraciones de canal pueden declarar `alerts` (`run.failed`, `integration.down`, `health.degraded`) y `alertRecipient`. Un fallo de proyecto usa primero los canales del proyecto y cae a los globales si no hay.
+- Los run hijos de `foreach`/`subworkflow` conservan `parentRunId` y se pueden auditar desde Ejecuciones.
+
 ## Versionado del grafo, Snapshots y Rollback
 
 - Cada guardado o ejecución registra un snapshot inmutable en `workflow_versions` con el JSON del grafo y el paquete de código `nodes/*.ts`.

@@ -25,10 +25,25 @@ export interface SendNotificationResult {
 const SUPPORTED_CHANNELS = new Set(["telegram", "whatsapp", "external_chat"]);
 
 export class SendNotificationUseCase {
+  private readonly buckets = new Map<string, number[]>();
+
   constructor(
     private readonly store: Store,
     private readonly egress: IntegrationEgressPort,
   ) {}
+
+  private async waitForRateLimit(integrationId: string, limit: number, windowMs: number): Promise<void> {
+    if (!Number.isFinite(limit) || limit <= 0) return;
+    const now = Date.now();
+    const bucket = (this.buckets.get(integrationId) ?? []).filter((timestamp) => now - timestamp < windowMs);
+    if (bucket.length >= limit) {
+      const wait = Math.max(0, windowMs - (now - bucket[0]!));
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      return this.waitForRateLimit(integrationId, limit, windowMs);
+    }
+    bucket.push(now);
+    this.buckets.set(integrationId, bucket);
+  }
 
   async execute(input: SendNotificationInput): Promise<SendNotificationResult> {
     const integration = this.store.integrations.findById(input.integrationId);
@@ -45,6 +60,10 @@ export class SendNotificationUseCase {
       throw new Error(`${integration.kind} notifications require a recipient`);
     }
     if (!input.actionKey) throw new Error("notification actionKey is required");
+
+    const rateLimit = Number(integration.config.rateLimitPerMinute ?? 60);
+    const rateWindow = Number(integration.config.rateLimitWindowMs ?? 60_000);
+    await this.waitForRateLimit(integration.id, rateLimit, rateWindow);
 
     const existing = this.store.deliveries.findByActionKey({
       actionKey: input.actionKey,

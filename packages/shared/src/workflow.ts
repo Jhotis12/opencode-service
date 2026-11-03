@@ -187,6 +187,7 @@ export const WorkflowGraphSchema = z.object({
 export type WorkflowGraph = z.infer<typeof WorkflowGraphSchema>;
 
 export const WorkflowRunStatusSchema = z.enum([
+  "queued",
   "running",
   "paused",
   "succeeded",

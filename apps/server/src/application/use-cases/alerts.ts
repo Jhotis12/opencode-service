@@ -81,12 +81,21 @@ export class AlertService {
       const alerts = Array.isArray(integration.config.alerts) ? integration.config.alerts : [];
       return alerts.includes(type) && ["telegram", "whatsapp", "external_chat", "email"].includes(integration.kind);
     });
-    if (channels.length === 0) {
+    const projectChannels = input.projectSlug
+      ? this.deps.store.integrations
+          .list({ scope: "project", projectSlug: input.projectSlug })
+          .filter((integration) => {
+            const alerts = Array.isArray(integration.config.alerts) ? integration.config.alerts : [];
+            return alerts.includes(type) && ["telegram", "whatsapp", "external_chat", "email"].includes(integration.kind);
+          })
+      : [];
+    const selected = projectChannels.length > 0 ? projectChannels : channels;
+    if (selected.length === 0) {
       this.deps.logger.info({ event: "alert_no_channel", type, key: input.key });
       return;
     }
     const text = [input.title, ...input.lines.filter((line): line is string => Boolean(line))].join("\n");
-    for (const channel of channels) {
+    for (const channel of selected) {
       try {
         const recipient = typeof channel.config.alertRecipient === "string" ? channel.config.alertRecipient : undefined;
         await this.deps.egress.send(channel.id, text, recipient);

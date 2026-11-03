@@ -230,6 +230,12 @@ export const workflowTimers = sqliteTable(
   }),
 );
 
+export const workflowRunQueue = sqliteTable("workflow_run_queue", {
+  runId: text("run_id").primaryKey(),
+  projectSlug: text("project_slug").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
 export const chatThreads = sqliteTable(
   "chat_threads",
   {
@@ -313,6 +319,7 @@ export const schema = {
   workflowScheduleState,
   sessionContexts,
   workflowTimers,
+  workflowRunQueue,
   chatThreads,
   chatMessages,
   notebooks,

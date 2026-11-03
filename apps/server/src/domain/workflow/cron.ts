@@ -317,6 +317,7 @@ export class WorkflowScheduler {
       }
     }
     const currentMinute = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
+    triggered.push(...(await this.deps.executor.dispatchQueued()));
     const projects = await this.deps.workspace.listProjects();
     for (const slug of projects) {
       const graph = await this.deps.workspace.readWorkflow(slug).catch(() => undefined);

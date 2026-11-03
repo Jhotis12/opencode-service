@@ -46,6 +46,10 @@ function subtitle(node: NodeSpec): string | undefined {
       return `${String(node.config.mode ?? "read")} · ${String(node.config.integrationId ?? "sin integración")}`;
     case "notify":
       return `${String(node.config.recipient ?? "canal")} · ${String(node.config.integrationId ?? "sin integración")}`;
+    case "subworkflow":
+      return String(node.config.versionId ?? "sin versión");
+    case "foreach":
+      return `${String(node.config.itemsPath ?? "items")} · ${String(node.config.maxConcurrency ?? 1)}`;
     case "delay":
       return `${Number(node.config.ms ?? 0)} ms`;
     case "transform":

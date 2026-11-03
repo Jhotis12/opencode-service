@@ -76,6 +76,7 @@ export interface WorkflowRunRecord {
   versionId?: string;
   integrationId?: string;
   sourceDetail?: string;
+  parentRunId?: string;
   startedAt: string;
   finishedAt?: string;
 }

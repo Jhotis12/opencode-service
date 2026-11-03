@@ -744,6 +744,141 @@ describe("workflow execution", () => {
     store.close();
   });
 
+  it("executes a subworkflow by immutable version and rejects cycles", async () => {
+    const childGraph: WorkflowGraph = {
+      version: 1,
+      id: "child",
+      name: "Child",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "echo",
+          type: "transform",
+          position: { x: 100, y: 0 },
+          config: { template: '{"value":"{{input.value}}"}' },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "echo" }],
+      updatedAt: new Date().toISOString(),
+    };
+    const mainGraph = baseGraph();
+    mainGraph.nodes.push({
+      id: "sub",
+      type: "subworkflow",
+      position: { x: 2, y: 0 },
+      config: { versionId: "version-placeholder" },
+      notebookIds: [],
+      timeoutMs: 30_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    mainGraph.edges.push({ id: "e2", source: "double", target: "sub" });
+    const { executor, store } = await setup(mainGraph, {
+      "nodes/double.ts": `export default async (input: { n: number }) => ({ value: input.n });`,
+    });
+    const version = store.versions.record({
+      projectSlug: "p1",
+      graphHash: "child-hash",
+      graph: childGraph,
+      codeBundle: {},
+    });
+    mainGraph.nodes[mainGraph.nodes.length - 1] = {
+      ...mainGraph.nodes[mainGraph.nodes.length - 1]!,
+      config: { versionId: version.id },
+    };
+    const run = await executor.execute({ projectSlug: "p1", graph: mainGraph, payload: { n: 7 }, entryPoint: "web_ui" });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toEqual({ value: "7" });
+    expect(store.runs.listRecent(10).some((item) => item.parentRunId === run.id)).toBe(true);
+
+    const cyclic = { ...mainGraph, id: "child" };
+    const cyclicRun = await executor.execute({ projectSlug: "p1", graph: cyclic, payload: {}, entryPoint: "web_ui" });
+    expect(cyclicRun.status).toBe("failed");
+    expect(cyclicRun.error).toMatch(/subworkflow cycle/);
+    store.close();
+  });
+
+  it("runs a foreach batch with bounded concurrency", async () => {
+    const childGraph: WorkflowGraph = {
+      version: 1,
+      id: "foreach-child",
+      name: "Child",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "echo",
+          type: "transform",
+          position: { x: 100, y: 0 },
+          config: { template: '{"item":"{{input.item}}"}' },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "echo" }],
+      updatedAt: new Date().toISOString(),
+    };
+    const mainGraph = baseGraph();
+    mainGraph.nodes.push({
+      id: "batch",
+      type: "foreach",
+      position: { x: 2, y: 0 },
+      config: { versionId: "placeholder", itemsPath: "items", maxConcurrency: 2, onItemError: "stop" },
+      notebookIds: [],
+      timeoutMs: 30_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    mainGraph.edges.push({ id: "e2", source: "double", target: "batch" });
+    const { executor, store } = await setup(mainGraph, {
+      "nodes/double.ts": `export default async (input: { items: unknown[] }) => ({ items: input.items });`,
+    });
+    const version = store.versions.record({
+      projectSlug: "p1",
+      graphHash: "foreach-child",
+      graph: childGraph,
+      codeBundle: {},
+    });
+    mainGraph.nodes[mainGraph.nodes.length - 1] = {
+      ...mainGraph.nodes[mainGraph.nodes.length - 1]!,
+      config: { versionId: version.id, itemsPath: "items", maxConcurrency: 2, onItemError: "stop" },
+    };
+    const run = await executor.execute({
+      projectSlug: "p1",
+      graph: mainGraph,
+      payload: { items: ["a", "b", "c"] },
+      entryPoint: "web_ui",
+    });
+    expect(run.status).toBe("succeeded");
+    const result = run.output as { items: Array<{ status: string; output: unknown }> };
+    expect(result.items).toHaveLength(3);
+    expect(result.items.map((item) => item.output)).toEqual([
+      { item: "a" },
+      { item: "b" },
+      { item: "c" },
+    ]);
+    store.close();
+  });
+
   it("routes decision nodes down the matching branch", async () => {
     const graph = baseGraph();
     graph.nodes.push(

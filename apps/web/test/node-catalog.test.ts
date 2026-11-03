@@ -3,13 +3,13 @@ import { NODE_CATEGORY_COLORS, NODE_META } from "../src/components/nodes/node-ca
 
 describe("node category colors", () => {
   it("groups action node types under one token", () => {
-    for (const type of ["http", "database", "notify", "code", "transform", "delay"] as const) {
+    for (const type of ["http", "database", "notify", "subworkflow", "code", "transform", "delay"] as const) {
       expect(NODE_META[type].color).toBe(NODE_CATEGORY_COLORS.action);
     }
   });
 
   it("groups logic node types under one token", () => {
-    for (const type of ["validate", "decision"] as const) {
+    for (const type of ["validate", "foreach", "decision"] as const) {
       expect(NODE_META[type].color).toBe(NODE_CATEGORY_COLORS.logic);
     }
   });

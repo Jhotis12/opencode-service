@@ -89,11 +89,11 @@
 
 ## 12. Foreach y subworkflows P1
 
-- [ ] 12.1 Agregar `foreach` y `subworkflow` a los contratos, validación de recursos y detección de ciclos; verificar con tests de configuración inválida y ciclo directo/transitivo.
-- [ ] 12.2 Implementar runs hijos con `parentRunId`, concurrencia acotada y agregación de resultados por elemento; verificar con tests de éxito, fallo `continue`, fallo `stop` y límite de concurrencia.
-- [ ] 12.3 Implementar la invocación de subworkflow por versión inmutable y la propagación de fallo; verificar que un cambio en disco no altera el snapshot del hijo.
-- [ ] 12.4 Agregar `foreach`/`subworkflow` a la paleta y al inspector; verificar con tests de componente que ofrecen solo workflows del mismo proyecto.
-- [ ] 12.5 Documentar lotes y subworkflows; verificar que los ejemplos no violan el scope del proyecto.
+- [x] 12.1 Agregar `foreach` y `subworkflow` a los contratos, validación de recursos y detección de ciclos; verificar con tests de configuración inválida y ciclo directo/transitivo.
+- [x] 12.2 Implementar runs hijos con `parentRunId`, concurrencia acotada y agregación de resultados por elemento; verificar con tests de éxito, fallo `continue`, fallo `stop` y límite de concurrencia.
+- [x] 12.3 Implementar la invocación de subworkflow por versión inmutable y la propagación de fallo; verificar que un cambio en disco no altera el snapshot del hijo.
+- [x] 12.4 Agregar `foreach`/`subworkflow` a la paleta y al inspector; verificar con tests de componente que ofrecen solo workflows del mismo proyecto.
+- [x] 12.5 Documentar lotes y subworkflows; verificar que los ejemplos no violan el scope del proyecto.
 
 ## 13. Cola, rate limit y alertas por proyecto P1
 

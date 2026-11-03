@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   version_id TEXT,
   integration_id TEXT,
   source_detail TEXT,
+  parent_run_id TEXT,
   started_at TEXT NOT NULL,
   finished_at TEXT
 );
@@ -336,6 +337,7 @@ export function migrate(sqlite: Database): void {
     addColumnIfMissing(sqlite, "workflow_runs", "version_id", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "integration_id", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "source_detail", "TEXT");
+    addColumnIfMissing(sqlite, "workflow_runs", "parent_run_id", "TEXT");
     addColumnIfMissing(sqlite, "integrations", "key_hash", "TEXT");
     addColumnIfMissing(sqlite, "workflow_step_runs", "agent_id", "TEXT");
     addColumnIfMissing(sqlite, "workflow_step_runs", "logs", "TEXT");

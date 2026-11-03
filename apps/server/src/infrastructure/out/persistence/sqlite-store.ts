@@ -331,6 +331,7 @@ export class SqliteStore implements Store {
           versionId: record.versionId ?? null,
           integrationId: record.integrationId ?? null,
           sourceDetail: record.sourceDetail ?? null,
+          parentRunId: record.parentRunId ?? null,
           startedAt: record.startedAt,
           finishedAt: record.finishedAt ?? null,
         })
@@ -1124,6 +1125,7 @@ export class SqliteStore implements Store {
       versionId: row.versionId ?? undefined,
       integrationId: row.integrationId ?? undefined,
       sourceDetail: row.sourceDetail ?? undefined,
+      parentRunId: row.parentRunId ?? undefined,
       startedAt: row.startedAt,
       finishedAt: row.finishedAt ?? undefined,
     };

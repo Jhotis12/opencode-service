@@ -240,6 +240,14 @@ El servidor resuelve `secret:<alias>` y `{{secret.<alias>}}` en memoria antes de
 - Un timer vencido durante una caída se procesa al arrancar. Cada timer se reclama una sola vez.
 - `schedule` con `mode: "once"` y `runAt` crea un run único; si la fecha se perdió durante una caída, se ejecuta una vez al arrancar si el schedule está activo.
 
+## Lotes y subflujos (P1)
+
+- Un nodo `subworkflow` ejecuta una versión inmutable de `workflow_versions` del mismo proyecto. El payload se toma de `input` o de `config.payloadPath`; el resultado o el fallo se propaga al flujo padre.
+- Un nodo `foreach` recibe `itemsPath`, `versionId`, `maxConcurrency` y `onItemError`. Ejecuta un run hijo por elemento, con `parentRunId`, y agrega `{ items: [{ index, status, output, error, runId }] }`.
+- `onItemError: "stop"` corta el lote al primer fallo; `"continue"` procesa los demás y deja el fallo en el resultado.
+- El sistema rechaza ciclos directos y transitivos comparando la cadena de `parentRunId` con el `workflowId` de la versión invocada.
+- Los runs hijos quedan visibles en Ejecuciones con su `parentRunId`, lo que permite auditar el lote.
+
 ## Versionado del grafo, Snapshots y Rollback
 
 - Cada guardado o ejecución registra un snapshot inmutable en `workflow_versions` con el JSON del grafo y el paquete de código `nodes/*.ts`.

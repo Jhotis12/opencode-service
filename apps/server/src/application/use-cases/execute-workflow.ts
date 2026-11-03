@@ -4,6 +4,8 @@ import {
   InputSchemaSchema,
   DatabaseNodeConfigSchema,
   NotifyNodeConfigSchema,
+  SubworkflowNodeConfigSchema,
+  ForeachNodeConfigSchema,
   ValidateConfigSchema,
   type InputSchema,
   type NodeSpec,
@@ -71,6 +73,7 @@ export interface ExecuteRunInput {
   launchedBy?: string;
   integrationId?: string;
   sourceDetail?: string;
+  parentRunId?: string;
 }
 
 interface RunState {
@@ -148,6 +151,7 @@ export class ExecuteWorkflowRunUseCase {
       versionId: snapshot.id,
       integrationId: input.integrationId,
       sourceDetail: input.sourceDetail,
+      parentRunId: input.parentRunId,
       startedAt: new Date().toISOString(),
     };
     const claimed = this.deps.store.runs.claim(run);
@@ -380,6 +384,18 @@ export class ExecuteWorkflowRunUseCase {
     );
   }
 
+  private workflowChain(run: WorkflowRunRecord): Set<string> {
+    const chain = new Set<string>([run.workflowId]);
+    let parentId = run.parentRunId;
+    while (parentId) {
+      const parent = this.deps.store.runs.findById(parentId);
+      if (!parent) break;
+      chain.add(parent.workflowId);
+      parentId = parent.parentRunId;
+    }
+    return chain;
+  }
+
   protected async runGraph(
     graph: WorkflowGraph,
     payload: unknown,
@@ -528,6 +544,73 @@ export class ExecuteWorkflowRunUseCase {
             runId: state.run.id,
             nodeId: current.id,
           });
+        } else if (current.type === "subworkflow") {
+          const config = SubworkflowNodeConfigSchema.parse(current.config);
+          const version = store.versions.findById(config.versionId);
+          if (!version || version.projectSlug !== state.run.projectSlug) {
+            throw new Error(`subworkflow version not found: ${config.versionId}`);
+          }
+          if (version.graph.id === state.run.workflowId) {
+            throw new Error("subworkflow cycle detected");
+          }
+          if (this.workflowChain(state.run).has(version.graph.id)) {
+            throw new Error("subworkflow cycle detected in parent chain");
+          }
+          const child = await this.execute({
+            projectSlug: state.run.projectSlug,
+            graph: version.graph,
+            payload: config.payloadPath ? resolvePath(currentInput, config.payloadPath) : currentInput,
+            entryPoint: state.run.entryPoint,
+            parentRunId: state.run.id,
+            launchedBy: "subworkflow",
+            sourceDetail: `subworkflow:${config.versionId}`,
+          });
+          if (child.status !== "succeeded") throw new Error(`subworkflow ${child.id} ${child.status}: ${child.error ?? ""}`);
+          output = child.output;
+        } else if (current.type === "foreach") {
+          const config = ForeachNodeConfigSchema.parse(current.config);
+          const version = store.versions.findById(config.versionId);
+          if (!version || version.projectSlug !== state.run.projectSlug) {
+            throw new Error(`foreach version not found: ${config.versionId}`);
+          }
+          if (version.graph.id === state.run.workflowId) throw new Error("foreach cycle detected");
+          if (this.workflowChain(state.run).has(version.graph.id)) {
+            throw new Error("foreach cycle detected in parent chain");
+          }
+          const items = resolvePath(currentInput, config.itemsPath);
+          if (!Array.isArray(items)) throw new Error(`foreach itemsPath is not an array: ${config.itemsPath}`);
+          const limit = Math.max(1, Math.min(20, config.maxConcurrency));
+          const results: Array<{ index: number; status: string; output?: unknown; error?: string; runId: string }> = [];
+          for (let start = 0; start < items.length; start += limit) {
+            const batch = items.slice(start, start + limit);
+            const batchResults = await Promise.all(
+              batch.map(async (item, offset) => {
+                const index = start + offset;
+                const child = await this.execute({
+                  projectSlug: state.run.projectSlug,
+                  graph: version.graph,
+                  payload: { item, index, parent: currentInput },
+                  entryPoint: state.run.entryPoint,
+                  parentRunId: state.run.id,
+                  launchedBy: "foreach",
+                  sourceDetail: `foreach:${config.versionId}`,
+                });
+                return {
+                  index,
+                  status: child.status,
+                  output: child.output,
+                  error: child.error,
+                  runId: child.id,
+                };
+              }),
+            );
+            results.push(...batchResults);
+            if (config.onItemError === "stop" && batchResults.some((result) => result.status !== "succeeded")) break;
+          }
+          output = { items: results };
+          if (config.onItemError === "stop" && results.some((result) => result.status !== "succeeded")) {
+            throw new Error(`foreach failed at item ${results.find((result) => result.status !== "succeeded")?.index}`);
+          }
         } else if (current.type === "delay") {
           const waitUntil =
             typeof current.config.waitUntil === "string" ? Date.parse(current.config.waitUntil) : undefined;

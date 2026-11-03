@@ -12,6 +12,8 @@ export const NodeTypeSchema = z.enum([
   "validate",
   "database",
   "notify",
+  "foreach",
+  "subworkflow",
 ]);
 export type NodeType = z.infer<typeof NodeTypeSchema>;
 
@@ -104,6 +106,20 @@ export const NotifyNodeConfigSchema = z.object({
   actionKey: z.string().min(1).optional(),
 });
 export type NotifyNodeConfig = z.infer<typeof NotifyNodeConfigSchema>;
+
+export const SubworkflowNodeConfigSchema = z.object({
+  versionId: z.string().min(1),
+  payloadPath: z.string().optional(),
+});
+export type SubworkflowNodeConfig = z.infer<typeof SubworkflowNodeConfigSchema>;
+
+export const ForeachNodeConfigSchema = z.object({
+  versionId: z.string().min(1),
+  itemsPath: z.string().min(1),
+  maxConcurrency: z.number().int().min(1).max(20).default(1),
+  onItemError: z.enum(["stop", "continue"]).default("stop"),
+});
+export type ForeachNodeConfig = z.infer<typeof ForeachNodeConfigSchema>;
 
 export const ProjectTemplateSchema = z.enum(["blank", "triaje-operativo"]);
 export type ProjectTemplate = z.infer<typeof ProjectTemplateSchema>;

@@ -69,6 +69,20 @@ export function NodeIcon({ type }: { type: NodeType }) {
           <path d="M8 9h8M8 12h5" />
         </svg>
       );
+    case "subworkflow":
+      return (
+        <svg {...common}>
+          <rect x="4" y="4" width="12" height="12" rx="2" />
+          <path d="M9 9h11v11H9z" />
+        </svg>
+      );
+    case "foreach":
+      return (
+        <svg {...common}>
+          <path d="M4 7h6v6H4zM14 11h6v6h-6z" />
+          <path d="M10 10h4M14 10v1" />
+        </svg>
+      );
     case "delay":
       return (
         <svg {...common}>

@@ -47,7 +47,7 @@ function graph(nodes: NodeSpec[], edges: WorkflowGraph["edges"] = []): WorkflowG
   };
 }
 
-const allTypes: NodeType[] = ["trigger", "http", "database", "notify", "code", "transform", "delay", "validate", "agent", "decision", "approval"];
+const allTypes: NodeType[] = ["trigger", "http", "database", "notify", "subworkflow", "code", "transform", "delay", "validate", "foreach", "agent", "decision", "approval"];
 
 function renderCanvas(overrides: Partial<React.ComponentProps<typeof WorkflowCanvas>> = {}) {
   const props: React.ComponentProps<typeof WorkflowCanvas> = {

@@ -478,6 +478,68 @@ export function NodeInspector({
             <NotifyNodeFields node={node} integrations={integrations} onConfig={onConfig} />
           )}
 
+          {node.type === "subworkflow" && (
+            <>
+              <label>
+                Versión del subflujo
+                <input
+                  value={String(node.config.versionId ?? "")}
+                  onChange={(event) => onConfig({ versionId: event.target.value })}
+                  placeholder="ID de workflow_versions"
+                />
+              </label>
+              <label>
+                Ruta del payload (opcional)
+                <input
+                  value={String(node.config.payloadPath ?? "")}
+                  onChange={(event) => onConfig({ payloadPath: event.target.value || undefined })}
+                  placeholder="input.pedido"
+                />
+              </label>
+            </>
+          )}
+
+          {node.type === "foreach" && (
+            <>
+              <label>
+                Versión del subflujo
+                <input
+                  value={String(node.config.versionId ?? "")}
+                  onChange={(event) => onConfig({ versionId: event.target.value })}
+                  placeholder="ID de workflow_versions"
+                />
+              </label>
+              <label>
+                Ruta de la lista
+                <input
+                  value={String(node.config.itemsPath ?? "")}
+                  onChange={(event) => onConfig({ itemsPath: event.target.value })}
+                  placeholder="input.items"
+                />
+              </label>
+              <label>
+                Concurrencia máxima
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={Number(node.config.maxConcurrency ?? 1)}
+                  onChange={(event) => onConfig({ maxConcurrency: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                Si falla un elemento
+                <select
+                  value={String(node.config.onItemError ?? "stop")}
+                  onChange={(event) => onConfig({ onItemError: event.target.value })}
+                >
+                  <option value="stop">Detener el lote</option>
+                  <option value="continue">Continuar con los demás</option>
+                </select>
+              </label>
+            </>
+          )}
+
           {node.type === "http" && (
             <>
               <label>

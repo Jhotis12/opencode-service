@@ -96,6 +96,7 @@ export const workflowRuns = sqliteTable(
     versionId: text("version_id"),
     integrationId: text("integration_id"),
     sourceDetail: text("source_detail"),
+    parentRunId: text("parent_run_id"),
     startedAt: text("started_at").notNull(),
     finishedAt: text("finished_at"),
   },

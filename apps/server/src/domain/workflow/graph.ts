@@ -89,6 +89,13 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
         issues.push(`notify node ${node.id} requires a valid integrationId and text`);
       }
     }
+    if (node.type === "subworkflow" && typeof node.config.versionId !== "string") {
+      issues.push(`subworkflow node ${node.id} requires config.versionId`);
+    }
+    if (node.type === "foreach") {
+      if (typeof node.config.versionId !== "string") issues.push(`foreach node ${node.id} requires config.versionId`);
+      if (typeof node.config.itemsPath !== "string") issues.push(`foreach node ${node.id} requires config.itemsPath`);
+    }
     if (node.onError?.strategy === "route") {
       const target = node.onError.target;
       if (!target) {

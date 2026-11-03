@@ -35,6 +35,12 @@ describe("RunDetailModal approvals", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
+      if (url.endsWith("/deliveries")) {
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       if (url.includes("/approvals/review")) {
         return new Response(JSON.stringify(run({ status: "succeeded" })), {
           status: 200,

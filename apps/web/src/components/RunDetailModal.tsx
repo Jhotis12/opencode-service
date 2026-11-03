@@ -39,6 +39,10 @@ export function RunDetailModal({
     enabled: run.status === "paused",
   });
   const pending = approvalsQuery.data?.find((approval) => approval.status === "pending");
+  const deliveriesQuery = useQuery({
+    queryKey: ["deliveries", run.id],
+    queryFn: () => api.listDeliveries(run.projectSlug, run.id).then((result) => result.data),
+  });
   const decide = useMutation({
     mutationFn: (decision: "approve" | "reject") =>
       api.decideApproval(run.projectSlug, run.id, pending!.nodeId, decision),
@@ -103,6 +107,26 @@ export function RunDetailModal({
       <section className="flex flex-col gap-2">
         <h3 className="text-sm font-semibold text-slate-100">Resultado final</h3>
         <pre>{formatValue(run.output)}</pre>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h3 className="text-sm font-semibold text-slate-100">Entregas</h3>
+        {(deliveriesQuery.data ?? []).length === 0 ? (
+          <p className="text-xs text-muted">Esta ejecución no registró entregas de notificación.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {deliveriesQuery.data!.map((delivery) => (
+              <li key={delivery.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2 text-xs">
+                <StatusBadge status={delivery.status} />
+                <span className="text-slate-200">{delivery.nodeId ?? "nodo"}</span>
+                <span className="text-muted">{delivery.integrationId}</span>
+                {delivery.providerMessageId && <code className="text-muted">{delivery.providerMessageId}</code>}
+                <span className="text-muted">{delivery.attempts} intento(s)</span>
+                {delivery.lastError && <span className="text-danger">{delivery.lastError}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="flex flex-col gap-2">

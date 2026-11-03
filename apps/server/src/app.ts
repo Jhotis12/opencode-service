@@ -956,6 +956,14 @@ export async function createApplication(config: AppConfig): Promise<Application>
     return c.json({ data: store.runs.listApprovals(run.id) });
   });
 
+  app.get("/api/projects/:slug/runs/:runId/deliveries", (c) => {
+    const run = store.runs.findById(c.req.param("runId"));
+    if (!run || run.projectSlug !== c.req.param("slug")) {
+      return c.json(apiError("NOT_FOUND", "run not found"), 404);
+    }
+    return c.json({ data: store.deliveries.listByRun(run.id) });
+  });
+
   app.post("/api/projects/:slug/runs/:runId/approvals/:nodeId", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { decision?: "approve" | "reject" };
     if (body.decision !== "approve" && body.decision !== "reject") {

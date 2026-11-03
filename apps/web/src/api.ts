@@ -118,6 +118,22 @@ export interface ApprovalRecord {
   decidedBy?: string;
 }
 
+export interface DeliveryRecord {
+  id: string;
+  projectSlug: string;
+  runId?: string;
+  nodeId?: string;
+  integrationId: string;
+  actionKey: string;
+  recipient?: string;
+  status: "pending" | "delivered" | "failed";
+  providerMessageId?: string;
+  attempts: number;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ModelInfo {
   providerID: string;
   modelID: string;
@@ -312,6 +328,8 @@ export const api = {
   getRun: (id: string) => request<RunRecord>(`/api/runs/${id}`),
   listApprovals: (slug: string, runId: string) =>
     request<{ data: ApprovalRecord[] }>(`/api/projects/${slug}/runs/${runId}/approvals`),
+  listDeliveries: (slug: string, runId: string) =>
+    request<{ data: DeliveryRecord[] }>(`/api/projects/${slug}/runs/${runId}/deliveries`),
   decideApproval: (slug: string, runId: string, nodeId: string, decision: "approve" | "reject") =>
     request<RunRecord>(`/api/projects/${slug}/runs/${runId}/approvals/${nodeId}`, {
       method: "POST",

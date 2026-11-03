@@ -50,10 +50,10 @@
 
 ## 7. Integración P0 y aceptación
 
-- [ ] 7.1 Ejecutar `bun run typecheck`, `bun run test`, `bun run build` y los E2E de P0; verificar que toda la suite termina en verde.
-- [ ] 7.2 Ejecutar el escenario E2E "schedule -> notify" contra un canal de prueba y verificar que el mensaje llega una sola vez y la entrega aparece en el panel.
-- [ ] 7.3 Ejecutar el escenario E2E "webhook/agente -> database -> aprobación" y verificar que la escritura ocurre una sola vez y el rechazo no deja cambios.
-- [ ] 7.4 Ejecutar el escenario E2E de ruta de error y verificar que el run sigue por el target y registra el payload del fallo.
+- [x] 7.1 Ejecutar `bun run typecheck`, `bun run test`, `bun run build` y los E2E de P0; verificar que toda la suite termina en verde.
+- [x] 7.2 Ejecutar el escenario E2E "schedule -> notify" contra un canal de prueba y verificar que el mensaje llega una sola vez y la entrega aparece en el panel.
+- [x] 7.3 Ejecutar el escenario E2E "webhook/agente -> database -> aprobación" y verificar que la escritura ocurre una sola vez y el rechazo no deja cambios.
+- [x] 7.4 Ejecutar el escenario E2E de ruta de error y verificar que el run sigue por el target y registra el payload del fallo.
 - [ ] 7.5 Preparar la checklist de aceptación P0 y obtener la validación explícita del usuario en staging o un entorno real; registrar la evidencia en `openspec/changes/add-reliable-automation-actions/validation-p0.md`.
 
 ## 8. Gate P0 → P1 (BLOQUEANTE)

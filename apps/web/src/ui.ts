@@ -33,6 +33,8 @@ type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
 
 const STATUS_LABELS: Record<string, { label: string; tone: StatusTone }> = {
   queued: { label: "En cola", tone: "neutral" },
+  pending: { label: "Pendiente", tone: "warning" },
+  delivered: { label: "Entregado", tone: "success" },
   running: { label: "En ejecución", tone: "info" },
   paused: { label: "Pausado", tone: "warning" },
   succeeded: { label: "Completado", tone: "success" },

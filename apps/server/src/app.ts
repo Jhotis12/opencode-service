@@ -33,6 +33,7 @@ import { DocumentExtractor, KnowledgeError } from "./infrastructure/out/knowledg
 import { createEmbeddingAdapter } from "./infrastructure/out/knowledge/embeddings.ts";
 import { DynamicDatabaseClientAdapter } from "./infrastructure/out/external-db/dynamic-adapter.ts";
 import { ExecuteWorkflowRunUseCase } from "./application/use-cases/execute-workflow.ts";
+import { ExecuteDatabaseActionUseCase } from "./application/use-cases/database-actions.ts";
 import { ManageSubagentsUseCase } from "./application/use-cases/manage-subagents.ts";
 import { IngestKnowledgeUseCase } from "./application/use-cases/ingest-knowledge.ts";
 import { SearchKnowledgeUseCase, buildGroundedContext } from "./application/use-cases/search-knowledge.ts";
@@ -203,6 +204,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const externalDb = new DynamicDatabaseClientAdapter();
   const queryDatabase = new QueryDatabaseIntegrationUseCase(store, vault, externalDb);
   const testDatabase = new TestDatabaseIntegrationUseCase(store, vault, externalDb);
+  const databaseAction = new ExecuteDatabaseActionUseCase(store, vault, externalDb);
   const embeddings = createEmbeddingAdapter(env);
   const knowledgeFiles = new KnowledgeFileStore(workspacesDir);
   const ingest = new IngestKnowledgeUseCase({
@@ -222,6 +224,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     metrics,
     errors: errorTracker,
     logger,
+    databaseAction,
     workerHandlers: {
       db: ({ projectSlug, integrationId, sql, params }) =>
         queryDatabase.execute(integrationId, { scope: "project", projectSlug }, sql, params),

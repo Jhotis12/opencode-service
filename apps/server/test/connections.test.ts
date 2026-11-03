@@ -116,6 +116,23 @@ describe("project database integrations", () => {
         "SELECT 1",
       ),
     ).rejects.toThrow(/scope/);
+
+    const committed = await adapter.transaction({ driver: "sqlite", filename: file }, [
+      { sql: "INSERT INTO leads (name) VALUES (?)", params: ["Luis"] },
+      { sql: "INSERT INTO leads (name) VALUES (?)", params: ["Marta"] },
+      { sql: "SELECT name FROM leads ORDER BY id" },
+    ]);
+    expect(committed[0]?.affectedRows).toBe(1);
+    expect(committed[2]?.rows).toEqual([{ name: "Ana" }, { name: "Luis" }, { name: "Marta" }]);
+
+    await expect(
+      adapter.transaction({ driver: "sqlite", filename: file }, [
+        { sql: "INSERT INTO leads (name) VALUES (?)", params: ["Pedro"] },
+        { sql: "INSERT INTO missing_table (name) VALUES (?)", params: ["Error"] },
+      ]),
+    ).rejects.toThrow();
+    const afterRollback = await adapter.query({ driver: "sqlite", filename: file }, "SELECT name FROM leads ORDER BY id");
+    expect(afterRollback).toEqual([{ name: "Ana" }, { name: "Luis" }, { name: "Marta" }]);
     store.close();
   });
 

@@ -10,11 +10,11 @@
 
 ## 2. Nodo nativo de base de datos P0
 
-- [ ] 2.1 Extender `ExternalDatabaseAdapter` con `transaction(config, statements)` e implementarlo para SQLite, Postgres, MySQL y SQL Server; verificar commits, rollback y timeout con SQLite real y mocks de los otros drivers.
-- [ ] 2.2 Implementar `ExecuteDatabaseActionUseCase` con validación de scope, modo lectura/escritura, sentencias parametrizadas, transacción y límite de filas; verificar con tests de scope cruzado, rollback y resultado truncado.
-- [ ] 2.3 Integrar el nodo `database` en `ExecuteWorkflowRunUseCase` y publicar la salida `{ rows, rowCount, affectedRows, truncated }`; verificar con un workflow que lee y otro que escribe en SQLite de prueba.
-- [ ] 2.4 Agregar el nodo `database` a la paleta y al inspector (integración, modo, SQL, params, transacción, maxRows); verificar con tests de componente que el formulario valida y persiste la configuración.
-- [ ] 2.5 Documentar el nodo `database` y su diferencia con `code`/`ctx.db`; verificar que el ejemplo documentado ejecuta contra una base SQLite de prueba.
+- [x] 2.1 Extender `ExternalDatabaseAdapter` con `transaction(config, statements)` e implementarlo para SQLite, Postgres, MySQL y SQL Server; verificar commits, rollback y timeout con SQLite real y mocks de los otros drivers.
+- [x] 2.2 Implementar `ExecuteDatabaseActionUseCase` con validación de scope, modo lectura/escritura, sentencias parametrizadas, transacción y límite de filas; verificar con tests de scope cruzado, rollback y resultado truncado.
+- [x] 2.3 Integrar el nodo `database` en `ExecuteWorkflowRunUseCase` y publicar la salida `{ rows, rowCount, affectedRows, truncated }`; verificar con un workflow que lee y otro que escribe en SQLite de prueba.
+- [x] 2.4 Agregar el nodo `database` a la paleta y al inspector (integración, modo, SQL, params, transacción, maxRows); verificar con tests de componente que el formulario valida y persiste la configuración.
+- [x] 2.5 Documentar el nodo `database` y su diferencia con `code`/`ctx.db`; verificar que el ejemplo documentado ejecuta contra una base SQLite de prueba.
 
 ## 3. Nodo nativo de notificación P0 y ledger de entregas
 

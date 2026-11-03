@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,9 @@ import type { SseEvent, WorkflowGraph } from "@platform/shared";
 import { SafeFsWorkspaceAdapter } from "../src/infrastructure/out/workspace-fs/safe-workspace.ts";
 import { BunWorkerPoolAdapter } from "../src/infrastructure/out/worker-sandbox/bun-worker-pool.ts";
 import { SqliteStore } from "../src/infrastructure/out/persistence/sqlite-store.ts";
+import { Aes256GcmVaultAdapter } from "../src/infrastructure/out/vault/aes-vault.ts";
+import { DynamicDatabaseClientAdapter } from "../src/infrastructure/out/external-db/dynamic-adapter.ts";
+import { ExecuteDatabaseActionUseCase } from "../src/application/use-cases/database-actions.ts";
 import { InMemoryMetrics } from "../src/domain/telemetry/metrics.ts";
 import { NoopErrorTracker } from "../src/infrastructure/out/telemetry/sentry.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
@@ -109,6 +113,95 @@ function baseGraph(): WorkflowGraph {
 }
 
 describe("workflow execution", () => {
+  it("executes database nodes and passes their result downstream", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "platform-db-node-"));
+    dirs.push(dir);
+    const filename = join(dir, "client.sqlite");
+    const seed = new Database(filename, { create: true });
+    seed.exec("CREATE TABLE leads (id INTEGER PRIMARY KEY, name TEXT);");
+    seed.close();
+    const now = new Date().toISOString();
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "db-flow",
+      name: "DB flow",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "write",
+          type: "database",
+          position: { x: 100, y: 0 },
+          config: {
+            integrationId: "db1",
+            mode: "write",
+            statements: [{ sql: "INSERT INTO leads (name) VALUES (?)", params: ["{{input.name}}"] }],
+          },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "read",
+          type: "database",
+          position: { x: 200, y: 0 },
+          config: {
+            integrationId: "db1",
+            mode: "read",
+            statements: [{ sql: "SELECT name FROM leads ORDER BY id" }],
+          },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [
+        { id: "e1", source: "start", target: "write" },
+        { id: "e2", source: "write", target: "read" },
+      ],
+      updatedAt: now,
+    };
+    const { store, deps } = await setup(graph, {});
+    store.integrations.create({
+      id: "db1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "sqlite",
+      name: "Local",
+      slug: "local",
+      config: { kind: "sqlite", filename },
+      secretRefs: {},
+      capabilities: ["query"],
+      status: "disconnected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const databaseAction = new ExecuteDatabaseActionUseCase(
+      store,
+      new Aes256GcmVaultAdapter(Buffer.alloc(32, 4)),
+      new DynamicDatabaseClientAdapter(),
+    );
+    const executor = new ExecuteWorkflowRunUseCase({ ...deps, databaseAction });
+    const run = await executor.execute({
+      projectSlug: "p1",
+      graph,
+      payload: { name: "Ana" },
+      entryPoint: "web_ui",
+    });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toMatchObject({ rows: [{ name: "Ana" }], rowCount: 1 });
+    expect(store.runs.listSteps(run.id).map((step) => step.nodeId)).toEqual(["start", "write", "read"]);
+    store.close();
+  });
+
   it("runs code and agent nodes, checkpointing every step", async () => {
     const graph = baseGraph();
     graph.nodes.push({ id: "reply", type: "agent", agentId: "ventas/cotizador", position: { x: 2, y: 0 }, config: {}, notebookIds: [], timeoutMs: 30000, retryPolicy: { maxRetries: 0 } });

@@ -1,7 +1,108 @@
-import type { InputField, IntegrationRecord, NodeSpec, SubagentProfile, ValidateRule } from "@platform/shared";
+import { useEffect, useState } from "react";
+import type {
+  DatabaseStatement,
+  InputField,
+  IntegrationRecord,
+  NodeSpec,
+  SubagentProfile,
+  ValidateRule,
+} from "@platform/shared";
 import type { ModelInfo } from "../api.ts";
 import { CodeEditor } from "./CodeEditor.tsx";
 import { button, buttonGhost } from "../ui.ts";
+
+const DATABASE_KINDS = new Set<IntegrationRecord["kind"]>(["postgres", "mysql", "mssql", "sqlite"]);
+
+function DatabaseNodeFields({
+  node,
+  integrations,
+  onConfig,
+}: {
+  node: NodeSpec;
+  integrations: IntegrationRecord[];
+  onConfig(patch: Record<string, unknown>): void;
+}) {
+  const statements = (node.config.statements as DatabaseStatement[] | undefined) ?? [];
+  const [raw, setRaw] = useState(() => JSON.stringify(statements, null, 2));
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    setRaw(JSON.stringify((node.config.statements as DatabaseStatement[] | undefined) ?? [], null, 2));
+    setError(undefined);
+  }, [node.id]);
+
+  function applyStatements(value: string) {
+    setRaw(value);
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("Agrega al menos una sentencia.");
+      if (!parsed.every((item) => item && typeof item === "object" && typeof (item as { sql?: unknown }).sql === "string")) {
+        throw new Error("Cada sentencia necesita un campo sql de texto.");
+      }
+      setError(undefined);
+      onConfig({ statements: parsed });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "JSON inválido.");
+    }
+  }
+
+  return (
+    <>
+      <label>
+        Integración de base de datos
+        <select
+          value={String(node.config.integrationId ?? "")}
+          onChange={(event) => onConfig({ integrationId: event.target.value })}
+        >
+          <option value="">Selecciona una integración</option>
+          {integrations
+            .filter((integration) => DATABASE_KINDS.has(integration.kind))
+            .map((integration) => (
+              <option key={integration.id} value={integration.id}>
+                {integration.name} · {integration.kind}
+              </option>
+            ))}
+        </select>
+      </label>
+      <label>
+        Modo
+        <select value={String(node.config.mode ?? "read")} onChange={(event) => onConfig({ mode: event.target.value })}>
+          <option value="read">Lectura</option>
+          <option value="write">Escritura</option>
+        </select>
+      </label>
+      <label className="md:col-span-2">
+        Sentencias SQL (JSON)
+        <textarea
+          rows={6}
+          value={raw}
+          onChange={(event) => applyStatements(event.target.value)}
+          placeholder={'[{"sql":"select * from leads where id = ?","params":["{{input.id}}"]}]'}
+        />
+      </label>
+      {error && <p className="text-xs text-danger md:col-span-2">{error}</p>}
+      <label className="flex-row items-center gap-2">
+        <input
+          type="checkbox"
+          className="w-auto"
+          checked={node.config.transaction !== false}
+          onChange={(event) => onConfig({ transaction: event.target.checked })}
+        />
+        Transacción
+      </label>
+      <label>
+        Máximo de filas
+        <input
+          type="number"
+          min={1}
+          max={10000}
+          value={Number(node.config.maxRows ?? 1000)}
+          onChange={(event) => onConfig({ maxRows: Number(event.target.value) })}
+        />
+      </label>
+    </>
+  );
+}
 
 function InputFieldsEditor({ fields, onChange }: { fields: InputField[]; onChange(fields: InputField[]): void }) {
   return (
@@ -227,6 +328,10 @@ export function NodeInspector({
                 </div>
               )}
             </>
+          )}
+
+          {node.type === "database" && (
+            <DatabaseNodeFields node={node} integrations={integrations} onConfig={onConfig} />
           )}
 
           {node.type === "http" && (

@@ -27,9 +27,20 @@ export interface AgentRuntimePort {
   subscribe(handler: (event: unknown) => void): Promise<() => void>;
 }
 
+export interface ExternalDatabaseStatement {
+  sql: string;
+  params?: unknown[];
+}
+
+export interface ExternalDatabaseStatementResult {
+  rows: unknown[];
+  affectedRows: number;
+}
+
 export interface ExternalDatabaseAdapter {
   test(config: ExternalDbConfig): Promise<{ ok: boolean; latencyMs: number; detail?: string }>;
   query(config: ExternalDbConfig, sql: string, params?: unknown[]): Promise<unknown[]>;
+  transaction(config: ExternalDbConfig, statements: ExternalDatabaseStatement[]): Promise<ExternalDatabaseStatementResult[]>;
 }
 
 export interface ExternalDbConfig {

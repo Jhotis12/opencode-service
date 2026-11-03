@@ -2,6 +2,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   InputSchemaSchema,
+  DatabaseNodeConfigSchema,
   ValidateConfigSchema,
   type InputSchema,
   type NodeSpec,
@@ -18,6 +19,7 @@ import type { EventBus } from "../ports/events.ts";
 import type { ErrorTracker, Metrics, Logger } from "../../domain/telemetry/index.ts";
 import { WorkerTimeoutError } from "../ports/worker.ts";
 import type { StepRunRecord, WorkflowRunRecord } from "../../domain/entities.ts";
+import type { ExecuteDatabaseActionUseCase } from "./database-actions.ts";
 import {
   IdempotencyMismatchError,
   RunInFlightError,
@@ -44,6 +46,7 @@ export interface ExecutorDeps {
   errors: ErrorTracker;
   logger: Logger;
   workerHandlers?: WorkerRpcHandlers;
+  databaseAction?: ExecuteDatabaseActionUseCase;
   notifyApproval?: (run: WorkflowRunRecord, nodeId: string) => Promise<void>;
   knowledgeContext?: (projectSlug: string, notebookIds: string[], query: unknown, strictGrounding: boolean) => Promise<string>;
   defaultModel?: () => string | undefined;
@@ -434,6 +437,20 @@ export class ExecuteWorkflowRunUseCase {
           }
         } else if (current.type === "http") {
           output = await executeHttpNode(current, currentInput);
+        } else if (current.type === "database") {
+          if (!this.deps.databaseAction) throw new Error("database action is not configured");
+          const config = DatabaseNodeConfigSchema.parse(current.config);
+          output = await this.deps.databaseAction.execute({
+            projectSlug: state.run.projectSlug,
+            integrationId: config.integrationId,
+            mode: config.mode,
+            statements: config.statements.map((statement) => ({
+              sql: statement.sql,
+              params: renderParams(statement.params, currentInput),
+            })),
+            transaction: config.transaction,
+            maxRows: config.maxRows,
+          });
         } else if (current.type === "delay") {
           const ms = Math.min(Math.max(Number(current.config.ms) || 0, 0), 60_000);
           await new Promise((resolve) => setTimeout(resolve, ms));
@@ -693,6 +710,15 @@ export function renderTemplate(template: string, input: unknown): unknown {
   } catch {
     return rendered;
   }
+}
+
+export function renderParams(value: unknown, input: unknown): unknown {
+  if (typeof value === "string") return renderTemplate(value, input);
+  if (Array.isArray(value)) return value.map((item) => renderParams(item, input));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, renderParams(item, input)]));
+  }
+  return value;
 }
 
 export function evaluateCondition(condition: unknown, input: unknown): boolean {

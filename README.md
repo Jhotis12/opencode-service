@@ -122,6 +122,34 @@ El trigger declara `inputSchema` con campos, tipos, obligatoriedad, descripción
 - El endpoint devuelve `202 { runId }` antes de terminar y el SSE actualiza el estado.
 - El nodo `validate` permite reglas declarativas en cualquier punto; si falta un campo, falla el paso con un mensaje accionable y no ejecuta los siguientes.
 
+## Acción nativa de base de datos (P0)
+
+El nodo `database` ejecuta SQL parametrizado contra una integración del proyecto sin escribir un nodo de código. La configuración es declarativa:
+
+```json
+{
+  "type": "database",
+  "config": {
+    "integrationId": "<id-de-la-integracion>",
+    "mode": "write",
+    "transaction": true,
+    "maxRows": 1000,
+    "statements": [
+      { "sql": "INSERT INTO leads (name) VALUES (?)", "params": ["{{input.nombre}}"] }
+    ]
+  }
+}
+```
+
+- `mode: "read"` solo permite `SELECT`, `WITH`, `PRAGMA` y `EXPLAIN`.
+- `mode: "write"` permite `INSERT`, `UPDATE`, `DELETE` y `MERGE`; el DDL queda deshabilitado en P0.
+- `params` es un arreglo JSON y acepta `{{input.campo}}`; se resuelve en el servidor antes de ejecutar.
+- `transaction` agrupa las sentencias y revierte todo si una falla. Por defecto se activa cuando hay más de una sentencia.
+- `maxRows` limita las filas devueltas y marca `truncated: true` cuando recorta.
+- La salida es `{ rows, rowCount, affectedRows, truncated }`.
+
+Usa `database` para operaciones declarativas y auditables. Usa `code` + `ctx.db` solo cuando necesites lógica, bucles o transformaciones que el nodo no cubre. El caso de escritura transaccional está cubierto por `apps/server/test/database-actions.test.ts`.
+
 ## Versionado del grafo, Snapshots y Rollback
 
 - Cada guardado o ejecución registra un snapshot inmutable en `workflow_versions` con el JSON del grafo y el paquete de código `nodes/*.ts`.

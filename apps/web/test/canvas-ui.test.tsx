@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import type { NodeSpec, NodeType, WorkflowGraph } from "@platform/shared";
+import type { IntegrationRecord, NodeSpec, NodeType, WorkflowGraph } from "@platform/shared";
 import { WorkflowCanvas } from "../src/components/WorkflowCanvas.tsx";
 import { NodePaletteModal } from "../src/components/NodePaletteModal.tsx";
 import { NodeInspectorModal } from "../src/components/NodeInspectorModal.tsx";
@@ -47,7 +47,7 @@ function graph(nodes: NodeSpec[], edges: WorkflowGraph["edges"] = []): WorkflowG
   };
 }
 
-const allTypes: NodeType[] = ["trigger", "http", "code", "transform", "delay", "validate", "agent", "decision", "approval"];
+const allTypes: NodeType[] = ["trigger", "http", "database", "notify", "code", "transform", "delay", "validate", "agent", "decision", "approval"];
 
 function renderCanvas(overrides: Partial<React.ComponentProps<typeof WorkflowCanvas>> = {}) {
   const props: React.ComponentProps<typeof WorkflowCanvas> = {
@@ -217,6 +217,7 @@ describe("NodeInspectorModal", () => {
     const onStartCanvasConnect = vi.fn();
     const onDuplicate = vi.fn();
     const onRemove = vi.fn();
+    const onConfig = vi.fn();
     render(
       <NodeInspectorModal
         node={agent}
@@ -230,7 +231,7 @@ describe("NodeInspectorModal", () => {
         issues={[]}
         onClose={vi.fn()}
         onPatch={vi.fn()}
-        onConfig={vi.fn()}
+        onConfig={onConfig}
         onCodeChange={vi.fn()}
         onSaveCode={vi.fn()}
         onEnableDecisionCode={vi.fn()}
@@ -243,8 +244,44 @@ describe("NodeInspectorModal", () => {
         {...overrides}
       />,
     );
-    return { onConnect, onStartCanvasConnect, onDuplicate, onRemove };
+    return { onConnect, onStartCanvasConnect, onDuplicate, onRemove, onConfig };
   }
+
+  it("edits database node settings and validates statement JSON", async () => {
+    const database = node("db", "database", {
+      config: { integrationId: "", mode: "read", statements: [{ sql: "select 1" }] },
+    });
+    const integration: IntegrationRecord = {
+      id: "db1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "sqlite",
+      name: "CRM",
+      slug: "crm",
+      config: {},
+      secretRefs: {},
+      capabilities: ["query"],
+      status: "connected",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const { onConfig } = renderInspector({
+      node: database,
+      graph: graph([node("start", "trigger"), database]),
+      integrations: [integration],
+      lastStep: undefined,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: db" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Integración de base de datos"), "db1");
+    expect(onConfig).toHaveBeenCalledWith({ integrationId: "db1" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Modo"), "write");
+    expect(onConfig).toHaveBeenCalledWith({ mode: "write" });
+    const statements = within(dialog).getByLabelText("Sentencias SQL (JSON)");
+    fireEvent.change(statements, { target: { value: '[{"sql":"select 2"}]' } });
+    expect(onConfig).toHaveBeenCalledWith({ statements: [{ sql: "select 2" }] });
+    fireEvent.change(statements, { target: { value: "not json" } });
+    expect(within(dialog).getByText(/Unexpected token|JSON inválido/)).toBeInTheDocument();
+  });
 
   it("shows settings, connections with invalid targets disabled, and execution context", async () => {
     const { onConnect } = renderInspector();

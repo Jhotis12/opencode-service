@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Edge, NodeSpec, WorkflowGraph } from "@platform/shared";
+import { DatabaseNodeConfigSchema, NotifyNodeConfigSchema } from "@platform/shared";
 import { isValidCronExpression } from "./cron.ts";
 
 export class WorkflowValidationError extends Error {
@@ -67,6 +68,18 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
     if (node.type === "agent" && !node.agentId) issues.push(`agent node ${node.id} requires agentId`);
     if (node.type === "http" && typeof node.config.url !== "string") {
       issues.push(`http node ${node.id} requires config.url`);
+    }
+    if (node.type === "database") {
+      const parsed = DatabaseNodeConfigSchema.safeParse(node.config);
+      if (!parsed.success) {
+        issues.push(`database node ${node.id} requires a valid integrationId and statements`);
+      }
+    }
+    if (node.type === "notify") {
+      const parsed = NotifyNodeConfigSchema.safeParse(node.config);
+      if (!parsed.success) {
+        issues.push(`notify node ${node.id} requires a valid integrationId and text`);
+      }
     }
     if (node.type === "delay" && !(Number(node.config.ms) > 0)) {
       issues.push(`delay node ${node.id} requires a positive config.ms`);

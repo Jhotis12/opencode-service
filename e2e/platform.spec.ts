@@ -274,9 +274,9 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
 
   await page.getByPlaceholder("Pídele un flujo, una corrección o un reporte…").fill("¿Qué proyectos existen?");
   await page.getByRole("button", { name: "Enviar" }).click();
-  await expect(page.getByText(/\[simulado/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/\[simulado/)).toHaveCount(1, { timeout: 15_000 });
   await page.reload();
-  await expect(page.getByText(/\[simulado/)).toBeVisible();
+  await expect(page.getByText(/\[simulado/)).toHaveCount(1);
   await expect(
     page.locator('[data-testid="chat-messages"] article').filter({ hasText: /^\s*$/ }),
   ).toHaveCount(0);

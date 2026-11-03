@@ -135,8 +135,14 @@ export function ChatPanel({
   const [atBottom, setAtBottom] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
 
   useEffect(() => {
+    // A query refetch can deliver the persisted agent reply while the streamed
+    // draft is still visible. Do not replace the local turn mid-stream; the
+    // local messages already contain the authoritative reply for this turn.
+    if (busyRef.current) return;
     const history = (initialMessages ?? []).map((message) => ({ role: message.role, text: message.content }));
     setMessages(history.length > 0 ? history : [{ role: "agent", text: welcome }]);
   }, [initialMessages, welcome]);
@@ -203,6 +209,7 @@ export function ChatPanel({
           upsertActivity(progress);
         }
       });
+      setDraft("");
       setMessages((current) => [...current, { role: "agent", text: reply }]);
     } catch (error) {
       setMessages((current) => [

@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChatPanel } from "../src/components/ChatPanel.tsx";
-import { api } from "../src/api.ts";
+import { api, type ChatHistoryMessage } from "../src/api.ts";
 import { renderWithProviders } from "./render.tsx";
 
 function sseResponse(): Response {
@@ -58,5 +59,48 @@ describe("control chat progress", () => {
       .getAllByRole("article")
       .filter((article) => article.className.includes("border-line") && article.textContent?.trim() === "");
     expect(agentBubbles).toHaveLength(0);
+  });
+
+  it("does not duplicate the reply when a history refetch arrives mid-stream", async () => {
+    const initial: ChatHistoryMessage[] = [
+      {
+        id: "u1",
+        threadId: "t1",
+        role: "user",
+        content: "hola",
+        createdAt: new Date().toISOString(),
+      },
+    ];
+
+    function Harness() {
+      const [history, setHistory] = useState(initial);
+      return (
+        <ChatPanel
+          storageKey="control-chat-duplicate-test"
+          initialMessages={history}
+          onSend={async (_message, onEvent) => {
+            onEvent({ type: "text", text: "OK" });
+            setHistory([
+              ...initial,
+              {
+                id: "a1",
+                threadId: "t1",
+                role: "agent",
+                content: "OK",
+                createdAt: new Date().toISOString(),
+              },
+            ]);
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            return "OK";
+          }}
+        />
+      );
+    }
+
+    renderWithProviders(<Harness />);
+    await userEvent.type(screen.getByPlaceholderText("Pídele un flujo, una corrección o un reporte…"), "hola");
+    await userEvent.click(screen.getByRole("button", { name: "Enviar" }));
+
+    await waitFor(() => expect(screen.getAllByText("OK")).toHaveLength(1));
   });
 });

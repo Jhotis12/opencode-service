@@ -24,6 +24,7 @@
 - [x] 4.1 Normalize a leading `platform_` or `platform.` in `createChatProgressHandler`, and map tool input for `edit`/`write` file paths and `bash`/`shell` commands; verify unit tests cover `platform_workflow_upsert`, `platform_workflow_get`, `platform_workflow_runs`, `platform_workflow_trigger`, a node edit, and a test command.
 - [x] 4.2 Add an optional `onProgress` to `ChatWithOrchestratorUseCase.execute` and forward it to `promptWithSessionRecovery`; mirror the project-chat SSE route with `delta`, `activity`, `heartbeat`, `done`, and `error` events; verify HTTP/SSE tests assert a text delta, an activity, and an error on empty.
 - [x] 4.3 Update `apps/web/src/api.ts` `controlChat` to forward `onEvent` and `OrchestratorPage` to pass the `ChatPanel` callback into the mutation; verify a web test with a mocked SSE body renders the activity and the error instead of an empty agent bubble, and run `bun run --cwd apps/web test`.
+- [x] 4.4 Prevent duplicate streamed replies in `ChatPanel`: do not replace local messages while a turn is busy, clear the draft before appending the final agent message, add a web regression that simulates a history refetch mid-stream, and assert one rendered reply before and after reload in E2E; verify with `bun run --cwd apps/web test` and `bun run test:e2e`.
 
 ## 5. Read-only global tool inventory
 

@@ -29,7 +29,11 @@ Abre `http://localhost:3001` (el contenedor escucha en `3000`; el host usa `3001
 | `EMBEDDINGS_URL` / `EMBEDDINGS_API_KEY` | Embeddings para búsqueda híbrida. |
 | `PLATFORM_SERVICE_TOKEN` | Token de llamadas con scope de proyecto. |
 | `PLATFORM_GLOBAL_TOKEN` | Token del plano de control (orquestador global). |
-| `AGENT_CHAT_TIMEOUT_MS` | Timeout del chat (15 min por defecto). |
+| `AGENT_CHAT_TIMEOUT_MS` | Compatibilidad: timeout del chat (15 min por defecto). |
+| `AGENT_TURN_MAX_MS` | Duración máxima de un turno durable (30 min por defecto). |
+| `AGENT_TURN_IDLE_MS` | Inactividad máxima antes de interrumpir un turno (10 min por defecto). |
+| `AGENT_TURN_POLL_MS` / `AGENT_TURN_RETRY_MS` | Intervalo de polling y reintento de transporte del turno. |
+| `CHAT_TURN_ENGINE` | `v2` para el ciclo durable; `legacy` conserva la ruta anterior durante el rollout. |
 | `ORCHESTRATOR_MODEL` | Modelo del orquestador global; si se omite usa el modelo por defecto de la plataforma. |
 | `OPENCODE_MODE=fake` | Runtime simulado para desarrollo y E2E. |
 
@@ -291,6 +295,12 @@ Cada proyecto crea `AGENTS.md` y `.opencode/agents/principal/agente.md`, y selec
 - Tiene estados acoplado y minimizado/burbuja; el chat del proyecto vive en un drawer lateral y no tiene modo maximizado.
 - Persiste por proyecto y muestra tiempo transcurrido, errores y reintentos.
 - El prompt del agente principal evita rutas internas y prioriza lenguaje de negocio.
+
+### Turnos durables
+
+Cada mensaje crea un `chat_turn` con estado, sesión de OpenCode, mensaje de usuario, respuesta y uso. El turno no depende de que el request HTTP siga abierto: el SSE es una vista reenganchable. El servidor detecta el fin con polling de `session.active`/`session.get`, interrumpe al vencer `AGENT_TURN_MAX_MS` o `AGENT_TURN_IDLE_MS`, y reconcilia turnos activos al arrancar. `POST /api/projects/:slug/chat` mantiene el contrato SSE (`turn`, `status`, `delta`, `activity`, `heartbeat`, `done`, `error`) y añade `turnId`; `GET /chat/turns/:id` y `GET /chat/turns/:id/events` permiten consultar o reenganchar un turno. El orquestador y los canales usan el mismo ciclo.
+
+El log durable de OpenCode (`experimental.session.log`) se evaluó como fuente primaria; en la versión 2.2.5 probada no entregó los eventos de ejecución, así que esta entrega usa polling como mecanismo autoritativo y deja el log como mejora posterior.
 
 ## Email (futuro)
 

@@ -13,6 +13,20 @@ Ver `proposal.md` para el incidente y la motivación. El estado actual relevante
 
 La restricción central: **un turno de chat no puede depender de que un request HTTP permanezca abierto**. El request y el SSE deben ser una vista reemplazable.
 
+### Resultado del spike (2026-11-03)
+
+Se levantó una instancia OpenCode 2.2.5 aislada y se validó con una sesión de prueba:
+
+- `session.log` con `after=0`, `follow=true` emitió `log.synced` pero **no emitió** `session.execution.*` ni los eventos de texto del turno exitoso. Por eso no se usa como fuente primaria en esta entrega.
+- `session.active` devolvió la sesión mientras corría y vacío al terminar.
+- `session.get` devolvió `outcome: succeeded`, tokens y timestamps.
+- `session.inbox.list` devolvió el inbox vacío al completar.
+- `message.list` devolvió el mensaje user, el assistant y el idle con sus IDs.
+- `session.interrupt` respondió `{interrupted:false}` en una sesión idle y `session.get` de una sesión inexistente devolvió `SessionNotFoundError`.
+- `session.prompt` aceptó `id` con prefijo `msg_` y `metadata`; un id sin `msg_` fue rechazado.
+
+La implementación usa **polling de `session.active`/`session.get`** como mecanismo autoritativo y deja `openSessionLog` como primitiva opcional para una mejora posterior. Esto cumple el fallback previsto y evita depender de una API experimental que no entregó los eventos esperados.
+
 ## Goals / Non-Goals
 
 **Goals:**

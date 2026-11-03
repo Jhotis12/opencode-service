@@ -14,7 +14,7 @@
       "name": "@platform/server",
       "version": "0.1.0",
       "dependencies": {
-        "@opencode/client": "^2.2.5",
+        "@opencode/client": "2.2.5",
         "@platform/shared": "workspace:*",
         "@sentry/bun": "^9.0.0",
         "drizzle-orm": "^0.38.3",

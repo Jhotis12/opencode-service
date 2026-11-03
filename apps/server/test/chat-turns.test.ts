@@ -67,6 +67,15 @@ describe("ChatTurnService", () => {
     expect(events).toContain("done");
   });
 
+  it("records side effects from mutating tool events", async () => {
+    const { agent, service, thread } = setup();
+    agent.scriptedEvents.push({ type: "session.tool.called", data: { id: "tool-1", name: "write", input: {} } });
+    const turn = await service.start({ thread, target: target(), message: "editar" });
+    const final = await service.waitForTerminal(turn.id, 2_000);
+    expect(final.status).toBe("succeeded");
+    expect(final.hasSideEffects).toBe(true);
+  });
+
   it("removes turns and messages when a project is deleted", async () => {
     const { store, service, thread } = setup();
     const turn = await service.start({ thread, target: target(), message: "borrar" });

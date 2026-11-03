@@ -35,8 +35,8 @@ export function OrchestratorPage() {
     source.addEventListener("chat.turn.updated", (event) => {
       const data = JSON.parse((event as MessageEvent).data) as { scope?: string; status: string };
       if (data.scope !== "global") return;
-      void queryClient.invalidateQueries({ queryKey: qk.controlChat });
       if (["succeeded", "failed", "timed_out", "cancelled", "unknown"].includes(data.status)) {
+        void queryClient.invalidateQueries({ queryKey: qk.controlChat });
         void queryClient.invalidateQueries({ queryKey: qk.controlOverview });
       }
     });

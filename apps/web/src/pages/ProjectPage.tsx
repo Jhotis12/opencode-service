@@ -228,9 +228,9 @@ export function ProjectPage() {
         status: string;
       };
       if (data.projectSlug !== slug) return;
-      void queryClient.invalidateQueries({ queryKey: qk.chat(slug) });
-      if (["succeeded", "failed", "timed_out", "cancelled", "unknown"].includes(data.status) && !chatOpenRef.current) {
-        setChatUnread(true);
+      if (["succeeded", "failed", "timed_out", "cancelled", "unknown"].includes(data.status)) {
+        void queryClient.invalidateQueries({ queryKey: qk.chat(slug) });
+        if (!chatOpenRef.current) setChatUnread(true);
       }
     });
     return () => source.close();

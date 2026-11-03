@@ -2,11 +2,11 @@
 
 ## 1. Contratos compartidos P0 y persistencia base
 
-- [ ] 1.1 Agregar `notify` y `database` a `NodeTypeSchema`, sus configuraciones tipadas y la metadata del catálogo; verificar con `bun run --cwd packages/shared test` y un test de parseo de ambos nodos.
-- [ ] 1.2 Extender `NodeSpec` con `onError` (stop/continue/route) y `retryPolicy` con backoff opcional; verificar que un workflow existente sin esos campos sigue parseando y que los nuevos valores se validan.
-- [ ] 1.3 Extender `TriggerConfig` con `timezone`, `enabled`, `overlapPolicy` y `catchUp`/`catchUpWindowMinutes`, conservando UTC y `skip` como defaults; verificar con tests de parseo y de defaults.
-- [ ] 1.4 Crear las migraciones Drizzle para `workflow_deliveries` y `workflow_schedule_state`, con índices por `project_slug`, `action_key` y `workflow_id`; verificar que una base nueva y una existente migran sin pérdida de datos.
-- [ ] 1.5 Agregar los repositorios de entregas y estado de schedule al puerto `Store` y a SQLite; verificar con tests de integración contra `:memory:` para insertar, consultar por action key y actualizar estado.
+- [x] 1.1 Agregar `notify` y `database` a `NodeTypeSchema`, sus configuraciones tipadas y la metadata del catálogo; verificar con `bun run --cwd packages/shared test` y un test de parseo de ambos nodos.
+- [x] 1.2 Extender `NodeSpec` con `onError` (stop/continue/route) y `retryPolicy` con backoff opcional; verificar que un workflow existente sin esos campos sigue parseando y que los nuevos valores se validan.
+- [x] 1.3 Extender `TriggerConfig` con `timezone`, `enabled`, `overlapPolicy` y `catchUp`/`catchUpWindowMinutes`, conservando UTC y `skip` como defaults; verificar con tests de parseo y de defaults.
+- [x] 1.4 Crear las migraciones Drizzle para `workflow_deliveries` y `workflow_schedule_state`, con índices por `project_slug`, `action_key` y `workflow_id`; verificar que una base nueva y una existente migran sin pérdida de datos.
+- [x] 1.5 Agregar los repositorios de entregas y estado de schedule al puerto `Store` y a SQLite; verificar con tests de integración contra `:memory:` para insertar, consultar por action key y actualizar estado.
 
 ## 2. Nodo nativo de base de datos P0
 

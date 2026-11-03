@@ -25,6 +25,9 @@ describe("persistence migrations", () => {
       "workflow_runs",
       "workflow_versions",
       "workflow_step_runs",
+      "workflow_approvals",
+      "workflow_deliveries",
+      "workflow_schedule_state",
       "kb_chunks",
       "kb_chunks_fts",
     ]) {
@@ -39,6 +42,23 @@ describe("persistence migrations", () => {
     const handle = openDatabase(":memory:");
     migrate(handle.sqlite);
     expect(() => migrate(handle.sqlite)).not.toThrow();
+    handle.close();
+  });
+
+  it("preserves existing rows when migrating an installed database", () => {
+    const handle = openDatabase(":memory:");
+    migrate(handle.sqlite);
+    handle.sqlite
+      .query("INSERT INTO projects (id, slug, name, description, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run("p1", "ventas", "Ventas", "", now);
+    migrate(handle.sqlite);
+    expect(handle.sqlite.query("SELECT name FROM projects WHERE slug = 'ventas'").get()).toEqual({ name: "Ventas" });
+    expect(
+      handle.sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workflow_deliveries'").get(),
+    ).toBeTruthy();
+    expect(
+      handle.sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workflow_schedule_state'").get(),
+    ).toBeTruthy();
     handle.close();
   });
 });
@@ -98,6 +118,58 @@ describe("sqlite store", () => {
     expect(store.runs.pendingApproval("r1")?.nodeId).toBe("review");
     store.runs.decideApproval("r1", "review", "approved", "admin");
     expect(store.runs.pendingApproval("r1")).toBeUndefined();
+    store.close();
+  });
+
+  it("tracks notification deliveries by action key", () => {
+    const store = new SqliteStore(":memory:");
+    store.deliveries.create({
+      id: "d1",
+      projectSlug: "ventas",
+      runId: "r1",
+      nodeId: "notify",
+      integrationId: "tg1",
+      actionKey: "r1:notify",
+      recipient: "123",
+      status: "pending",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(store.deliveries.findByActionKey({ actionKey: "r1:notify", integrationId: "tg1" })?.status).toBe("pending");
+    store.deliveries.update("d1", { status: "delivered", providerMessageId: "m1", attempts: 1 });
+    expect(store.deliveries.findByActionKey({ actionKey: "r1:notify", integrationId: "tg1" })?.status).toBe("delivered");
+    expect(store.deliveries.listByRun("r1")).toHaveLength(1);
+    store.close();
+  });
+
+  it("stores and updates schedule state per workflow trigger", () => {
+    const store = new SqliteStore(":memory:");
+    store.scheduleStates.upsert({
+      id: "s1",
+      projectSlug: "ventas",
+      workflowId: "wf",
+      nodeId: "start",
+      timezone: "America/Mexico_City",
+      enabled: true,
+      overlapPolicy: "skip",
+      catchUp: false,
+      catchUpWindowMinutes: 60,
+      updatedAt: now,
+    });
+    expect(store.scheduleStates.find({ projectSlug: "ventas", workflowId: "wf", nodeId: "start" })?.timezone).toBe(
+      "America/Mexico_City",
+    );
+    store.scheduleStates.update(
+      { projectSlug: "ventas", workflowId: "wf", nodeId: "start" },
+      { enabled: false, lastWindowAt: now, nextWindowAt: now },
+    );
+    const state = store.scheduleStates.find({ projectSlug: "ventas", workflowId: "wf", nodeId: "start" });
+    expect(state?.enabled).toBe(false);
+    expect(state?.lastWindowAt).toBe(now);
+    expect(store.scheduleStates.listAll()).toHaveLength(1);
+    store.scheduleStates.removeByProject("ventas");
+    expect(store.scheduleStates.listAll()).toHaveLength(0);
     store.close();
   });
 

@@ -128,6 +128,43 @@ CREATE TABLE IF NOT EXISTS workflow_approvals (
   decided_by TEXT
 );
 CREATE INDEX IF NOT EXISTS workflow_approvals_run ON workflow_approvals(run_id);
+CREATE TABLE IF NOT EXISTS workflow_deliveries (
+  id TEXT PRIMARY KEY,
+  project_slug TEXT NOT NULL,
+  run_id TEXT,
+  node_id TEXT,
+  integration_id TEXT NOT NULL,
+  action_key TEXT NOT NULL,
+  recipient TEXT,
+  status TEXT NOT NULL,
+  provider_message_id TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_deliveries_action
+  ON workflow_deliveries(action_key, integration_id);
+CREATE INDEX IF NOT EXISTS workflow_deliveries_project ON workflow_deliveries(project_slug);
+CREATE INDEX IF NOT EXISTS workflow_deliveries_run ON workflow_deliveries(run_id);
+CREATE TABLE IF NOT EXISTS workflow_schedule_state (
+  id TEXT PRIMARY KEY,
+  project_slug TEXT NOT NULL,
+  workflow_id TEXT NOT NULL,
+  node_id TEXT NOT NULL,
+  timezone TEXT NOT NULL DEFAULT 'UTC',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  overlap_policy TEXT NOT NULL DEFAULT 'skip',
+  catch_up INTEGER NOT NULL DEFAULT 0,
+  catch_up_window_minutes INTEGER NOT NULL DEFAULT 60,
+  last_window_at TEXT,
+  next_window_at TEXT,
+  last_run_id TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workflow_schedule_state_key
+  ON workflow_schedule_state(project_slug, workflow_id, node_id);
+CREATE INDEX IF NOT EXISTS workflow_schedule_state_workflow ON workflow_schedule_state(workflow_id);
 CREATE TABLE IF NOT EXISTS chat_threads (
   id TEXT PRIMARY KEY,
   scope TEXT NOT NULL,

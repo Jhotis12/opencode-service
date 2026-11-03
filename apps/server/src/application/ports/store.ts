@@ -13,6 +13,8 @@ import type {
   VaultSecretRecord,
   WorkflowRunRecord,
   WorkflowVersionRecord,
+  WorkflowDeliveryRecord,
+  WorkflowScheduleStateRecord,
 } from "../../domain/entities.ts";
 import type { EntityScope } from "../../domain/entities.ts";
 import type { WorkflowGraph } from "@platform/shared";
@@ -90,6 +92,39 @@ export interface WorkflowRunRepository {
   decideApproval(runId: string, nodeId: string, status: "approved" | "rejected", decidedBy: string): void;
 }
 
+export interface WorkflowDeliveryRepository {
+  create(record: WorkflowDeliveryRecord): void;
+  findByActionKey(input: { actionKey: string; integrationId: string }): WorkflowDeliveryRecord | undefined;
+  update(
+    id: string,
+    patch: Partial<Pick<WorkflowDeliveryRecord, "status" | "providerMessageId" | "attempts" | "lastError" | "recipient">>,
+  ): void;
+  listByRun(runId: string): WorkflowDeliveryRecord[];
+}
+
+export interface WorkflowScheduleStateRepository {
+  upsert(record: WorkflowScheduleStateRecord): void;
+  find(input: { projectSlug: string; workflowId: string; nodeId: string }): WorkflowScheduleStateRecord | undefined;
+  listAll(): WorkflowScheduleStateRecord[];
+  update(
+    input: { projectSlug: string; workflowId: string; nodeId: string },
+    patch: Partial<
+      Pick<
+        WorkflowScheduleStateRecord,
+        | "timezone"
+        | "enabled"
+        | "overlapPolicy"
+        | "catchUp"
+        | "catchUpWindowMinutes"
+        | "lastWindowAt"
+        | "nextWindowAt"
+        | "lastRunId"
+      >
+    >,
+  ): void;
+  removeByProject(projectSlug: string): void;
+}
+
 export interface WorkflowVersionRepository {
   record(input: {
     projectSlug: string;
@@ -153,6 +188,8 @@ export interface Store {
   projects: ProjectRepository;
   integrations: IntegrationRepository;
   runs: WorkflowRunRepository;
+  deliveries: WorkflowDeliveryRepository;
+  scheduleStates: WorkflowScheduleStateRepository;
   versions: WorkflowVersionRepository;
   chatThreads: ChatThreadRepository;
   chat: ChatRepository;

@@ -115,6 +115,40 @@ export interface ApprovalRecord {
   decidedBy?: string;
 }
 
+export type DeliveryStatus = "pending" | "delivered" | "failed";
+
+export interface WorkflowDeliveryRecord {
+  id: string;
+  projectSlug: string;
+  runId?: string;
+  nodeId?: string;
+  integrationId: string;
+  actionKey: string;
+  recipient?: string;
+  status: DeliveryStatus;
+  providerMessageId?: string;
+  attempts: number;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkflowScheduleStateRecord {
+  id: string;
+  projectSlug: string;
+  workflowId: string;
+  nodeId: string;
+  timezone: string;
+  enabled: boolean;
+  overlapPolicy: "skip" | "allow";
+  catchUp: boolean;
+  catchUpWindowMinutes: number;
+  lastWindowAt?: string;
+  nextWindowAt?: string;
+  lastRunId?: string;
+  updatedAt: string;
+}
+
 export interface ChatThreadRecord {
   id: string;
   scope: EntityScope;

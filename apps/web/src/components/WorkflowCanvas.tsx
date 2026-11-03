@@ -42,6 +42,10 @@ function subtitle(node: NodeSpec): string | undefined {
       return node.config.mode === "condition" ? "Condición visual" : node.codeFile;
     case "http":
       return `${String(node.config.method ?? "GET")} ${String(node.config.url ?? "")}`.trim();
+    case "database":
+      return `${String(node.config.mode ?? "read")} · ${String(node.config.integrationId ?? "sin integración")}`;
+    case "notify":
+      return `${String(node.config.recipient ?? "canal")} · ${String(node.config.integrationId ?? "sin integración")}`;
     case "delay":
       return `${Number(node.config.ms ?? 0)} ms`;
     case "transform":

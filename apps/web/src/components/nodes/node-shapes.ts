@@ -9,6 +9,14 @@ export interface NodeShape {
 export const NODE_SHAPES: Record<NodeType, NodeShape> = {
   trigger: { name: "stadium", style: { borderRadius: "999px" } },
   http: { name: "rounded-card", style: { borderRadius: "14px" } },
+  database: {
+    name: "cylinder",
+    style: { borderRadius: "50% / 14%" },
+  },
+  notify: {
+    name: "speech-bubble",
+    style: { borderRadius: "14px 14px 14px 4px" },
+  },
   code: {
     name: "notched-card",
     style: { clipPath: "polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px))" },

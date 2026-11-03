@@ -10,11 +10,25 @@ export const NodeTypeSchema = z.enum([
   "delay",
   "transform",
   "validate",
+  "database",
+  "notify",
 ]);
 export type NodeType = z.infer<typeof NodeTypeSchema>;
 
 export const TriggerKindSchema = z.enum(["manual", "schedule", "webhook", "integration"]);
 export type TriggerKind = z.infer<typeof TriggerKindSchema>;
+
+export const ScheduleTimezoneSchema = z.string().min(1).refine((timezone) => {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}, "timezone must be a valid IANA timezone");
+
+export const ScheduleOverlapPolicySchema = z.enum(["skip", "allow"]);
+export type ScheduleOverlapPolicy = z.infer<typeof ScheduleOverlapPolicySchema>;
 
 export const InputFieldTypeSchema = z.enum(["string", "number", "boolean", "json"]);
 export type InputFieldType = z.infer<typeof InputFieldTypeSchema>;
@@ -47,6 +61,11 @@ export type ValidateConfig = z.infer<typeof ValidateConfigSchema>;
 export const TriggerConfigSchema = z.object({
   kind: TriggerKindSchema.default("manual"),
   cron: z.string().optional(),
+  timezone: ScheduleTimezoneSchema.default("UTC"),
+  enabled: z.boolean().default(true),
+  overlapPolicy: ScheduleOverlapPolicySchema.default("skip"),
+  catchUp: z.boolean().default(false),
+  catchUpWindowMinutes: z.number().int().min(0).max(1_440).default(60),
   secretAlias: z.string().optional(),
   integrationId: z.string().optional(),
   event: z.string().optional(),
@@ -61,8 +80,57 @@ export const AgentNodeConfigSchema = z.object({
 });
 export type AgentNodeConfig = z.infer<typeof AgentNodeConfigSchema>;
 
+export const DatabaseStatementSchema = z.object({
+  sql: z.string().min(1),
+  params: z.unknown().optional(),
+});
+export type DatabaseStatement = z.infer<typeof DatabaseStatementSchema>;
+
+export const DatabaseNodeConfigSchema = z.object({
+  integrationId: z.string().min(1),
+  mode: z.enum(["read", "write"]).default("read"),
+  statements: z.array(DatabaseStatementSchema).min(1),
+  transaction: z.boolean().optional(),
+  maxRows: z.number().int().positive().max(10_000).optional(),
+});
+export type DatabaseNodeConfig = z.infer<typeof DatabaseNodeConfigSchema>;
+
+export const NotifyNodeConfigSchema = z.object({
+  integrationId: z.string().min(1),
+  recipient: z.string().min(1).optional(),
+  text: z.string().min(1),
+  actionKey: z.string().min(1).optional(),
+});
+export type NotifyNodeConfig = z.infer<typeof NotifyNodeConfigSchema>;
+
 export const ProjectTemplateSchema = z.enum(["blank", "triaje-operativo"]);
 export type ProjectTemplate = z.infer<typeof ProjectTemplateSchema>;
+
+export const NodeErrorStrategySchema = z.enum(["stop", "continue", "route"]);
+export type NodeErrorStrategy = z.infer<typeof NodeErrorStrategySchema>;
+
+export const NodeErrorPolicySchema = z
+  .object({
+    strategy: NodeErrorStrategySchema.default("stop"),
+    target: z.string().min(1).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.strategy === "route" && !value.target) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["target"],
+        message: "route strategy requires a target node",
+      });
+    }
+  });
+export type NodeErrorPolicy = z.infer<typeof NodeErrorPolicySchema>;
+
+export const RetryPolicySchema = z.object({
+  maxRetries: z.number().int().min(0).max(5).default(0),
+  backoffMs: z.number().int().min(0).max(60_000).optional(),
+  backoffMultiplier: z.number().min(1).max(10).optional(),
+});
+export type RetryPolicy = z.infer<typeof RetryPolicySchema>;
 
 export const NodeSpecSchema = z.object({
   id: z.string().min(1).regex(/^[a-z0-9][a-z0-9-]*$/, "node id must be kebab-case"),
@@ -75,7 +143,8 @@ export const NodeSpecSchema = z.object({
   modelOverride: z.string().optional(),
   notebookIds: z.array(z.string()).default([]),
   timeoutMs: z.number().int().positive().max(600_000).default(30_000),
-  retryPolicy: z.object({ maxRetries: z.number().int().min(0).max(5) }).default({ maxRetries: 0 }),
+  retryPolicy: RetryPolicySchema.default({ maxRetries: 0 }),
+  onError: NodeErrorPolicySchema.optional(),
 });
 export type NodeSpec = z.infer<typeof NodeSpecSchema>;
 

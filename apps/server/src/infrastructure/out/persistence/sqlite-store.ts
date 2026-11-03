@@ -14,6 +14,8 @@ import type {
   VaultSecretRecord,
   WorkflowRunRecord,
   WorkflowVersionRecord,
+  WorkflowDeliveryRecord,
+  WorkflowScheduleStateRecord,
 } from "../../../domain/entities.ts";
 import type { WorkflowGraph } from "@platform/shared";
 import type { Store } from "../../../application/ports/store.ts";
@@ -32,7 +34,9 @@ import {
   users,
   vaultSecrets,
   workflowApprovals,
+  workflowDeliveries,
   workflowRuns,
+  workflowScheduleState,
   workflowStepRuns,
   workflowVersions,
 } from "./schema.ts";
@@ -458,6 +462,165 @@ export class SqliteStore implements Store {
     },
   };
 
+  deliveries = {
+    create: (record: WorkflowDeliveryRecord): void => {
+      this.handle.db
+        .insert(workflowDeliveries)
+        .values({
+          id: record.id,
+          projectSlug: record.projectSlug,
+          runId: record.runId ?? null,
+          nodeId: record.nodeId ?? null,
+          integrationId: record.integrationId,
+          actionKey: record.actionKey,
+          recipient: record.recipient ?? null,
+          status: record.status,
+          providerMessageId: record.providerMessageId ?? null,
+          attempts: record.attempts,
+          lastError: record.lastError ?? null,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        })
+        .run();
+    },
+    findByActionKey: (input: { actionKey: string; integrationId: string }): WorkflowDeliveryRecord | undefined => {
+      const row = this.handle.db
+        .select()
+        .from(workflowDeliveries)
+        .where(
+          and(
+            eq(workflowDeliveries.actionKey, input.actionKey),
+            eq(workflowDeliveries.integrationId, input.integrationId),
+          ),
+        )
+        .get();
+      return row ? this.mapDelivery(row) : undefined;
+    },
+    update: (
+      id: string,
+      patch: Partial<
+        Pick<WorkflowDeliveryRecord, "status" | "providerMessageId" | "attempts" | "lastError" | "recipient">
+      >,
+    ): void => {
+      this.handle.db
+        .update(workflowDeliveries)
+        .set({
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+          ...(patch.providerMessageId !== undefined ? { providerMessageId: patch.providerMessageId } : {}),
+          ...(patch.attempts !== undefined ? { attempts: patch.attempts } : {}),
+          ...(patch.lastError !== undefined ? { lastError: patch.lastError } : {}),
+          ...(patch.recipient !== undefined ? { recipient: patch.recipient } : {}),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(workflowDeliveries.id, id))
+        .run();
+    },
+    listByRun: (runId: string): WorkflowDeliveryRecord[] =>
+      this.handle.db
+        .select()
+        .from(workflowDeliveries)
+        .where(eq(workflowDeliveries.runId, runId))
+        .orderBy(desc(workflowDeliveries.createdAt))
+        .all()
+        .map((row) => this.mapDelivery(row)),
+  };
+
+  scheduleStates = {
+    upsert: (record: WorkflowScheduleStateRecord): void => {
+      this.handle.db
+        .insert(workflowScheduleState)
+        .values({
+          id: record.id,
+          projectSlug: record.projectSlug,
+          workflowId: record.workflowId,
+          nodeId: record.nodeId,
+          timezone: record.timezone,
+          enabled: record.enabled,
+          overlapPolicy: record.overlapPolicy,
+          catchUp: record.catchUp,
+          catchUpWindowMinutes: record.catchUpWindowMinutes,
+          lastWindowAt: record.lastWindowAt ?? null,
+          nextWindowAt: record.nextWindowAt ?? null,
+          lastRunId: record.lastRunId ?? null,
+          updatedAt: record.updatedAt,
+        })
+        .onConflictDoUpdate({
+          target: [workflowScheduleState.projectSlug, workflowScheduleState.workflowId, workflowScheduleState.nodeId],
+          set: {
+            timezone: record.timezone,
+            enabled: record.enabled,
+            overlapPolicy: record.overlapPolicy,
+            catchUp: record.catchUp,
+            catchUpWindowMinutes: record.catchUpWindowMinutes,
+            lastWindowAt: record.lastWindowAt ?? null,
+            nextWindowAt: record.nextWindowAt ?? null,
+            lastRunId: record.lastRunId ?? null,
+            updatedAt: record.updatedAt,
+          },
+        })
+        .run();
+    },
+    find: (input: { projectSlug: string; workflowId: string; nodeId: string }): WorkflowScheduleStateRecord | undefined => {
+      const row = this.handle.db
+        .select()
+        .from(workflowScheduleState)
+        .where(
+          and(
+            eq(workflowScheduleState.projectSlug, input.projectSlug),
+            eq(workflowScheduleState.workflowId, input.workflowId),
+            eq(workflowScheduleState.nodeId, input.nodeId),
+          ),
+        )
+        .get();
+      return row ? this.mapScheduleState(row) : undefined;
+    },
+    listAll: (): WorkflowScheduleStateRecord[] =>
+      this.handle.db.select().from(workflowScheduleState).all().map((row) => this.mapScheduleState(row)),
+    update: (
+      input: { projectSlug: string; workflowId: string; nodeId: string },
+      patch: Partial<
+        Pick<
+          WorkflowScheduleStateRecord,
+          | "timezone"
+          | "enabled"
+          | "overlapPolicy"
+          | "catchUp"
+          | "catchUpWindowMinutes"
+          | "lastWindowAt"
+          | "nextWindowAt"
+          | "lastRunId"
+        >
+      >,
+    ): void => {
+      this.handle.db
+        .update(workflowScheduleState)
+        .set({
+          ...(patch.timezone !== undefined ? { timezone: patch.timezone } : {}),
+          ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+          ...(patch.overlapPolicy !== undefined ? { overlapPolicy: patch.overlapPolicy } : {}),
+          ...(patch.catchUp !== undefined ? { catchUp: patch.catchUp } : {}),
+          ...(patch.catchUpWindowMinutes !== undefined
+            ? { catchUpWindowMinutes: patch.catchUpWindowMinutes }
+            : {}),
+          ...(patch.lastWindowAt !== undefined ? { lastWindowAt: patch.lastWindowAt } : {}),
+          ...(patch.nextWindowAt !== undefined ? { nextWindowAt: patch.nextWindowAt } : {}),
+          ...(patch.lastRunId !== undefined ? { lastRunId: patch.lastRunId } : {}),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(workflowScheduleState.projectSlug, input.projectSlug),
+            eq(workflowScheduleState.workflowId, input.workflowId),
+            eq(workflowScheduleState.nodeId, input.nodeId),
+          ),
+        )
+        .run();
+    },
+    removeByProject: (projectSlug: string): void => {
+      this.handle.db.delete(workflowScheduleState).where(eq(workflowScheduleState.projectSlug, projectSlug)).run();
+    },
+  };
+
   chatThreads = {
     findOrCreate: (input: {
       scope: ChatThreadRecord["scope"];
@@ -682,6 +845,12 @@ export class SqliteStore implements Store {
         .query("DELETE FROM chat_threads WHERE scope = 'project' AND project_slug = ?")
         .run(projectSlug);
       this.handle.sqlite
+        .query("DELETE FROM workflow_deliveries WHERE project_slug = ?")
+        .run(projectSlug);
+      this.handle.sqlite
+        .query("DELETE FROM workflow_schedule_state WHERE project_slug = ?")
+        .run(projectSlug);
+      this.handle.sqlite
         .query("DELETE FROM workflow_approvals WHERE run_id IN (SELECT id FROM workflow_runs WHERE project_slug = ?)")
         .run(projectSlug);
       this.handle.sqlite
@@ -821,6 +990,42 @@ export class SqliteStore implements Store {
       sourceDetail: row.sourceDetail ?? undefined,
       startedAt: row.startedAt,
       finishedAt: row.finishedAt ?? undefined,
+    };
+  }
+
+  private mapDelivery(row: typeof workflowDeliveries.$inferSelect): WorkflowDeliveryRecord {
+    return {
+      id: row.id,
+      projectSlug: row.projectSlug,
+      runId: row.runId ?? undefined,
+      nodeId: row.nodeId ?? undefined,
+      integrationId: row.integrationId,
+      actionKey: row.actionKey,
+      recipient: row.recipient ?? undefined,
+      status: row.status as WorkflowDeliveryRecord["status"],
+      providerMessageId: row.providerMessageId ?? undefined,
+      attempts: row.attempts,
+      lastError: row.lastError ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private mapScheduleState(row: typeof workflowScheduleState.$inferSelect): WorkflowScheduleStateRecord {
+    return {
+      id: row.id,
+      projectSlug: row.projectSlug,
+      workflowId: row.workflowId,
+      nodeId: row.nodeId,
+      timezone: row.timezone,
+      enabled: row.enabled,
+      overlapPolicy: row.overlapPolicy as WorkflowScheduleStateRecord["overlapPolicy"],
+      catchUp: row.catchUp,
+      catchUpWindowMinutes: row.catchUpWindowMinutes,
+      lastWindowAt: row.lastWindowAt ?? undefined,
+      nextWindowAt: row.nextWindowAt ?? undefined,
+      lastRunId: row.lastRunId ?? undefined,
+      updatedAt: row.updatedAt,
     };
   }
 

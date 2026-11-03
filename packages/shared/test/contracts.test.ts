@@ -5,8 +5,11 @@ import {
   ApiErrorSchema,
   ChatMessageRequestSchema,
   CreateProjectRequestSchema,
+  DatabaseNodeConfigSchema,
   EntryPointTypeSchema,
   NodeSpecSchema,
+  NodeErrorPolicySchema,
+  NotifyNodeConfigSchema,
   PaginationMetaSchema,
   ProjectTemplateSchema,
   SseEventSchema,
@@ -52,6 +55,35 @@ describe("workflow contracts", () => {
   it("rejects an unknown node type", () => {
     const result = NodeSpecSchema.safeParse({ id: "x", type: "email" });
     expect(result.success).toBe(false);
+  });
+
+  it("parses native database and notify node contracts", () => {
+    const database = DatabaseNodeConfigSchema.parse({
+      integrationId: "db-1",
+      statements: [{ sql: "select 1", params: [] }],
+    });
+    expect(database.mode).toBe("read");
+    expect(database.statements).toHaveLength(1);
+    const notify = NotifyNodeConfigSchema.parse({ integrationId: "tg-1", text: "hola {{input.nombre}}" });
+    expect(notify.integrationId).toBe("tg-1");
+    expect(NodeSpecSchema.parse({ id: "db", type: "database" }).type).toBe("database");
+    expect(NodeSpecSchema.parse({ id: "msg", type: "notify" }).type).toBe("notify");
+  });
+
+  it("parses error policy and retry backoff without changing existing workflows", () => {
+    const parsed = NodeSpecSchema.parse({ id: "http", type: "http", config: { url: "https://example.com" } });
+    expect(parsed.onError).toBeUndefined();
+    expect(parsed.retryPolicy).toEqual({ maxRetries: 0 });
+    const routed = NodeSpecSchema.parse({
+      id: "http",
+      type: "http",
+      config: { url: "https://example.com" },
+      retryPolicy: { maxRetries: 2, backoffMs: 250, backoffMultiplier: 3 },
+      onError: { strategy: "route", target: "fallback" },
+    });
+    expect(routed.retryPolicy.backoffMultiplier).toBe(3);
+    expect(routed.onError?.target).toBe("fallback");
+    expect(NodeErrorPolicySchema.safeParse({ strategy: "route" }).success).toBe(false);
   });
 });
 
@@ -106,6 +138,12 @@ describe("api and event contracts", () => {
     });
     expect(version.version).toBe(1);
     expect(TriggerConfigSchema.parse({ kind: "webhook", secretAlias: "wh-secret" }).secretAlias).toBe("wh-secret");
+    const scheduled = TriggerConfigSchema.parse({ kind: "schedule", cron: "0 9 * * *" });
+    expect(scheduled.timezone).toBe("UTC");
+    expect(scheduled.enabled).toBe(true);
+    expect(scheduled.overlapPolicy).toBe("skip");
+    expect(scheduled.catchUp).toBe(false);
+    expect(TriggerConfigSchema.safeParse({ kind: "schedule", cron: "0 9 * * *", timezone: "Mars/Olympus" }).success).toBe(false);
     expect(
       AgentNodeConfigSchema.parse({
         outputSchema: { fields: [{ name: "urgencia", type: "string", required: true }] },

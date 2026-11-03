@@ -169,6 +169,8 @@ export class SqliteStore implements Store {
           description: record.description,
           defaultModel: record.defaultModel ?? null,
           primaryAgent: record.primaryAgent ?? null,
+          approvalIntegrationId: record.approvalIntegrationId ?? null,
+          approvalRecipient: record.approvalRecipient ?? null,
           createdAt: record.createdAt,
           updatedAt: record.updatedAt ?? record.createdAt,
         })
@@ -190,6 +192,8 @@ export class SqliteStore implements Store {
       patch: Partial<Pick<ProjectRecord, "name" | "description">> & {
         defaultModel?: string | null;
         primaryAgent?: string | null;
+        approvalIntegrationId?: string | null;
+        approvalRecipient?: string | null;
       },
     ): void => {
       this.handle.db
@@ -199,6 +203,12 @@ export class SqliteStore implements Store {
           ...(patch.description !== undefined ? { description: patch.description } : {}),
           ...(patch.defaultModel !== undefined ? { defaultModel: patch.defaultModel ?? null } : {}),
           ...(patch.primaryAgent !== undefined ? { primaryAgent: patch.primaryAgent ?? null } : {}),
+          ...(patch.approvalIntegrationId !== undefined
+            ? { approvalIntegrationId: patch.approvalIntegrationId ?? null }
+            : {}),
+          ...(patch.approvalRecipient !== undefined
+            ? { approvalRecipient: patch.approvalRecipient ?? null }
+            : {}),
           updatedAt: new Date().toISOString(),
         })
         .where(eq(projects.slug, slug))
@@ -457,6 +467,13 @@ export class SqliteStore implements Store {
         .from(workflowApprovals)
         .where(and(eq(workflowApprovals.runId, runId), eq(workflowApprovals.nodeId, nodeId)))
         .get() as ApprovalRecord | undefined,
+    listApprovals: (runId: string): ApprovalRecord[] =>
+      this.handle.db
+        .select()
+        .from(workflowApprovals)
+        .where(eq(workflowApprovals.runId, runId))
+        .orderBy(desc(workflowApprovals.createdAt))
+        .all() as ApprovalRecord[],
     pendingApproval: (runId: string): ApprovalRecord | undefined =>
       this.handle.db
         .select()
@@ -1065,6 +1082,8 @@ export class SqliteStore implements Store {
       description: row.description,
       defaultModel: row.defaultModel ?? undefined,
       primaryAgent: row.primaryAgent ?? undefined,
+      approvalIntegrationId: row.approvalIntegrationId ?? undefined,
+      approvalRecipient: row.approvalRecipient ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt ?? undefined,
     };

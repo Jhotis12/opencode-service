@@ -37,6 +37,8 @@ export interface ProjectRecord {
   description: string;
   defaultModel?: string;
   primaryAgent?: string;
+  approvalIntegrationId?: string;
+  approvalRecipient?: string;
   createdAt: string;
   updatedAt?: string;
 }

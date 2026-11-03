@@ -42,11 +42,11 @@
 
 ## 6. Aprobaciones operables P0
 
-- [ ] 6.1 Implementar `DecideApprovalUseCase` y los endpoints `GET`/`POST` de aprobaciones con scope de proyecto y actor; verificar con tests HTTP de aprobar, rechazar, no autorizado y run inexistente.
-- [ ] 6.2 Conectar `notifyApproval` y la configuración de canal de aprobación del proyecto; verificar que un run manual y uno programado envían el prompt al canal configurado y uno de canal usa su origen.
-- [ ] 6.3 Aplicar `autoApprove` en el executor y registrar la decisión automática; verificar que no se crea una aprobación pendiente y que el step queda `succeeded`.
-- [ ] 6.4 Agregar la aprobación pendiente a `RunDetailModal` con aprobar/rechazar y refresco SSE; verificar con tests de componente y un test de integración de reanudación.
-- [ ] 6.5 Documentar el flujo de aprobación manual, programada y por canal; verificar que los comandos y endpoints documentados funcionan en el test de humo.
+- [x] 6.1 Implementar `DecideApprovalUseCase` y los endpoints `GET`/`POST` de aprobaciones con scope de proyecto y actor; verificar con tests HTTP de aprobar, rechazar, no autorizado y run inexistente.
+- [x] 6.2 Conectar `notifyApproval` y la configuración de canal de aprobación del proyecto; verificar que un run manual y uno programado envían el prompt al canal configurado y uno de canal usa su origen.
+- [x] 6.3 Aplicar `autoApprove` en el executor y registrar la decisión automática; verificar que no se crea una aprobación pendiente y que el step queda `succeeded`.
+- [x] 6.4 Agregar la aprobación pendiente a `RunDetailModal` con aprobar/rechazar y refresco SSE; verificar con tests de componente y un test de integración de reanudación.
+- [x] 6.5 Documentar el flujo de aprobación manual, programada y por canal; verificar que los comandos y endpoints documentados funcionan en el test de humo.
 
 ## 7. Integración P0 y aceptación
 

@@ -548,7 +548,23 @@ export class ExecuteWorkflowRunUseCase {
           }
         } else if (current.type === "approval") {
           const override = approvalOverrides[current.id];
-          if (override === undefined) {
+          if (override === undefined && current.config.autoApprove === true) {
+            const existing = store.runs.findApproval(state.run.id, current.id);
+            if (!existing) {
+              const now = new Date().toISOString();
+              store.runs.createApproval({
+                id: crypto.randomUUID(),
+                runId: state.run.id,
+                nodeId: current.id,
+                status: "approved",
+                createdAt: now,
+                decidedAt: now,
+                decidedBy: "autoApprove",
+              });
+            }
+            logs = [{ message: "approval_auto_approved", fields: { nodeId: current.id } }];
+            output = currentInput;
+          } else if (override === undefined) {
             const existing = store.runs.findApproval(state.run.id, current.id);
             if (existing?.status !== "approved") {
               if (!existing) {

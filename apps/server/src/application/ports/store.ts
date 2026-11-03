@@ -54,6 +54,8 @@ export interface ProjectRepository {
     patch: Partial<Pick<ProjectRecord, "name" | "description">> & {
       defaultModel?: string | null;
       primaryAgent?: string | null;
+      approvalIntegrationId?: string | null;
+      approvalRecipient?: string | null;
     },
   ): void;
 }
@@ -89,6 +91,7 @@ export interface WorkflowRunRepository {
   listSteps(runId: string): StepRunRecord[];
   createApproval(record: ApprovalRecord): void;
   findApproval(runId: string, nodeId: string): ApprovalRecord | undefined;
+  listApprovals(runId: string): ApprovalRecord[];
   pendingApproval(runId: string): ApprovalRecord | undefined;
   decideApproval(runId: string, nodeId: string, status: "approved" | "rejected", decidedBy: string): void;
 }

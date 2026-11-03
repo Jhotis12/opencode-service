@@ -602,6 +602,42 @@ describe("workflow execution", () => {
     expect(store.runs.findApproval(paused.id, "review")?.status).toBe("approved");
   });
 
+  it("honors autoApprove without creating a pending approval", async () => {
+    const graph = baseGraph();
+    graph.nodes.push(
+      {
+        id: "review",
+        type: "approval",
+        position: { x: 2, y: 0 },
+        config: { autoApprove: true },
+        notebookIds: [],
+        timeoutMs: 5000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "after",
+        type: "code",
+        codeFile: "nodes/after.ts",
+        position: { x: 3, y: 0 },
+        config: {},
+        notebookIds: [],
+        timeoutMs: 5000,
+        retryPolicy: { maxRetries: 0 },
+      },
+    );
+    graph.edges.push({ id: "e2", source: "double", target: "review" }, { id: "e3", source: "review", target: "after" });
+    const { executor, store } = await setup(graph, {
+      "nodes/double.ts": `export default async (input: { n: number }) => ({ doubled: input.n * 2 });`,
+      "nodes/after.ts": `export default async () => "done";`,
+    });
+    const run = await executor.execute({ projectSlug: "p1", graph, payload: { n: 2 }, entryPoint: "web_ui" });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toBe("done");
+    expect(store.runs.pendingApproval(run.id)).toBeUndefined();
+    expect(store.runs.findApproval(run.id, "review")).toMatchObject({ status: "approved", decidedBy: "autoApprove" });
+    expect(store.runs.listSteps(run.id).find((step) => step.nodeId === "review")?.status).toBe("succeeded");
+  });
+
   it("routes decision nodes down the matching branch", async () => {
     const graph = baseGraph();
     graph.nodes.push(

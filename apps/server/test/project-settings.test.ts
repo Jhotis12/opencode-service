@@ -12,6 +12,62 @@ afterEach(async () => {
 });
 
 describe("project settings and readiness", () => {
+  it("validates and exposes the project approval channel", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "platform-settings-"));
+    dirs.push(dir);
+    const store = new SqliteStore(":memory:");
+    const workspace = new SafeFsWorkspaceAdapter(join(dir, "workspaces"));
+    await workspace.createProject({ slug: "ventas", name: "Ventas" });
+    const now = new Date().toISOString();
+    store.projects.create({
+      id: "p1",
+      slug: "ventas",
+      name: "Ventas",
+      description: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const integrationBase = {
+      scope: "project" as const,
+      projectSlug: "ventas",
+      kind: "telegram" as const,
+      name: "Aprobaciones",
+      slug: "aprobaciones",
+      config: {},
+      secretRefs: {},
+      capabilities: ["inbound_message" as const, "outbound_message" as const],
+      status: "connected" as const,
+      createdAt: now,
+      updatedAt: now,
+    };
+    store.integrations.create({ ...integrationBase, id: "tg1" });
+    store.integrations.create({ ...integrationBase, id: "global1", scope: "global", projectSlug: undefined });
+
+    const graph = await workspace.readWorkflow("ventas");
+    graph.nodes.push({
+      id: "review",
+      type: "approval",
+      position: { x: 0, y: 0 },
+      config: {},
+      notebookIds: [],
+      timeoutMs: 30_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    graph.edges.push({ id: "e-review", source: "start", target: "review" });
+    await workspace.writeWorkflow("ventas", graph);
+    const before = await new GetProjectSettingsUseCase(store, workspace).execute("ventas");
+    expect(before.readiness.find((item) => item.id === "approval-channel")?.ready).toBe(false);
+
+    const useCase = new UpdateProjectSettingsUseCase(store, { publish() {} });
+    const updated = useCase.execute("ventas", { approvalIntegrationId: "tg1", approvalRecipient: "123" });
+    expect(updated.approvalIntegrationId).toBe("tg1");
+    expect(updated.approvalRecipient).toBe("123");
+    expect(() => useCase.execute("ventas", { approvalIntegrationId: "global1" })).toThrow(/belong/);
+    const after = await new GetProjectSettingsUseCase(store, workspace).execute("ventas");
+    expect(after.readiness.find((item) => item.id === "approval-channel")?.ready).toBe(true);
+    store.close();
+  });
+
   it("reports missing resources and updates the project model", async () => {
     const dir = await mkdtemp(join(tmpdir(), "platform-settings-"));
     dirs.push(dir);

@@ -19,6 +19,8 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
   const [description, setDescription] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
   const [primaryAgent, setPrimaryAgent] = useState("");
+  const [approvalIntegrationId, setApprovalIntegrationId] = useState("");
+  const [approvalRecipient, setApprovalRecipient] = useState("");
   const [status, setStatus] = useState<string>();
 
   useEffect(() => {
@@ -27,6 +29,8 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
     setDescription(settingsQuery.data.project.description);
     setDefaultModel(settingsQuery.data.project.defaultModel ?? "");
     setPrimaryAgent(settingsQuery.data.project.primaryAgent ?? "");
+    setApprovalIntegrationId(settingsQuery.data.project.approvalIntegrationId ?? "");
+    setApprovalRecipient(settingsQuery.data.project.approvalRecipient ?? "");
   }, [settingsQuery.data]);
 
   const save = useMutation({
@@ -36,6 +40,8 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
         description,
         defaultModel: defaultModel || null,
         primaryAgent: primaryAgent || null,
+        approvalIntegrationId: approvalIntegrationId || null,
+        approvalRecipient: approvalRecipient || null,
       }),
     onSuccess: async () => {
       setStatus("Ajustes del proyecto guardados");
@@ -89,6 +95,31 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
             value={primaryAgent}
             onChange={(event) => setPrimaryAgent(event.target.value)}
             placeholder="principal/agente"
+          />
+        </label>
+        <h3 className="mt-2 text-sm font-semibold text-slate-100">Aprobaciones</h3>
+        <label>
+          Canal de aprobación del proyecto
+          <select
+            value={approvalIntegrationId}
+            onChange={(event) => setApprovalIntegrationId(event.target.value)}
+          >
+            <option value="">Sin canal por defecto</option>
+            {settings.integrations
+              .filter((integration) => integration.capabilities.includes("outbound_message"))
+              .map((integration) => (
+                <option key={integration.id} value={integration.id}>
+                  {integration.name} · {integration.kind}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label>
+          Destinatario de aprobación
+          <input
+            value={approvalRecipient}
+            onChange={(event) => setApprovalRecipient(event.target.value)}
+            placeholder="123456789"
           />
         </label>
         <button className={buttonPrimary} disabled={save.isPending || !name}>

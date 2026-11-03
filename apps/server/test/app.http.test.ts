@@ -430,6 +430,100 @@ describe("application HTTP surface", () => {
     expect(currentWorkflow.nodes).toHaveLength(1);
   });
 
+  it("lists, approves and rejects pending approvals through the project API", async () => {
+    const slug = "approval-bot";
+    await json("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ slug, name: "Approval bot" }),
+    });
+    const workflow = {
+      version: 1,
+      id: slug,
+      name: "Approval bot",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "review",
+          type: "approval",
+          position: { x: 100, y: 0 },
+          config: { message: "Revisar" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "done",
+          type: "transform",
+          position: { x: 200, y: 0 },
+          config: { template: '{"ok":true}' },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [
+        { id: "e1", source: "start", target: "review" },
+        { id: "e2", source: "review", target: "done" },
+      ],
+      updatedAt: new Date().toISOString(),
+    };
+    expect((await json(`/api/projects/${slug}/workflow`, { method: "PUT", body: JSON.stringify(workflow) })).status).toBe(200);
+
+    async function waitForApproval(runId: string) {
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        const response = await json(`/api/projects/${slug}/runs/${runId}/approvals`);
+        const body = (await response.json()) as { data: Array<{ nodeId: string; status: string }> };
+        if (body.data.length > 0) return body.data[0]!;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error("approval did not appear");
+    }
+
+    const launched = await json(`/api/projects/${slug}/runs`, {
+      method: "POST",
+      body: JSON.stringify({ payload: {} }),
+    });
+    const launchedRun = (await launched.json()) as { id: string };
+    expect(await waitForApproval(launchedRun.id)).toMatchObject({ nodeId: "review", status: "pending" });
+    const approved = await json(`/api/projects/${slug}/runs/${launchedRun.id}/approvals/review`, {
+      method: "POST",
+      body: JSON.stringify({ decision: "approve" }),
+    });
+    expect(approved.status).toBe(200);
+    expect((await approved.json()) as { status: string }).toMatchObject({ status: "succeeded" });
+
+    const rejectedRunResponse = await json(`/api/projects/${slug}/runs`, {
+      method: "POST",
+      body: JSON.stringify({ payload: {} }),
+    });
+    const rejectedRun = (await rejectedRunResponse.json()) as { id: string };
+    await waitForApproval(rejectedRun.id);
+    const rejected = await json(`/api/projects/${slug}/runs/${rejectedRun.id}/approvals/review`, {
+      method: "POST",
+      body: JSON.stringify({ decision: "reject" }),
+    });
+    expect(rejected.status).toBe(200);
+    expect((await rejected.json()) as { status: string }).toMatchObject({ status: "failed" });
+
+    const missing = await json(`/api/projects/${slug}/runs/ghost/approvals`);
+    expect(missing.status).toBe(404);
+    const anonymous = await app.request(`/api/projects/${slug}/runs/${launchedRun.id}/approvals/review`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "approve" }),
+    });
+    expect(anonymous.status).toBe(401);
+  });
+
   it("executes webhook and schedule triggers with secret/HMAC verification and per-window idempotency", async () => {
     await json("/api/projects", {
       method: "POST",

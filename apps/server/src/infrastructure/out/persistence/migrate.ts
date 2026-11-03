@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS projects (
   description TEXT NOT NULL DEFAULT '',
   default_model TEXT,
   primary_agent TEXT,
+  approval_integration_id TEXT,
+  approval_recipient TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT
 );
@@ -276,6 +278,8 @@ export function migrate(sqlite: Database): void {
 
     addColumnIfMissing(sqlite, "projects", "default_model", "TEXT");
     addColumnIfMissing(sqlite, "projects", "primary_agent", "TEXT");
+    addColumnIfMissing(sqlite, "projects", "approval_integration_id", "TEXT");
+    addColumnIfMissing(sqlite, "projects", "approval_recipient", "TEXT");
     addColumnIfMissing(sqlite, "projects", "updated_at", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "launched_by", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "graph_hash", "TEXT");

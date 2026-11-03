@@ -195,6 +195,16 @@ Cada nodo de acción acepta `retryPolicy` y `onError`:
 - El backoff por defecto es 500 ms con multiplicador 2 y un tope de 30 s.
 - Las escrituras `database` en modo `write` usan `maxRetries: 0` por defecto. Si habilitas reintentos, el SQL debe ser idempotente (upsert o clave natural); no hay exactly-once entre la base externa y el ledger local.
 
+## Aprobaciones manuales, programadas y por canal (P0)
+
+El nodo `approval` pausa el run y crea una aprobación pendiente. Ahora se puede resolver de tres formas:
+
+- **UI:** abre el detalle de la ejecución y usa **Aprobar** o **Rechazar**.
+- **API:** `GET /api/projects/:slug/runs/:runId/approvals` lista las aprobaciones; `POST /api/projects/:slug/runs/:runId/approvals/:nodeId` con `{ "decision": "approve" | "reject" }` decide.
+- **Canal:** el prompt se envía al canal de origen si el run nació de una integración; si no, al canal configurado en **Ajustes → Aprobaciones**. El comando `/approve <runId> <nodeId>` sigue disponible para canales autorizados.
+
+Si un run sin origen llega a una aprobación y el proyecto no tiene canal configurado, queda pausado y visible en la UI; la readiness del proyecto indica que falta el canal. `autoApprove: true` registra una aprobación automática (`decidedBy: "autoApprove"`) sin crear una pendiente.
+
 ## Versionado del grafo, Snapshots y Rollback
 
 - Cada guardado o ejecución registra un snapshot inmutable en `workflow_versions` con el JSON del grafo y el paquete de código `nodes/*.ts`.

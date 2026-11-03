@@ -35,6 +35,8 @@ import { DynamicDatabaseClientAdapter } from "./infrastructure/out/external-db/d
 import { ExecuteWorkflowRunUseCase } from "./application/use-cases/execute-workflow.ts";
 import { ExecuteDatabaseActionUseCase } from "./application/use-cases/database-actions.ts";
 import { SendNotificationUseCase } from "./application/use-cases/send-notification.ts";
+import { DecideApprovalUseCase, ApprovalDecisionError } from "./application/use-cases/approvals.ts";
+import { NotifyApprovalUseCase } from "./application/use-cases/notify-approval.ts";
 import { ManageSubagentsUseCase } from "./application/use-cases/manage-subagents.ts";
 import { IngestKnowledgeUseCase } from "./application/use-cases/ingest-knowledge.ts";
 import { SearchKnowledgeUseCase, buildGroundedContext } from "./application/use-cases/search-knowledge.ts";
@@ -207,6 +209,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const testDatabase = new TestDatabaseIntegrationUseCase(store, vault, externalDb);
   const databaseAction = new ExecuteDatabaseActionUseCase(store, vault, externalDb);
   const notification = new SendNotificationUseCase(store, egress);
+  const notifyApproval = new NotifyApprovalUseCase(store, notification, logger);
   const embeddings = createEmbeddingAdapter(env);
   const knowledgeFiles = new KnowledgeFileStore(workspacesDir);
   const ingest = new IngestKnowledgeUseCase({
@@ -228,6 +231,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     logger,
     databaseAction,
     notification,
+    notifyApproval: (run, nodeId) => notifyApproval.execute(run, nodeId),
     workerHandlers: {
       db: ({ projectSlug, integrationId, sql, params }) =>
         queryDatabase.execute(integrationId, { scope: "project", projectSlug }, sql, params),
@@ -254,6 +258,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
       return buildGroundedContext(results, strict);
     },
   });
+
+  const decideApproval = new DecideApprovalUseCase(store, executor);
 
   const projectRouter = new RouteProjectIntegrationMessageUseCase({
     store,
@@ -767,6 +773,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
       description: string;
       defaultModel: string | null;
       primaryAgent: string | null;
+      approvalIntegrationId: string | null;
+      approvalRecipient: string | null;
     }>;
     try {
       return c.json(
@@ -775,6 +783,10 @@ export async function createApplication(config: AppConfig): Promise<Application>
           ...(body.description !== undefined ? { description: body.description } : {}),
           ...(body.defaultModel !== undefined ? { defaultModel: body.defaultModel } : {}),
           ...(body.primaryAgent !== undefined ? { primaryAgent: body.primaryAgent } : {}),
+          ...(body.approvalIntegrationId !== undefined
+            ? { approvalIntegrationId: body.approvalIntegrationId }
+            : {}),
+          ...(body.approvalRecipient !== undefined ? { approvalRecipient: body.approvalRecipient } : {}),
         }),
       );
     } catch (error) {
@@ -932,6 +944,36 @@ export async function createApplication(config: AppConfig): Promise<Application>
       if (error instanceof WorkflowValidationError) return c.json(apiError("INVALID_WORKFLOW", error.message, error.issues), 422);
       if (error instanceof IdempotencyMismatchError) return c.json(apiError("IDEMPOTENCY_MISMATCH", error.message), 422);
       if (error instanceof RunInFlightError) return c.json(apiError("RUN_IN_FLIGHT", error.message, { runId: error.runId }), 409);
+      throw error;
+    }
+  });
+
+  app.get("/api/projects/:slug/runs/:runId/approvals", (c) => {
+    const run = store.runs.findById(c.req.param("runId"));
+    if (!run || run.projectSlug !== c.req.param("slug")) {
+      return c.json(apiError("NOT_FOUND", "run not found"), 404);
+    }
+    return c.json({ data: store.runs.listApprovals(run.id) });
+  });
+
+  app.post("/api/projects/:slug/runs/:runId/approvals/:nodeId", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { decision?: "approve" | "reject" };
+    if (body.decision !== "approve" && body.decision !== "reject") {
+      return c.json(apiError("VALIDATION_ERROR", "decision must be approve or reject"), 422);
+    }
+    try {
+      const run = await decideApproval.execute({
+        projectSlug: c.req.param("slug"),
+        runId: c.req.param("runId"),
+        nodeId: c.req.param("nodeId"),
+        decision: body.decision,
+        decidedBy: c.get("user")?.username ?? "service",
+      });
+      return c.json({ ...run, steps: store.runs.listSteps(run.id) });
+    } catch (error) {
+      if (error instanceof ApprovalDecisionError) {
+        return c.json(apiError(error.code, error.message), error.code === "NOT_FOUND" ? 404 : 409);
+      }
       throw error;
     }
   });

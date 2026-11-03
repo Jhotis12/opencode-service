@@ -58,6 +58,8 @@ export interface ProjectSummary {
   description: string;
   defaultModel?: string;
   primaryAgent?: string;
+  approvalIntegrationId?: string;
+  approvalRecipient?: string;
   createdAt: string;
 }
 
@@ -104,6 +106,16 @@ export interface ScheduleState {
   lastWindowAt?: string;
   nextWindowAt?: string;
   lastRunId?: string;
+}
+
+export interface ApprovalRecord {
+  id: string;
+  runId: string;
+  nodeId: string;
+  status: "pending" | "approved" | "rejected";
+  createdAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
 }
 
 export interface ModelInfo {
@@ -261,7 +273,14 @@ export const api = {
   getProjectSettings: (slug: string) => request<ProjectSettingsView>(`/api/projects/${slug}/settings`),
   updateProjectSettings: (
     slug: string,
-    input: { name?: string; description?: string; defaultModel?: string | null; primaryAgent?: string | null },
+    input: {
+      name?: string;
+      description?: string;
+      defaultModel?: string | null;
+      primaryAgent?: string | null;
+      approvalIntegrationId?: string | null;
+      approvalRecipient?: string | null;
+    },
   ) =>
     request<ProjectSummary>(`/api/projects/${slug}/settings`, {
       method: "PATCH",
@@ -291,6 +310,13 @@ export const api = {
     chatStream(`/api/projects/${slug}/chat`, message, onEvent),
   chatHistory: (slug: string) => request<{ data: ChatHistoryMessage[] }>(`/api/projects/${slug}/chat?limit=200`),
   getRun: (id: string) => request<RunRecord>(`/api/runs/${id}`),
+  listApprovals: (slug: string, runId: string) =>
+    request<{ data: ApprovalRecord[] }>(`/api/projects/${slug}/runs/${runId}/approvals`),
+  decideApproval: (slug: string, runId: string, nodeId: string, decision: "approve" | "reject") =>
+    request<RunRecord>(`/api/projects/${slug}/runs/${runId}/approvals/${nodeId}`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    }),
   readNode: (slug: string, file: string) =>
     request<{ code: string }>(`/api/projects/${slug}/nodes/${file.replace(/^nodes\//, "")}`),
   writeNode: (slug: string, file: string, code: string) =>

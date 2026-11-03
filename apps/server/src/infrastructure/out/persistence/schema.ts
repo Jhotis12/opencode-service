@@ -49,6 +49,8 @@ export const projects = sqliteTable("projects", {
   description: text("description").notNull().default(""),
   defaultModel: text("default_model"),
   primaryAgent: text("primary_agent"),
+  approvalIntegrationId: text("approval_integration_id"),
+  approvalRecipient: text("approval_recipient"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at"),
 });

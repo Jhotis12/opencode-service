@@ -368,6 +368,35 @@ describe("NodeInspectorModal", () => {
     expect(onConfig).toHaveBeenCalledWith({ overlapPolicy: "allow" });
   });
 
+  it("offers the HTTP integration and secret syntax in the inspector", async () => {
+    const httpNode = node("http", "http");
+    const now = new Date().toISOString();
+    const httpIntegration: IntegrationRecord = {
+      id: "api1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "http",
+      name: "API",
+      slug: "api",
+      config: { baseUrl: "https://api.example.com" },
+      secretRefs: {},
+      capabilities: [],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    };
+    const { onConfig } = renderInspector({
+      node: httpNode,
+      graph: graph([node("start", "trigger"), httpNode]),
+      integrations: [httpIntegration],
+      lastStep: undefined,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: http" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Integración HTTP (opcional)"), "api1");
+    expect(onConfig).toHaveBeenCalledWith({ integrationId: "api1" });
+    expect(within(dialog).getByText(/secret:alias/)).toBeInTheDocument();
+  });
+
   it("shows settings, connections with invalid targets disabled, and execution context", async () => {
     const { onConnect } = renderInspector();
     const dialog = screen.getByRole("dialog", { name: "Nodo: agent" });

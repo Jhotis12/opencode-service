@@ -167,6 +167,18 @@ CREATE TABLE IF NOT EXISTS workflow_schedule_state (
 CREATE UNIQUE INDEX IF NOT EXISTS workflow_schedule_state_key
   ON workflow_schedule_state(project_slug, workflow_id, node_id);
 CREATE INDEX IF NOT EXISTS workflow_schedule_state_workflow ON workflow_schedule_state(workflow_id);
+CREATE TABLE IF NOT EXISTS session_context (
+  session_id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  project_slug TEXT NOT NULL DEFAULT '',
+  agent_id TEXT,
+  context TEXT NOT NULL,
+  run_id TEXT,
+  integration_id TEXT,
+  external_thread_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS chat_threads (
   id TEXT PRIMARY KEY,
   scope TEXT NOT NULL,
@@ -244,6 +256,32 @@ function addColumnIfMissing(sqlite: Database, table: string, column: string, def
   }
 }
 
+function backfillDatabasePolicies(sqlite: Database): void {
+  const rows = sqlite
+    .query("SELECT id, config FROM integrations WHERE kind IN ('postgres','mysql','mssql','sqlite')")
+    .all() as Array<{ id: string; config: string }>;
+  for (const row of rows) {
+    let config: Record<string, unknown>;
+    try {
+      config = JSON.parse(row.config) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (config.access !== undefined && config.allowDdl !== undefined && config.maxRows !== undefined) continue;
+    sqlite
+      .query("UPDATE integrations SET config = ? WHERE id = ?")
+      .run(
+        JSON.stringify({
+          ...config,
+          access: config.access ?? "write",
+          maxRows: config.maxRows ?? 1_000,
+          allowDdl: config.allowDdl ?? true,
+        }),
+        row.id,
+      );
+  }
+}
+
 /**
  * Clean-cut schema migration. The previous global channel/database/notebook
  * model is removed; resources are rebuilt from the new project-scoped model.
@@ -289,6 +327,7 @@ export function migrate(sqlite: Database): void {
     addColumnIfMissing(sqlite, "integrations", "key_hash", "TEXT");
     addColumnIfMissing(sqlite, "workflow_step_runs", "agent_id", "TEXT");
     addColumnIfMissing(sqlite, "workflow_step_runs", "logs", "TEXT");
+    backfillDatabasePolicies(sqlite);
 
     // Preserve old vault values as global secrets. Provider/Sentry keys used to
     // be global and remain usable from the platform scope.

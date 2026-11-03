@@ -51,8 +51,30 @@ describe("persistence migrations", () => {
     handle.sqlite
       .query("INSERT INTO projects (id, slug, name, description, created_at) VALUES (?, ?, ?, ?, ?)")
       .run("p1", "ventas", "Ventas", "", now);
+    handle.sqlite
+      .query(
+        "INSERT INTO integrations (id, scope, project_slug, kind, name, slug, config, secret_refs, capabilities, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(
+        "i1",
+        "project",
+        "ventas",
+        "sqlite",
+        "Local",
+        "local",
+        '{"kind":"sqlite","filename":"/tmp/local.db"}',
+        "{}",
+        "[]",
+        "disconnected",
+        now,
+        now,
+      );
     migrate(handle.sqlite);
     expect(handle.sqlite.query("SELECT name FROM projects WHERE slug = 'ventas'").get()).toEqual({ name: "Ventas" });
+    const integrationConfig = handle.sqlite.query("SELECT config FROM integrations WHERE id = 'i1'").get() as {
+      config: string;
+    };
+    expect(JSON.parse(integrationConfig.config)).toMatchObject({ access: "write", allowDdl: true, maxRows: 1000 });
     expect(
       handle.sqlite.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workflow_deliveries'").get(),
     ).toBeTruthy();
@@ -140,6 +162,38 @@ describe("sqlite store", () => {
     store.deliveries.update("d1", { status: "delivered", providerMessageId: "m1", attempts: 1 });
     expect(store.deliveries.findByActionKey({ actionKey: "r1:notify", integrationId: "tg1" })?.status).toBe("delivered");
     expect(store.deliveries.listByRun("r1")).toHaveLength(1);
+    store.close();
+  });
+
+  it("tracks session context by OpenCode session", () => {
+    const store = new SqliteStore(":memory:");
+    store.sessionContexts.upsert({
+      sessionId: "s1",
+      scope: "project",
+      projectSlug: "ventas",
+      agentId: "ventas/calificador",
+      context: "workflow",
+      runId: "r1",
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(store.sessionContexts.find("s1")).toMatchObject({
+      context: "workflow",
+      agentId: "ventas/calificador",
+      runId: "r1",
+    });
+    store.sessionContexts.upsert({
+      sessionId: "s1",
+      scope: "project",
+      projectSlug: "ventas",
+      agentId: "ventas/calificador",
+      context: "chat",
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(store.sessionContexts.find("s1")?.context).toBe("chat");
+    store.sessionContexts.remove("s1");
+    expect(store.sessionContexts.find("s1")).toBeUndefined();
     store.close();
   });
 

@@ -160,6 +160,22 @@ describe("project integration lifecycle", () => {
     store.close();
   });
 
+  it("creates a database integration with safe read-only defaults", async () => {
+    const store = new SqliteStore(":memory:");
+    const vault = new Aes256GcmVaultAdapter(Buffer.alloc(32, 8));
+    const integrations = useCase(store, vault);
+    const created = await integrations.create({
+      scope: "project",
+      projectSlug: "ventas",
+      kind: "sqlite",
+      name: "Local",
+      slug: "local",
+      config: { filename: "/tmp/local.db" },
+    });
+    expect(created.integration.config).toMatchObject({ access: "read", maxRows: 1_000, allowDdl: false });
+    store.close();
+  });
+
   it("creates an external chat integration with a one-time key", async () => {
     const store = new SqliteStore(":memory:");
     const vault = new Aes256GcmVaultAdapter(Buffer.alloc(32, 8));

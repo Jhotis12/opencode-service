@@ -16,6 +16,7 @@ import type {
   WorkflowVersionRecord,
   WorkflowDeliveryRecord,
   WorkflowScheduleStateRecord,
+  SessionContextRecord,
 } from "../../../domain/entities.ts";
 import type { WorkflowGraph } from "@platform/shared";
 import type { Store } from "../../../application/ports/store.ts";
@@ -39,6 +40,7 @@ import {
   workflowScheduleState,
   workflowStepRuns,
   workflowVersions,
+  sessionContexts,
 } from "./schema.ts";
 
 const json = (value: unknown): string => JSON.stringify(value ?? null);
@@ -653,6 +655,49 @@ export class SqliteStore implements Store {
     },
   };
 
+  sessionContexts = {
+    upsert: (record: SessionContextRecord): void => {
+      this.handle.db
+        .insert(sessionContexts)
+        .values({
+          sessionId: record.sessionId,
+          scope: record.scope,
+          projectSlug: record.projectSlug ?? "",
+          agentId: record.agentId ?? null,
+          context: record.context,
+          runId: record.runId ?? null,
+          integrationId: record.integrationId ?? null,
+          externalThreadId: record.externalThreadId ?? null,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        })
+        .onConflictDoUpdate({
+          target: sessionContexts.sessionId,
+          set: {
+            scope: record.scope,
+            projectSlug: record.projectSlug ?? "",
+            agentId: record.agentId ?? null,
+            context: record.context,
+            runId: record.runId ?? null,
+            integrationId: record.integrationId ?? null,
+            externalThreadId: record.externalThreadId ?? null,
+            updatedAt: record.updatedAt,
+          },
+        })
+        .run();
+    },
+    find: (sessionId: string): SessionContextRecord | undefined => {
+      const row = this.handle.db.select().from(sessionContexts).where(eq(sessionContexts.sessionId, sessionId)).get();
+      return row ? this.mapSessionContext(row) : undefined;
+    },
+    remove: (sessionId: string): void => {
+      this.handle.db.delete(sessionContexts).where(eq(sessionContexts.sessionId, sessionId)).run();
+    },
+    removeByProject: (projectSlug: string): void => {
+      this.handle.db.delete(sessionContexts).where(eq(sessionContexts.projectSlug, projectSlug)).run();
+    },
+  };
+
   chatThreads = {
     findOrCreate: (input: {
       scope: ChatThreadRecord["scope"];
@@ -882,6 +927,7 @@ export class SqliteStore implements Store {
       this.handle.sqlite
         .query("DELETE FROM workflow_schedule_state WHERE project_slug = ?")
         .run(projectSlug);
+      this.handle.sqlite.query("DELETE FROM session_context WHERE project_slug = ?").run(projectSlug);
       this.handle.sqlite
         .query("DELETE FROM workflow_approvals WHERE run_id IN (SELECT id FROM workflow_runs WHERE project_slug = ?)")
         .run(projectSlug);
@@ -1038,6 +1084,21 @@ export class SqliteStore implements Store {
       providerMessageId: row.providerMessageId ?? undefined,
       attempts: row.attempts,
       lastError: row.lastError ?? undefined,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private mapSessionContext(row: typeof sessionContexts.$inferSelect): SessionContextRecord {
+    return {
+      sessionId: row.sessionId,
+      scope: row.scope as SessionContextRecord["scope"],
+      projectSlug: row.projectSlug || undefined,
+      agentId: row.agentId ?? undefined,
+      context: row.context as SessionContextRecord["context"],
+      runId: row.runId ?? undefined,
+      integrationId: row.integrationId ?? undefined,
+      externalThreadId: row.externalThreadId ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

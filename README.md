@@ -205,6 +205,33 @@ El nodo `approval` pausa el run y crea una aprobación pendiente. Ahora se puede
 
 Si un run sin origen llega a una aprobación y el proyecto no tiene canal configurado, queda pausado y visible en la UI; la readiness del proyecto indica que falta el canal. `autoApprove: true` registra una aprobación automática (`decidedBy: "autoApprove"`) sin crear una pendiente.
 
+## Política de base de datos y secretos HTTP (P1)
+
+Cada integración de base de datos expone una política visible en **Recursos**:
+
+```json
+{ "access": "read", "maxRows": 1000, "allowDdl": false }
+```
+
+- `access: "read"` rechaza `INSERT`, `UPDATE`, `DELETE` y DDL antes de abrir la conexión.
+- `access: "write"` permite DML; el DDL sigue bloqueado salvo `allowDdl: true`.
+- `maxRows` limita las filas devueltas; el máximo duro es 10,000.
+- Las integraciones existentes se migran con `access: "write"`, `maxRows: 1000` y `allowDdl: true` para no romper flujos. Las nuevas nacen en `read`, `1000` y `false`.
+- La política aplica al nodo `database`, a `ctx.db` y a la tool `db_query`.
+
+El nodo `http` puede usar una integración HTTP para el `baseUrl` y referencias a la bóveda:
+
+```json
+{
+  "integrationId": "<id-de-la-integracion-http>",
+  "url": "/leads",
+  "headers": { "Authorization": "secret:api-token" },
+  "body": { "token": "{{secret.api-token}}" }
+}
+```
+
+El servidor resuelve `secret:<alias>` y `{{secret.<alias>}}` en memoria antes del fetch. El workflow y los snapshots guardan solo el alias; un alias de otro proyecto falla antes de la petición.
+
 ## Versionado del grafo, Snapshots y Rollback
 
 - Cada guardado o ejecución registra un snapshot inmutable en `workflow_versions` con el JSON del grafo y el paquete de código `nodes/*.ts`.
@@ -214,7 +241,8 @@ Si un run sin origen llega a una aprobación y el proyecto no tiene canal config
 ## Salida estructurada del nodo Agente y Permisos de herramientas
 
 - **Salida estructurada (`config.outputSchema`):** Los nodos `agent` pueden declarar campos de salida tipados (`string`, `number`, `boolean`, `json`). El motor instruye al agente a devolver JSON, limpia bloques Markdown, valida el contrato y ejecuta un turno automático de reparación si la primera respuesta no cumple el esquema antes de pasar el objeto tipado a nodos `decision`, `validate`, `transform` o `code`.
-- **Permisos por agente y contexto:** Las herramientas `platform_*` validan `x-platform-agent` y `x-platform-context` (`chat`, `workflow`, `external_channel`). Por defecto, los pasos de workflow y canales externos no pueden mutar definiciones (`workflow_upsert`, `subagent_upsert`), y cualquier regla `deny` en el frontmatter del agente bloquea `db_query`, `notify` o `workflow_trigger` con HTTP `403`.
+- **Contexto de sesión y permisos:** cada sesión de OpenCode se registra en `session_context` con su agente y contexto (`chat`, `workflow` o `external_channel`). El plugin envía `x-platform-session` y `x-platform-agent` en cada tool; el servidor resuelve el contexto desde la sesión y aplica las reglas `allow`/`deny` del perfil. Una sesión desconocida cae en el contexto de menor privilegio. Cada veredicto se audita con proyecto, agente, sesión, tool y decisión, sin argumentos ni secretos.
+- **Descubrimiento de integraciones:** los agentes de proyecto tienen `integration_list`, que devuelve id, tipo, capacidades, estado y nombre de las integraciones del proyecto, sin secretos. El orquestador global no la recibe.
 - **Plantilla vertical (`triaje-operativo`):** Al crear un proyecto puedes elegir la plantilla **Triaje operativo**, que despliega un flujo completo de 6 nodos (trigger con esquema, validación, agente clasificador con `outputSchema` y permisos restringidos, decisión condicional, aprobación y nodo de código).
 
 ## Sesiones y credenciales de OpenCode

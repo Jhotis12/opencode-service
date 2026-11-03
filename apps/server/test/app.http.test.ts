@@ -622,6 +622,28 @@ describe("application HTTP surface", () => {
     });
     expect(blockedUpsert.status).toBe(403);
 
+    const sessionNow = new Date().toISOString();
+    application.store.sessionContexts.upsert({
+      sessionId: "workflow-session-1",
+      scope: "project",
+      projectSlug: "ventas-bot",
+      agentId: "ventas/calificador",
+      context: "workflow",
+      createdAt: sessionNow,
+      updatedAt: sessionNow,
+    });
+    const sessionBlocked = await app.request("/api/projects/ventas-bot/workflow", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+        "x-platform-token": serviceToken,
+        "x-platform-project": "ventas-bot",
+        "x-platform-session": "workflow-session-1",
+      },
+      body: JSON.stringify(wf),
+    });
+    expect(sessionBlocked.status).toBe(403);
+
     // Deny rule on notify is enforced even in chat context
     const blockedNotify = await app.request("/api/projects/ventas-bot/integrations/any-id/notify", {
       method: "POST",

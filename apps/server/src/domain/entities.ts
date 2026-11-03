@@ -151,6 +151,19 @@ export interface WorkflowScheduleStateRecord {
   updatedAt: string;
 }
 
+export interface SessionContextRecord {
+  sessionId: string;
+  scope: EntityScope;
+  projectSlug?: string;
+  agentId?: string;
+  context: "chat" | "workflow" | "external_channel";
+  runId?: string;
+  integrationId?: string;
+  externalThreadId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ChatThreadRecord {
   id: string;
   scope: EntityScope;

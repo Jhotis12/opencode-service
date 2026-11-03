@@ -205,9 +205,9 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const codec = new SessionCodec(masterKey.toString("base64"));
   const egress = new IntegrationEgressRouter();
   const externalDb = new DynamicDatabaseClientAdapter();
-  const queryDatabase = new QueryDatabaseIntegrationUseCase(store, vault, externalDb);
+  const queryDatabase = new QueryDatabaseIntegrationUseCase(store, vault, externalDb, logger);
   const testDatabase = new TestDatabaseIntegrationUseCase(store, vault, externalDb);
-  const databaseAction = new ExecuteDatabaseActionUseCase(store, vault, externalDb);
+  const databaseAction = new ExecuteDatabaseActionUseCase(store, vault, externalDb, logger);
   const notification = new SendNotificationUseCase(store, egress);
   const notifyApproval = new NotifyApprovalUseCase(store, notification, logger);
   const embeddings = createEmbeddingAdapter(env);
@@ -229,6 +229,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     metrics,
     errors: errorTracker,
     logger,
+    vault,
     databaseAction,
     notification,
     notifyApproval: (run, nodeId) => notifyApproval.execute(run, nodeId),
@@ -384,10 +385,14 @@ export async function createApplication(config: AppConfig): Promise<Application>
       if (c.get("serviceProject") !== slug) {
         return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
       }
-      const agentHeader = c.req.header("x-platform-agent")?.trim();
-      const contextHeader = (c.req.header("x-platform-context")?.trim() as AgentExecutionContext | undefined) ?? "chat";
+      const sessionId = c.req.header("x-platform-session")?.trim();
+      const session = sessionId ? store.sessionContexts.find(sessionId) : undefined;
+      const agentHeader = session?.agentId ?? c.req.header("x-platform-agent")?.trim();
+      const headerContext = c.req.header("x-platform-context")?.trim() as AgentExecutionContext | undefined;
+      const contextHeader: AgentExecutionContext =
+        session?.context ?? (sessionId && !session ? "external_channel" : (headerContext ?? "chat"));
       const toolName = resolveProjectRouteTool(c.req.method, c.req.path);
-      if (toolName && (agentHeader || contextHeader !== "chat")) {
+      if (toolName && (agentHeader || contextHeader !== "chat" || sessionId)) {
         let permissions: Array<{ action: string; resource: string; effect: "allow" | "deny" | "ask" }> | undefined;
         if (agentHeader && agentHeader.includes("/")) {
           const [category, role] = agentHeader.split("/");
@@ -401,15 +406,18 @@ export async function createApplication(config: AppConfig): Promise<Application>
           context: contextHeader,
           permissions,
         });
+        logger.info({
+          event: "agent_tool_permission",
+          entryPoint: "worker",
+          projectSlug: slug,
+          agentId: agentHeader,
+          sessionId,
+          context: contextHeader,
+          tool: toolName,
+          decision: verdict.allowed ? "allowed" : "denied",
+          reason: verdict.reason,
+        });
         if (!verdict.allowed) {
-          logger.warn({
-            event: "agent_tool_permission_denied",
-            entryPoint: "worker",
-            projectSlug: slug,
-            agentId: agentHeader,
-            tool: toolName,
-            reason: verdict.reason,
-          });
           return c.json(apiError("FORBIDDEN", verdict.reason ?? "tool permission denied"), 403);
         }
       }

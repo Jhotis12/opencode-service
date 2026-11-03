@@ -44,6 +44,61 @@ const KIND_OPTIONS: Array<{ value: IntegrationRecord["kind"]; label: string; con
   { value: "http", label: "HTTP API", config: '{"baseUrl":"https://api.example.com"}', secrets: "{}" },
 ];
 
+const DATABASE_KINDS = new Set<IntegrationRecord["kind"]>(["postgres", "mysql", "mssql", "sqlite"]);
+
+function DatabasePolicyEditor({
+  projectSlug,
+  integration,
+  onSaved,
+}: {
+  projectSlug: string;
+  integration: IntegrationRecord;
+  onSaved(): void;
+}) {
+  const [access, setAccess] = useState<"read" | "write">(
+    integration.config.access === "read" ? "read" : "write",
+  );
+  const [maxRows, setMaxRows] = useState(Number(integration.config.maxRows ?? 1_000));
+  const [allowDdl, setAllowDdl] = useState(integration.config.allowDdl === true);
+  const save = useMutation({
+    mutationFn: () =>
+      api.updateIntegration(projectSlug, integration.id, {
+        config: { ...integration.config, access, maxRows, allowDdl },
+      }),
+    onSuccess: onSaved,
+  });
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-line bg-well p-2">
+      <strong className="text-xs text-slate-200">Política de base de datos</strong>
+      <label className="text-[11px] text-muted">
+        Acceso
+        <select value={access} onChange={(event) => setAccess(event.target.value as "read" | "write")}>
+          <option value="read">Solo lectura</option>
+          <option value="write">Lectura y escritura</option>
+        </select>
+      </label>
+      <label className="text-[11px] text-muted">
+        Máximo de filas
+        <input
+          type="number"
+          min={1}
+          max={10000}
+          value={maxRows}
+          onChange={(event) => setMaxRows(Number(event.target.value))}
+        />
+      </label>
+      <label className="flex-row items-center gap-2 text-[11px] text-muted">
+        <input type="checkbox" className="w-auto" checked={allowDdl} onChange={(event) => setAllowDdl(event.target.checked)} />
+        Permitir DDL
+      </label>
+      <button className={buttonGhost} disabled={save.isPending} onClick={() => save.mutate()}>
+        Guardar política
+      </button>
+      {save.error && <small className="text-danger">{save.error instanceof Error ? save.error.message : "Error"}</small>}
+    </div>
+  );
+}
+
 function kindLabel(kind: IntegrationRecord["kind"]): string {
   return KIND_OPTIONS.find((item) => item.value === kind)?.label ?? kind;
 }
@@ -221,6 +276,13 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
               <StatusBadge status={integration.status} />
             </header>
             <small className="break-all text-xs text-muted">ID: {integration.id}</small>
+            {DATABASE_KINDS.has(integration.kind) && (
+              <DatabasePolicyEditor
+                projectSlug={projectSlug}
+                integration={integration}
+                onSaved={() => void queryClient.invalidateQueries({ queryKey: qk.integrations(projectSlug) })}
+              />
+            )}
             <div className="flex flex-wrap gap-1.5">
               <button className={buttonGhost} onClick={() => test.mutate(integration.id)}>
                 Probar

@@ -134,6 +134,17 @@ describe("project database integrations", () => {
     ).rejects.toThrow();
     const afterRollback = await adapter.query({ driver: "sqlite", filename: file }, "SELECT name FROM leads ORDER BY id");
     expect(afterRollback).toEqual([{ name: "Ana" }, { name: "Luis" }, { name: "Marta" }]);
+
+    store.integrations.update("db1", {
+      config: { kind: "sqlite", filename: file, access: "read", maxRows: 1_000, allowDdl: false },
+    });
+    await expect(
+      new QueryDatabaseIntegrationUseCase(store, vault, adapter).execute(
+        "db1",
+        { scope: "project", projectSlug: "ventas" },
+        "INSERT INTO leads (name) VALUES ('ReadOnly')",
+      ),
+    ).rejects.toThrow(/read-only/);
     store.close();
   });
 

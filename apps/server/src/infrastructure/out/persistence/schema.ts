@@ -198,6 +198,19 @@ export const workflowScheduleState = sqliteTable(
   }),
 );
 
+export const sessionContexts = sqliteTable("session_context", {
+  sessionId: text("session_id").primaryKey(),
+  scope: text("scope").notNull(),
+  projectSlug: text("project_slug").notNull().default(""),
+  agentId: text("agent_id"),
+  context: text("context").notNull(),
+  runId: text("run_id"),
+  integrationId: text("integration_id"),
+  externalThreadId: text("external_thread_id"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const chatThreads = sqliteTable(
   "chat_threads",
   {
@@ -279,6 +292,7 @@ export const schema = {
   workflowApprovals,
   workflowDeliveries,
   workflowScheduleState,
+  sessionContexts,
   chatThreads,
   chatMessages,
   notebooks,

@@ -15,6 +15,27 @@ export interface ChatSessionFactory {
   logger?: Logger;
 }
 
+export function registerSessionContext(
+  store: Store,
+  input: {
+    sessionId: string;
+    scope: ChatThreadRecord["scope"];
+    projectSlug?: string;
+    agentId?: string;
+    context: "chat" | "workflow" | "external_channel";
+    runId?: string;
+    integrationId?: string;
+    externalThreadId?: string;
+  },
+): void {
+  const now = new Date().toISOString();
+  store.sessionContexts.upsert({
+    ...input,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 /**
  * Reuses the session stored on a chat thread, but recreates it when OpenCode
  * restarted and the old session no longer exists. The new session is persisted
@@ -43,6 +64,15 @@ export async function ensureChatSession(
   }
   const session = await factory.create();
   store.chatThreads.setSession(thread.id, session.id);
+  registerSessionContext(store, {
+    sessionId: session.id,
+    scope: thread.scope,
+    projectSlug: thread.projectSlug,
+    agentId: factory.agentId,
+    context: thread.integrationId ? "external_channel" : "chat",
+    integrationId: thread.integrationId,
+    externalThreadId: thread.externalThreadId,
+  });
   return session.id;
 }
 
@@ -81,6 +111,15 @@ export async function promptWithSessionRecovery(
       });
       const session = await factory.create();
       store.chatThreads.setSession(thread.id, session.id);
+      registerSessionContext(store, {
+        sessionId: session.id,
+        scope: thread.scope,
+        projectSlug: thread.projectSlug,
+        agentId: factory.agentId,
+        context: thread.integrationId ? "external_channel" : "chat",
+        integrationId: thread.integrationId,
+        externalThreadId: thread.externalThreadId,
+      });
       activeSessionId = session.id;
       return { reply: await agent.prompt(activeSessionId, text), sessionId: activeSessionId };
     }

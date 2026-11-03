@@ -202,3 +202,16 @@ export function integrationHasCapability(
 ): boolean {
   return integration.capabilities.includes(capability);
 }
+
+export interface DatabaseAccessPolicy {
+  access: "read" | "write";
+  maxRows: number;
+  allowDdl: boolean;
+}
+
+export function databaseAccessPolicy(config: Record<string, unknown> | undefined): DatabaseAccessPolicy {
+  const access = config?.access === "read" ? "read" : "write";
+  const rawMaxRows = Number(config?.maxRows ?? 1_000);
+  const maxRows = Number.isFinite(rawMaxRows) ? Math.max(1, Math.min(10_000, Math.floor(rawMaxRows))) : 1_000;
+  return { access, maxRows, allowDdl: config?.allowDdl === true };
+}

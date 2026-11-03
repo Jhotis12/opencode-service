@@ -54,30 +54,30 @@
 - [x] 7.2 Ejecutar el escenario E2E "schedule -> notify" contra un canal de prueba y verificar que el mensaje llega una sola vez y la entrega aparece en el panel.
 - [x] 7.3 Ejecutar el escenario E2E "webhook/agente -> database -> aprobación" y verificar que la escritura ocurre una sola vez y el rechazo no deja cambios.
 - [x] 7.4 Ejecutar el escenario E2E de ruta de error y verificar que el run sigue por el target y registra el payload del fallo.
-- [ ] 7.5 Preparar la checklist de aceptación P0 y obtener la validación explícita del usuario en staging o un entorno real; registrar la evidencia en `openspec/changes/add-reliable-automation-actions/validation-p0.md`.
+- [x] 7.5 Preparar la checklist de aceptación P0 y obtener la validación explícita del usuario en staging o un entorno real; registrar la evidencia en `openspec/changes/add-reliable-automation-actions/validation-p0.md`.
 
 ## 8. Gate P0 → P1 (BLOQUEANTE)
 
 > No iniciar ni marcar ninguna tarea de los grupos 9 a 14 hasta que el usuario confirme la validación de P0.
 
-- [ ] 8.1 Confirmar que la checklist de P0 está completa, que los E2E pasan y que no hay regresiones abiertas; verificar el estado de la suite y la evidencia de `validation-p0.md`.
-- [ ] 8.2 Obtener la confirmación explícita del usuario para continuar con P1; sin esta confirmación, detener la implementación.
+- [x] 8.1 Confirmar que la checklist de P0 está completa, que los E2E pasan y que no hay regresiones abiertas; verificar el estado de la suite y la evidencia de `validation-p0.md`.
+- [x] 8.2 Obtener la confirmación explícita del usuario para continuar con P1; sin esta confirmación, detener la implementación.
 
 ## 9. Seguridad de base de datos y secretos HTTP P1
 
-- [ ] 9.1 Agregar `access`, `maxRows` y `allowDdl` a la configuración de integraciones DB, con migración que preserve el comportamiento existente y defaults seguros para integraciones nuevas; verificar con tests de validación y migración.
-- [ ] 9.2 Aplicar la política en `ExecuteDatabaseActionUseCase` y en la tool `db_query` (clasificación read/write/ddl, límite de filas y rechazo previo a conectar); verificar con tests de cada operación y de auditoría.
-- [ ] 9.3 Implementar `integrationId`/`baseUrl` y referencias `secret:<alias>`/`{{secret.<alias>}}` en el nodo HTTP; verificar que el valor resuelto no aparece en workflow, snapshot, logs ni respuesta de tool.
-- [ ] 9.4 Agregar la política DB y los secretos HTTP a la UI de Recursos/Inspector; verificar con tests de componente que solo se ofrecen integraciones del proyecto y que el alias se guarda, no el valor.
-- [ ] 9.5 Documentar la política DB y los secretos HTTP; verificar con un ejemplo que el workflow versionado contiene solo alias.
+- [x] 9.1 Agregar `access`, `maxRows` y `allowDdl` a la configuración de integraciones DB, con migración que preserve el comportamiento existente y defaults seguros para integraciones nuevas; verificar con tests de validación y migración.
+- [x] 9.2 Aplicar la política en `ExecuteDatabaseActionUseCase` y en la tool `db_query` (clasificación read/write/ddl, límite de filas y rechazo previo a conectar); verificar con tests de cada operación y de auditoría.
+- [x] 9.3 Implementar `integrationId`/`baseUrl` y referencias `secret:<alias>`/`{{secret.<alias>}}` en el nodo HTTP; verificar que el valor resuelto no aparece en workflow, snapshot, logs ni respuesta de tool.
+- [x] 9.4 Agregar la política DB y los secretos HTTP a la UI de Recursos/Inspector; verificar con tests de componente que solo se ofrecen integraciones del proyecto y que el alias se guarda, no el valor.
+- [x] 9.5 Documentar la política DB y los secretos HTTP; verificar con un ejemplo que el workflow versionado contiene solo alias.
 
 ## 10. Contexto de sesión y permisos de tools P1
 
-- [ ] 10.1 Crear `session_context` y registrar sesiones de chat, workflow y canal al crearlas; verificar con tests de alta, consulta, expiración y borrado en cascada.
-- [ ] 10.2 Propagar `sessionID`/`agent` desde `Tool.Info.execute` en el plugin y resolver el contexto en el servidor; verificar con tests de plugin y HTTP para chat, workflow y canal.
-- [ ] 10.3 Aplicar reglas `allow`/`deny` con el agente resuelto y auditar cada veredicto; verificar que un `deny` de `db_query`/`notify` bloquea en workflow y que un chat autorizado conserva diseño.
-- [ ] 10.4 Agregar la tool `integration_list` de solo lectura y limitada al proyecto; verificar que no expone secretos y que el scope global no la recibe.
-- [ ] 10.5 Documentar el contrato de contexto y permisos; verificar que el README ya no promete un enforcement que no existe.
+- [x] 10.1 Crear `session_context` y registrar sesiones de chat, workflow y canal al crearlas; verificar con tests de alta, consulta, expiración y borrado en cascada.
+- [x] 10.2 Propagar `sessionID`/`agent` desde `Tool.Info.execute` en el plugin y resolver el contexto en el servidor; verificar con tests de plugin y HTTP para chat, workflow y canal.
+- [x] 10.3 Aplicar reglas `allow`/`deny` con el agente resuelto y auditar cada veredicto; verificar que un `deny` de `db_query`/`notify` bloquea en workflow y que un chat autorizado conserva diseño.
+- [x] 10.4 Agregar la tool `integration_list` de solo lectura y limitada al proyecto; verificar que no expone secretos y que el scope global no la recibe.
+- [x] 10.5 Documentar el contrato de contexto y permisos; verificar que el README ya no promete un enforcement que no existe.
 
 ## 11. Timers durables y schedules únicos P1
 

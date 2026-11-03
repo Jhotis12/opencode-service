@@ -17,12 +17,14 @@ import type { WorkspacePort } from "../ports/workspace.ts";
 import type { CodeWorkerPort, WorkerRpcHandlers } from "../ports/worker.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
 import { AgentPromptTimeoutError } from "../ports/runtime.ts";
+import type { SecretVault } from "../ports/security.ts";
 import type { EventBus } from "../ports/events.ts";
 import type { ErrorTracker, Metrics, Logger } from "../../domain/telemetry/index.ts";
 import { WorkerTimeoutError } from "../ports/worker.ts";
 import type { StepRunRecord, WorkflowRunRecord } from "../../domain/entities.ts";
 import type { ExecuteDatabaseActionUseCase } from "./database-actions.ts";
 import type { SendNotificationUseCase } from "./send-notification.ts";
+import { registerSessionContext } from "./chat-session.ts";
 import {
   IdempotencyMismatchError,
   RunInFlightError,
@@ -50,6 +52,7 @@ export interface ExecutorDeps {
   errors: ErrorTracker;
   logger: Logger;
   workerHandlers?: WorkerRpcHandlers;
+  vault?: SecretVault;
   databaseAction?: ExecuteDatabaseActionUseCase;
   notification?: SendNotificationUseCase;
   notifyApproval?: (run: WorkflowRunRecord, nodeId: string) => Promise<void>;
@@ -336,7 +339,7 @@ export class ExecuteWorkflowRunUseCase {
     approvalOverrides: Record<string, boolean>,
     entryPoint: WorkflowRunRecord["entryPoint"] = state.run.entryPoint,
   ): Promise<WorkflowRunRecord> {
-    const { store, workspace, worker, agent, events, metrics, errors, logger } = this.deps;
+    const { store, workspace, worker, agent, events, metrics, errors, logger, vault } = this.deps;
     const projectDirectory = await workspace.projectDirectory(state.run.projectSlug);
     let current = startNode(graph);
     let currentInput = payload;
@@ -445,7 +448,11 @@ export class ExecuteWorkflowRunUseCase {
             output = evaluateCondition(current.config.condition, currentInput);
           }
         } else if (current.type === "http") {
-          output = await executeHttpNode(current, currentInput);
+          output = await executeHttpNode(current, currentInput, {
+            projectSlug: state.run.projectSlug,
+            store,
+            vault,
+          });
         } else if (current.type === "database") {
           if (!this.deps.databaseAction) throw new Error("database action is not configured");
           const config = DatabaseNodeConfigSchema.parse(current.config);
@@ -499,9 +506,25 @@ export class ExecuteWorkflowRunUseCase {
               model: selectedModel,
             });
             state.sessionId = session.id;
+            registerSessionContext(store, {
+              sessionId: session.id,
+              scope: "project",
+              projectSlug: state.run.projectSlug,
+              agentId: current.agentId,
+              context: "workflow",
+              runId: state.run.id,
+            });
           } else {
             if (selectedModel) await agent.switchModel(state.sessionId, selectedModel);
             if (current.agentId) await agent.switchAgent(state.sessionId, current.agentId);
+            registerSessionContext(store, {
+              sessionId: state.sessionId,
+              scope: "project",
+              projectSlug: state.run.projectSlug,
+              agentId: current.agentId,
+              context: "workflow",
+              runId: state.run.id,
+            });
           }
           let prompt = buildNodePrompt(graph, current.id, currentInput);
           if (current.notebookIds.length > 0 && this.deps.knowledgeContext) {
@@ -836,23 +859,69 @@ export function executeTransform(node: NodeSpec, input: unknown): unknown {
   return input;
 }
 
-export async function executeHttpNode(node: NodeSpec, input: unknown): Promise<unknown> {
+export async function executeHttpNode(
+  node: NodeSpec,
+  input: unknown,
+  context?: { projectSlug: string; store: Store; vault?: SecretVault },
+): Promise<unknown> {
   const method = String(node.config.method ?? "GET").toUpperCase();
-  const url = String(node.config.url ?? "");
+  let url = String(node.config.url ?? "");
   const headers =
     typeof node.config.headers === "string"
       ? (JSON.parse(node.config.headers) as Record<string, string>)
       : ((node.config.headers as Record<string, string>) ?? {});
+
+  const resolveAlias = (alias: string): string => {
+    if (!context || !context.vault) throw new Error("HTTP secrets require a project vault context");
+    const secret = context.store.vault.findByAlias({
+      scope: "project",
+      projectSlug: context.projectSlug,
+      alias,
+    });
+    if (!secret) throw new Error(`missing secret alias: ${alias}`);
+    return context.vault.decrypt(secret.ciphertext);
+  };
+  const resolveSecrets = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      const direct = /^secret:(.+)$/.exec(value);
+      if (direct) return resolveAlias(direct[1]!.trim());
+      return value.replace(/\{\{\s*secret\.([^}]+?)\s*\}\}/g, (_match, alias) => resolveAlias(String(alias).trim()));
+    }
+    if (Array.isArray(value)) return value.map((item) => resolveSecrets(item));
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveSecrets(item)]));
+    }
+    return value;
+  };
+
+  const integrationId = typeof node.config.integrationId === "string" ? node.config.integrationId : "";
+  if (integrationId) {
+    if (!context) throw new Error("HTTP integration requires a project context");
+    const integration = context.store.integrations.findById(integrationId);
+    if (!integration || integration.scope !== "project" || integration.projectSlug !== context.projectSlug || integration.kind !== "http") {
+      throw new Error("HTTP integration does not belong to this project");
+    }
+    const baseUrl = String(integration.config.baseUrl ?? "").replace(/\/+$/, "");
+    if (baseUrl && !/^https?:\/\//i.test(url)) {
+      url = `${baseUrl}/${url.replace(/^\/+/, "")}`;
+    }
+  }
+
+  const resolvedHeaders = Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key, String(resolveSecrets(value))]),
+  ) as Record<string, string>;
   const rawBody = node.config.body;
   const body =
     method === "GET" || method === "HEAD"
       ? undefined
       : typeof rawBody === "string"
-        ? rawBody
-        : JSON.stringify(rawBody ?? input);
+        ? String(resolveSecrets(rawBody))
+        : rawBody === undefined
+          ? JSON.stringify(input)
+          : JSON.stringify(resolveSecrets(rawBody));
   const response = await fetch(url, {
     method,
-    headers,
+    headers: resolvedHeaders,
     body,
     signal: AbortSignal.timeout(node.timeoutMs),
   });

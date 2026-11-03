@@ -43,3 +43,8 @@ Marca cada punto en un entorno real o staging:
 ## Gate
 
 No iniciar ni marcar las tareas de la fase P1 (grupos 9 a 14) hasta que el usuario confirme esta checklist y dé la validación explícita de P0.
+
+## Confirmación
+
+El usuario confirmó P0 y autorizó continuar con P1 el 2026-11-02. Gate abierto.
+

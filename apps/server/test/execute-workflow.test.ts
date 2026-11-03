@@ -20,6 +20,7 @@ import { AgentPromptTimeoutError } from "../src/application/ports/runtime.ts";
 import type { EventBus } from "../src/application/ports/events.ts";
 import {
   ExecuteWorkflowRunUseCase,
+  executeHttpNode,
   type ExecutorDeps,
 } from "../src/application/use-cases/execute-workflow.ts";
 import {
@@ -475,6 +476,72 @@ describe("workflow execution", () => {
       expect(routed.status).toBe("succeeded");
       expect((routed.output as { route: string }).route).toContain("HTTP 500");
       expect(store.runs.listSteps(routed.id).map((step) => step.nodeId)).toEqual(["start", "http", "fallback"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      store.close();
+    }
+  });
+
+  it("resolves HTTP integration base URLs and vault secrets", async () => {
+    const store = new SqliteStore(":memory:");
+    const vault = new Aes256GcmVaultAdapter(Buffer.alloc(32, 9));
+    const now = new Date().toISOString();
+    store.integrations.create({
+      id: "http1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "http",
+      name: "API",
+      slug: "api",
+      config: { kind: "http", baseUrl: "https://api.example.com/v1" },
+      secretRefs: {},
+      capabilities: [],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.vault.upsert({
+      id: "s1",
+      scope: "project",
+      projectSlug: "p1",
+      alias: "token",
+      kind: "generic",
+      ciphertext: vault.encrypt("s3cret"),
+      createdAt: now,
+    });
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      requests.push({ url, init });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    try {
+      const result = await executeHttpNode(
+        {
+          id: "http",
+          type: "http",
+          position: { x: 0, y: 0 },
+          config: {
+            integrationId: "http1",
+            method: "POST",
+            url: "/leads",
+            headers: { authorization: "secret:token" },
+            body: { token: "{{secret.token}}" },
+          },
+          notebookIds: [],
+          timeoutMs: 1_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {},
+        { projectSlug: "p1", store, vault },
+      );
+      expect(result).toEqual({ ok: true });
+      expect(requests[0]?.url).toBe("https://api.example.com/v1/leads");
+      expect((requests[0]?.init?.headers as Record<string, string>).authorization).toBe("s3cret");
+      expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({ token: "s3cret" });
     } finally {
       globalThis.fetch = originalFetch;
       store.close();

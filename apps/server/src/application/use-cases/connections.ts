@@ -3,6 +3,9 @@ import type { AgentRuntimePort, AgentModelInfo, ExternalDatabaseAdapter, Externa
 import type { SecretVault } from "../ports/security.ts";
 import type { IntegrationRecord } from "../../domain/entities.ts";
 import { IntegrationValidationError } from "../../domain/integrations/validation.ts";
+import { databaseAccessPolicy } from "@platform/shared";
+import { classifySql } from "../../domain/integrations/sql.ts";
+import type { Logger } from "../../domain/telemetry/index.ts";
 
 export const OPENCODE_GO_PROVIDER_ID = "opencode-go";
 
@@ -103,6 +106,7 @@ export class QueryDatabaseIntegrationUseCase {
     private readonly store: Store,
     private readonly vault: SecretVault,
     private readonly adapter: ExternalDatabaseAdapter,
+    private readonly logger?: Logger,
   ) {}
 
   async execute(
@@ -111,13 +115,29 @@ export class QueryDatabaseIntegrationUseCase {
     sql: string,
     params: unknown[] = [],
   ): Promise<unknown[]> {
-    if (!/^\s*(select|with|pragma|insert|update|delete|create|alter)\b/i.test(sql)) {
+    const kind = classifySql(sql);
+    if (!kind) {
       throw new Error("only SQL statements are allowed");
     }
     const integration = this.store.integrations.findById(integrationId);
     if (!integration) throw new IntegrationValidationError("NOT_FOUND", `unknown integration: ${integrationId}`);
     if (integration.scope !== scope.scope || (integration.scope === "project" && integration.projectSlug !== scope.projectSlug)) {
       throw new IntegrationValidationError("FORBIDDEN", "integration scope mismatch");
+    }
+    const policy = databaseAccessPolicy(integration.config);
+    if (kind !== "read" && policy.access !== "write") {
+      throw new IntegrationValidationError("FORBIDDEN", "database integration is configured as read-only");
+    }
+    if (kind === "ddl" && !policy.allowDdl) {
+      throw new IntegrationValidationError("FORBIDDEN", "DDL statements are not enabled for this integration");
+    }
+    if (kind === "ddl") {
+      this.logger?.info({
+        event: "database_ddl",
+        scope: integration.scope,
+        projectSlug: integration.projectSlug,
+        integrationId: integration.id,
+      });
     }
     if (["postgres", "mysql", "mssql"].includes(integration.kind) && !integration.secretRefs.password) {
       throw new IntegrationValidationError("VALIDATION_ERROR", `missing secret: password for ${integration.kind}`);
@@ -131,6 +151,7 @@ export class QueryDatabaseIntegrationUseCase {
           })!.ciphertext,
         )
       : undefined;
-    return this.adapter.query(databaseConfig(integration, password), sql, params);
+    const rows = await this.adapter.query(databaseConfig(integration, password), sql, params);
+    return rows.slice(0, policy.maxRows);
   }
 }

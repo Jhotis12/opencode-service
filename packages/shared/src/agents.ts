@@ -15,6 +15,7 @@ export const PlatformToolNameSchema = z.enum([
   "project_overview",
   "subagent_upsert",
   "subagent_list",
+  "integration_list",
   "kb_search",
   "db_query",
   "notify",

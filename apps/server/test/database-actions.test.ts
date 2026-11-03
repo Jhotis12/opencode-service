@@ -14,7 +14,7 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-function integration(filename: string): IntegrationRecord {
+function integration(filename: string, config: Record<string, unknown> = {}): IntegrationRecord {
   const now = new Date().toISOString();
   return {
     id: "db1",
@@ -23,7 +23,7 @@ function integration(filename: string): IntegrationRecord {
     kind: "sqlite",
     name: "CRM local",
     slug: "crm-local",
-    config: { kind: "sqlite", filename },
+    config: { kind: "sqlite", filename, ...config },
     secretRefs: {},
     capabilities: ["query"],
     status: "disconnected",
@@ -32,7 +32,7 @@ function integration(filename: string): IntegrationRecord {
   };
 }
 
-async function setup() {
+async function setup(config: Record<string, unknown> = {}) {
   const dir = await mkdtemp(join(tmpdir(), "platform-db-actions-"));
   dirs.push(dir);
   const filename = join(dir, "client.sqlite");
@@ -40,7 +40,7 @@ async function setup() {
   seed.exec("CREATE TABLE leads (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO leads (name) VALUES ('Ana');");
   seed.close();
   const store = new SqliteStore(":memory:");
-  store.integrations.create(integration(filename));
+  store.integrations.create(integration(filename, config));
   const useCase = new ExecuteDatabaseActionUseCase(
     store,
     new Aes256GcmVaultAdapter(Buffer.alloc(32, 3)),
@@ -149,5 +149,36 @@ describe("database action use case", () => {
       }),
     ).rejects.toThrow(/DDL/);
     store.close();
+  });
+
+  it("enforces the integration access policy and DDL flag", async () => {
+    const readOnly = await setup({ access: "read", maxRows: 10, allowDdl: false });
+    await expect(
+      readOnly.useCase.execute({
+        projectSlug: "ventas",
+        integrationId: "db1",
+        mode: "write",
+        statements: [{ sql: "INSERT INTO leads (name) VALUES ('Luis')" }],
+      }),
+    ).rejects.toThrow(/read-only/);
+    readOnly.store.close();
+
+    const writable = await setup({ access: "write", maxRows: 1, allowDdl: true });
+    const created = await writable.useCase.execute({
+      projectSlug: "ventas",
+      integrationId: "db1",
+      mode: "write",
+      statements: [{ sql: "CREATE TABLE extra (id INTEGER)" }],
+    });
+    expect(created.affectedRows).toBe(0);
+    const limited = await writable.useCase.execute({
+      projectSlug: "ventas",
+      integrationId: "db1",
+      mode: "read",
+      statements: [{ sql: "SELECT 1 AS n UNION ALL SELECT 2 AS n" }],
+    });
+    expect(limited.rowCount).toBe(1);
+    expect(limited.truncated).toBe(true);
+    writable.store.close();
   });
 });

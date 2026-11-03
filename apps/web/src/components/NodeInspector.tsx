@@ -13,6 +13,7 @@ import { button, buttonGhost } from "../ui.ts";
 
 const DATABASE_KINDS = new Set<IntegrationRecord["kind"]>(["postgres", "mysql", "mssql", "sqlite"]);
 const NOTIFICATION_KINDS = new Set<IntegrationRecord["kind"]>(["telegram", "whatsapp", "external_chat"]);
+const HTTP_KINDS = new Set<IntegrationRecord["kind"]>(["http"]);
 
 function NotifyNodeFields({
   node,
@@ -479,6 +480,25 @@ export function NodeInspector({
                   placeholder="https://api.example.com"
                 />
               </label>
+              <label>
+                Integración HTTP (opcional)
+                <select
+                  value={String(node.config.integrationId ?? "")}
+                  onChange={(event) => onConfig({ integrationId: event.target.value || undefined })}
+                >
+                  <option value="">URL directa</option>
+                  {integrations
+                    .filter((integration) => HTTP_KINDS.has(integration.kind))
+                    .map((integration) => (
+                      <option key={integration.id} value={integration.id}>
+                        {integration.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <p className="text-xs text-muted md:col-span-2">
+                Secretos: usa <code>secret:alias</code> en headers y <code>{"{{secret.alias}}"}</code> en el body.
+              </p>
               <label className="md:col-span-2">
                 Headers (JSON)
                 <textarea rows={2} value={String(node.config.headers ?? "{}")} onChange={(event) => onConfig({ headers: event.target.value })} />

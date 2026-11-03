@@ -15,6 +15,7 @@ import type {
   WorkflowVersionRecord,
   WorkflowDeliveryRecord,
   WorkflowScheduleStateRecord,
+  SessionContextRecord,
 } from "../../domain/entities.ts";
 import type { EntityScope } from "../../domain/entities.ts";
 import type { WorkflowGraph } from "@platform/shared";
@@ -129,6 +130,13 @@ export interface WorkflowScheduleStateRepository {
   removeByProject(projectSlug: string): void;
 }
 
+export interface SessionContextRepository {
+  upsert(record: SessionContextRecord): void;
+  find(sessionId: string): SessionContextRecord | undefined;
+  remove(sessionId: string): void;
+  removeByProject(projectSlug: string): void;
+}
+
 export interface WorkflowVersionRepository {
   record(input: {
     projectSlug: string;
@@ -194,6 +202,7 @@ export interface Store {
   runs: WorkflowRunRepository;
   deliveries: WorkflowDeliveryRepository;
   scheduleStates: WorkflowScheduleStateRepository;
+  sessionContexts: SessionContextRepository;
   versions: WorkflowVersionRepository;
   chatThreads: ChatThreadRepository;
   chat: ChatRepository;

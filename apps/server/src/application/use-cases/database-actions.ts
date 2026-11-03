@@ -6,9 +6,13 @@ import type {
   ExternalDatabaseStatementResult,
 } from "../ports/runtime.ts";
 import type { DatabaseStatement } from "@platform/shared";
+import { databaseAccessPolicy } from "@platform/shared";
 import { TestDatabaseIntegrationUseCase } from "./connections.ts";
+import { classifySql, type SqlStatementKind } from "../../domain/integrations/sql.ts";
+import type { Logger } from "../../domain/telemetry/index.ts";
 
-export type SqlStatementKind = "read" | "write" | "ddl";
+export { classifySql };
+export type { SqlStatementKind };
 
 export interface ExecuteDatabaseActionInput {
   projectSlug: string;
@@ -26,17 +30,6 @@ export interface ExecuteDatabaseActionResult {
   truncated: boolean;
 }
 
-const READ_SQL = /^\s*(select|with|pragma|explain)\b/i;
-const WRITE_SQL = /^\s*(insert|update|delete|merge)\b/i;
-const DDL_SQL = /^\s*(create|alter|drop|truncate)\b/i;
-
-export function classifySql(sql: string): SqlStatementKind | undefined {
-  if (READ_SQL.test(sql)) return "read";
-  if (WRITE_SQL.test(sql)) return "write";
-  if (DDL_SQL.test(sql)) return "ddl";
-  return undefined;
-}
-
 export class DatabaseActionValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -49,6 +42,7 @@ export class ExecuteDatabaseActionUseCase {
     private readonly store: Store,
     private readonly vault: SecretVault,
     private readonly adapter: ExternalDatabaseAdapter,
+    private readonly logger?: Logger,
   ) {}
 
   async execute(input: ExecuteDatabaseActionInput): Promise<ExecuteDatabaseActionResult> {
@@ -59,6 +53,10 @@ export class ExecuteDatabaseActionUseCase {
       input.integrationId,
       { scope: "project", projectSlug: input.projectSlug },
     );
+    const policy = databaseAccessPolicy(resolved.integration.config);
+    if (input.mode === "write" && policy.access !== "write") {
+      throw new DatabaseActionValidationError("database integration is configured as read-only");
+    }
 
     const statements: ExternalDatabaseStatement[] = input.statements.map((statement) => {
       const kind = classifySql(statement.sql);
@@ -66,8 +64,8 @@ export class ExecuteDatabaseActionUseCase {
       if (input.mode === "read" && kind !== "read") {
         throw new DatabaseActionValidationError(`read mode does not allow ${kind} statements`);
       }
-      if (input.mode === "write" && kind === "ddl") {
-        throw new DatabaseActionValidationError("DDL statements are not enabled for this node");
+      if (kind === "ddl" && !policy.allowDdl) {
+        throw new DatabaseActionValidationError("DDL statements are not enabled for this integration");
       }
       if (statement.params !== undefined && !Array.isArray(statement.params)) {
         throw new DatabaseActionValidationError("database statement params must be a JSON array");
@@ -77,10 +75,18 @@ export class ExecuteDatabaseActionUseCase {
         params: (statement.params as unknown[] | undefined) ?? [],
       };
     });
+    if (statements.some((statement) => classifySql(statement.sql) === "ddl")) {
+      this.logger?.info({
+        event: "database_ddl",
+        projectSlug: input.projectSlug,
+        integrationId: input.integrationId,
+        statements: statements.length,
+      });
+    }
 
     const results = await this.executeStatements(resolved.config, statements, input.transaction);
     const rawRows = [...results].reverse().find((result) => result.rows.length > 0)?.rows ?? [];
-    const maxRows = Math.min(input.maxRows ?? 1_000, 10_000);
+    const maxRows = Math.min(input.maxRows ?? policy.maxRows, policy.maxRows, 10_000);
     const truncated = rawRows.length > maxRows;
     const rows = rawRows.slice(0, maxRows);
     return {

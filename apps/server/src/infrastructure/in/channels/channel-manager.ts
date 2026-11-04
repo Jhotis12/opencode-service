@@ -60,6 +60,11 @@ export class IntegrationManager implements IntegrationManagerPort {
       this.deps.store.integrations.updateStatus(integration.id, "connected");
       return;
     }
+    if (integration.kind === "transcription") {
+      this.managed.set(integration.id, { stop: async () => undefined });
+      this.deps.store.integrations.updateStatus(integration.id, "connected");
+      return;
+    }
     if (integration.kind === "telegram") {
       const token = this.resolveSecret(integration, "token");
       if (!token) {
@@ -70,7 +75,7 @@ export class IntegrationManager implements IntegrationManagerPort {
         integrationId: integration.id,
         scope: integration.scope,
         projectSlug: integration.projectSlug,
-        transport: new GrammyTransport(token),
+        transport: new GrammyTransport(token, this.deps.logger),
         router: integration.scope === "global" ? this.deps.globalRouter : this.deps.projectRouter,
         events: this.deps.events,
         logger: this.deps.logger,

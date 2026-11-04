@@ -7,6 +7,7 @@ import {
 } from "../src/domain/integrations/validation.ts";
 import { ManageIntegrationsUseCase, verifyIntegrationKey } from "../src/application/use-cases/manage-integrations.ts";
 import type { IntegrationManagerPort } from "../src/application/ports/integrations.ts";
+import type { TranscriptionPort } from "../src/application/ports/transcription.ts";
 
 const manager: IntegrationManagerPort = {
   async start() {},
@@ -26,6 +27,18 @@ const manager: IntegrationManagerPort = {
   },
 };
 
+const transcription: TranscriptionPort = {
+  async transcribe() {
+    return { text: "hola" };
+  },
+  async listModels() {
+    return ["small", "base"];
+  },
+  async test() {
+    return { ok: true, models: ["small", "base"] };
+  },
+};
+
 function useCase(store: SqliteStore, vault: Aes256GcmVaultAdapter) {
   return new ManageIntegrationsUseCase({
     store,
@@ -33,6 +46,7 @@ function useCase(store: SqliteStore, vault: Aes256GcmVaultAdapter) {
     events: { publish() {} },
     manager,
     databaseAdapter: {} as never,
+    transcription,
   });
 }
 
@@ -217,6 +231,38 @@ describe("project integration lifecycle", () => {
     });
     expect(created.integration.config.alerts).toEqual(["run.failed", "integration.down"]);
     expect(created.integration.config.alertRecipient).toBe("123");
+    store.close();
+  });
+
+  it("tests a transcription integration and caches discovered models", async () => {
+    const store = new SqliteStore(":memory:");
+    const vault = new Aes256GcmVaultAdapter(Buffer.alloc(32, 11));
+    const integrations = useCase(store, vault);
+    const created = await integrations.create({
+      scope: "project",
+      projectSlug: "ventas",
+      kind: "transcription",
+      name: "ASR",
+      slug: "asr",
+      config: { baseUrl: "http://asr.local/v1", model: "small" },
+      secrets: { apiKey: "supersecret" },
+    });
+    expect(JSON.stringify(created.integration)).not.toContain("supersecret");
+    expect(
+      store.vault.findByAlias({
+        scope: "project",
+        projectSlug: "ventas",
+        alias: created.integration.secretRefs.apiKey,
+      }),
+    ).toBeDefined();
+    const result = await integrations.test(created.integration.id, { scope: "project", projectSlug: "ventas" });
+    expect(result).toMatchObject({ ok: true, models: ["small", "base"] });
+    const updated = integrations.get(created.integration.id, { scope: "project", projectSlug: "ventas" });
+    expect(updated.config.models).toEqual(["small", "base"]);
+    expect(updated.status).toBe("connected");
+    await expect(
+      integrations.test(created.integration.id, { scope: "project", projectSlug: "soporte" }),
+    ).rejects.toBeInstanceOf(IntegrationValidationError);
     store.close();
   });
 

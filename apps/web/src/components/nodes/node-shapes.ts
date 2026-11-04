@@ -42,6 +42,10 @@ export const NODE_SHAPES: Record<NodeType, NodeShape> = {
     name: "hexagon",
     style: { clipPath: "polygon(16px 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 16px 100%, 0 50%)" },
   },
+  transcribe: {
+    name: "waveform",
+    style: { borderRadius: "18px 18px 6px 18px" },
+  },
   decision: {
     name: "flattened-diamond",
     style: { clipPath: "polygon(50% 0, 100% 30%, 100% 70%, 50% 100%, 0 70%, 0 30%)" },

@@ -8,6 +8,7 @@ import { FakeAgentRuntime } from "../src/infrastructure/out/opencode/fake-runtim
 import { ChatWithProjectUseCase } from "../src/application/use-cases/projects.ts";
 import { ChatWithOrchestratorUseCase } from "../src/application/use-cases/orchestrator.ts";
 import { RouteProjectIntegrationMessageUseCase } from "../src/application/use-cases/route-channel-message.ts";
+import { FsMediaStore } from "../src/infrastructure/out/media/fs-media-store.ts";
 import type { IntegrationEgressPort } from "../src/application/ports/channels.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
 
@@ -137,7 +138,7 @@ describe("chat session recovery after OpenCode restart", () => {
   });
 
   it("recovers project channel conversations too", async () => {
-    const { store, workspace, agent } = await setup();
+    const { dir, store, workspace, agent } = await setup();
     const now = new Date().toISOString();
     store.integrations.create({
       id: "i1",
@@ -167,6 +168,7 @@ describe("chat session recovery after OpenCode restart", () => {
       agent,
       executor: {} as never,
       egress,
+      media: new FsMediaStore({ workspacesDir: join(dir, "workspaces"), controlDirectory: join(dir, "control") }),
       events: { publish() {} },
       logger,
     });

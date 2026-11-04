@@ -54,6 +54,7 @@ export class UpdateProjectSettingsUseCase {
       primaryAgent?: string | null;
       approvalIntegrationId?: string | null;
       approvalRecipient?: string | null;
+      transcriptionIntegrationId?: string | null;
     },
   ): ProjectRecord {
     if (!this.store.projects.findBySlug(slug)) throw new Error(`project not found: ${slug}`);
@@ -61,6 +62,18 @@ export class UpdateProjectSettingsUseCase {
       const integration = this.store.integrations.findById(patch.approvalIntegrationId);
       if (!integration || integration.scope !== "project" || integration.projectSlug !== slug) {
         throw new Error("approval integration must belong to the project");
+      }
+    }
+    if (patch.transcriptionIntegrationId) {
+      const integration = this.store.integrations.findById(patch.transcriptionIntegrationId);
+      if (
+        !integration ||
+        integration.scope !== "project" ||
+        integration.projectSlug !== slug ||
+        integration.kind !== "transcription" ||
+        !integration.capabilities.includes("transcribe_audio")
+      ) {
+        throw new Error("transcription integration must be a transcription integration of the project");
       }
     }
     this.store.projects.update(slug, patch);
@@ -85,7 +98,12 @@ export function readinessFor(
     .filter((id) => !id || !available.has(id));
   const hasApproval = graph?.nodes.some((node) => node.type === "approval") ?? false;
   const approvalReady = !hasApproval || Boolean(project.approvalIntegrationId) || integrationTriggers.length > 0;
-  return [
+  const transcribeNodes = (graph?.nodes ?? []).filter((node) => node.type === "transcribe");
+  const transcribeNeedsDefault = transcribeNodes.some(
+    (node) => typeof node.config.integrationId !== "string" || !node.config.integrationId,
+  );
+  const transcriptionReady = !transcribeNeedsDefault || Boolean(project.transcriptionIntegrationId);
+  const items: ProjectReadinessItem[] = [
     {
       id: "primary-agent",
       label: "Agente principal configurado",
@@ -119,4 +137,15 @@ export function readinessFor(
       detail: "Los notebooks son opcionales; se pueden agregar cuando el flujo los use.",
     },
   ];
+  if (transcribeNeedsDefault) {
+    items.push({
+      id: "transcription",
+      label: "Conexión de transcripción configurada",
+      ready: transcriptionReady,
+      detail: transcriptionReady
+        ? undefined
+        : "El flujo tiene un nodo Transcribir sin conexión propia; define una conexión de transcripción por defecto.",
+    });
+  }
+  return items;
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MediaRefSchema } from "./media.ts";
 
 export const ChatScopeSchema = z.enum(["project", "global"]);
 export type ChatScope = z.infer<typeof ChatScopeSchema>;
@@ -24,6 +25,7 @@ export const ChatMessageSchema = z.object({
   threadId: z.string().min(1),
   role: ChatRoleSchema,
   content: z.string(),
+  attachments: z.array(MediaRefSchema).optional(),
   createdAt: z.string(),
 });
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
@@ -119,6 +121,7 @@ export const ChatTurnHistoryMessageSchema = ChatMessageSchema.extend({
   turnId: z.string().optional(),
   turnStatus: ChatTurnStatusSchema.optional(),
   errorCode: ChatTurnErrorCodeSchema.optional(),
+  attachments: z.array(MediaRefSchema).optional(),
 });
 export type ChatTurnHistoryMessage = z.infer<typeof ChatTurnHistoryMessageSchema>;
 

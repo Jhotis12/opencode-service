@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SseEvent, WorkflowGraph } from "@platform/shared";
@@ -15,9 +15,10 @@ import type { EgressSendResult, IntegrationEgressPort } from "../src/application
 import { InMemoryMetrics } from "../src/domain/telemetry/metrics.ts";
 import { NoopErrorTracker } from "../src/infrastructure/out/telemetry/sentry.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
-import type { AgentModelInfo, AgentRuntimePort } from "../src/application/ports/runtime.ts";
+import type { AgentFileAttachment, AgentModelInfo, AgentRuntimePort } from "../src/application/ports/runtime.ts";
 import { AgentPromptTimeoutError } from "../src/application/ports/runtime.ts";
 import type { EventBus } from "../src/application/ports/events.ts";
+import type { TranscriptionPort } from "../src/application/ports/transcription.ts";
 import {
   ExecuteWorkflowRunUseCase,
   executeHttpNode,
@@ -49,6 +50,7 @@ class FakeAgent implements AgentRuntimePort {
   models: AgentModelInfo[] = [{ providerID: "opencode-go", modelID: "fast", name: "Fast" }];
   sessions: Array<{ id: string; directory: string; agent?: string; model?: string }> = [];
   prompts: string[] = [];
+  promptFiles: Array<AgentFileAttachment[] | undefined> = [];
   switchedModels: string[] = [];
   switchedAgents: string[] = [];
   interrupted: string[] = [];
@@ -61,8 +63,9 @@ class FakeAgent implements AgentRuntimePort {
     this.sessions.push(session);
     return { id: session.id };
   }
-  async prompt(_sessionId: string, text: string) {
+  async prompt(_sessionId: string, text: string, options?: { files?: AgentFileAttachment[] }) {
     this.prompts.push(text);
+    this.promptFiles.push(options?.files);
     return "respuesta-agente";
   }
   async sendPrompt() { return {}; }
@@ -1269,5 +1272,205 @@ describe("workflow execution", () => {
     expect(failed.status).toBe("failed");
     expect(failed.error).toContain("Falta el campo categoria");
     expect(store.runs.listSteps(failed.id).some((s) => s.nodeId === "after")).toBe(false);
+  });
+
+  it("transcribes audio with the project default connection", async () => {
+    const now = new Date().toISOString();
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "transcribe-flow",
+      name: "Transcribe flow",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "transcribir",
+          type: "transcribe",
+          position: { x: 1, y: 0 },
+          config: { mediaPath: "attachments" },
+          notebookIds: [],
+          timeoutMs: 120_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "transcribir" }],
+      updatedAt: now,
+    };
+    const calls: Array<{ integrationId: string; projectSlug?: string; model?: string }> = [];
+    const transcription: TranscriptionPort = {
+      async transcribe(input) {
+        calls.push({ integrationId: input.integrationId, projectSlug: input.projectSlug, model: input.model });
+        return { text: "hola mundo", language: "es", durationSeconds: 2 };
+      },
+      async listModels() {
+        return ["small"];
+      },
+      async test() {
+        return { ok: true };
+      },
+    };
+    const { executor, store, dir } = await setup(graph, {}, { transcription });
+    store.projects.create({
+      id: "p1",
+      slug: "p1",
+      name: "P1",
+      description: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.integrations.create({
+      id: "asr1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "transcription",
+      name: "ASR",
+      slug: "asr",
+      config: { baseUrl: "http://asr.local/v1", model: "small" },
+      secretRefs: {},
+      capabilities: ["transcribe_audio"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.projects.update("p1", { transcriptionIntegrationId: "asr1" });
+    await mkdir(join(dir, "p1", ".opencode", "media"), { recursive: true });
+    await writeFile(join(dir, "p1", ".opencode", "media", "abc.ogg"), new Uint8Array([0x4f, 0x67, 0x67, 0x53]));
+    const run = await executor.execute({
+      projectSlug: "p1",
+      graph,
+      payload: {
+        attachments: [{ kind: "audio", path: ".opencode/media/abc.ogg", mime: "audio/ogg", filename: "voice.ogg" }],
+      },
+      entryPoint: "web_ui",
+    });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toMatchObject({ text: "hola mundo", language: "es", durationSeconds: 2 });
+    expect(calls[0]).toMatchObject({ integrationId: "asr1", projectSlug: "p1" });
+    expect(store.runs.listSteps(run.id).map((step) => step.nodeId)).toEqual(["start", "transcribir"]);
+    store.close();
+  });
+
+  it("fails a transcribe node when the input has no audio", async () => {
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "transcribe-empty",
+      name: "Transcribe empty",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "transcribir",
+          type: "transcribe",
+          position: { x: 1, y: 0 },
+          config: {},
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "transcribir" }],
+      updatedAt: new Date().toISOString(),
+    };
+    const transcription: TranscriptionPort = {
+      async transcribe() {
+        return { text: "no debería" };
+      },
+      async listModels() {
+        return [];
+      },
+      async test() {
+        return { ok: true };
+      },
+    };
+    const { executor, store } = await setup(graph, {}, { transcription });
+    store.projects.create({
+      id: "p1",
+      slug: "p1",
+      name: "P1",
+      description: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.projects.update("p1", { transcriptionIntegrationId: "asr1" });
+    const run = await executor.execute({ projectSlug: "p1", graph, payload: {}, entryPoint: "web_ui" });
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("found no audio attachment");
+    store.close();
+  });
+
+  it("attaches images to an agent node and warns when the model lacks vision", async () => {
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "agent-media",
+      name: "Agent media",
+      description: "",
+      defaultModel: "opencode-go/fast",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "agent",
+          type: "agent",
+          agentId: "principal/agente",
+          position: { x: 1, y: 0 },
+          config: { mediaPath: "attachments" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "agent" }],
+      updatedAt: new Date().toISOString(),
+    };
+    const { executor, agent, store } = await setup(graph, {});
+    agent.models = [{ providerID: "opencode-go", modelID: "fast", name: "Fast", input: ["text", "image"] }];
+    const run = await executor.execute({
+      projectSlug: "p1",
+      graph,
+      payload: {
+        attachments: [{ kind: "image", path: ".opencode/media/foto.jpg", mime: "image/jpeg", filename: "foto.jpg" }],
+      },
+      entryPoint: "web_ui",
+    });
+    expect(run.status).toBe("succeeded");
+    expect(agent.promptFiles[0]?.[0]?.uri).toContain(".opencode/media/foto.jpg");
+    expect(agent.prompts[0]).toContain("Se adjuntan 1 imagen");
+
+    agent.models = [{ providerID: "opencode-go", modelID: "fast", name: "Fast", input: ["text"] }];
+    const warned = await executor.execute({
+      projectSlug: "p1",
+      graph,
+      payload: {
+        attachments: [{ kind: "image", path: ".opencode/media/foto.jpg", mime: "image/jpeg", filename: "foto.jpg" }],
+      },
+      entryPoint: "web_ui",
+    });
+    expect(warned.status).toBe("succeeded");
+    const step = store.runs.listSteps(warned.id).find((item) => item.nodeId === "agent");
+    expect(step?.logs?.some((log) => log.message === "agent_model_without_image_input")).toBe(true);
+    store.close();
   });
 });

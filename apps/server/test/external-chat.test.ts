@@ -11,11 +11,24 @@ import { SendExternalChatMessageUseCase, signWebhook } from "../src/application/
 import { ManageIntegrationsUseCase, verifyIntegrationKey } from "../src/application/use-cases/manage-integrations.ts";
 import { createExternalChatRoutes } from "../src/infrastructure/in/http/external-chat-routes.ts";
 import type { IntegrationManagerPort } from "../src/application/ports/integrations.ts";
+import type { TranscriptionPort } from "../src/application/ports/transcription.ts";
 
 const cleanups: string[] = [];
 async function cleanup() {
   await Promise.all(cleanups.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 }
+
+const fakeTranscription: TranscriptionPort = {
+  async transcribe() {
+    return { text: "hola" };
+  },
+  async listModels() {
+    return ["small"];
+  },
+  async test() {
+    return { ok: true, models: ["small"] };
+  },
+};
 
 const fakeManager: IntegrationManagerPort = {
   async start() {},
@@ -59,6 +72,7 @@ async function setup() {
     events: { publish() {} },
     manager: fakeManager,
     databaseAdapter: {} as never,
+    transcription: fakeTranscription,
   }).create({
     scope: "project",
     projectSlug: "ventas",

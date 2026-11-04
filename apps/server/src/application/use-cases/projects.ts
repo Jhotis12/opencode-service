@@ -1,4 +1,4 @@
-import type { ChatProgressEvent, ProjectTemplate, WorkflowGraph } from "@platform/shared";
+import type { ChatProgressEvent, MediaRef, ProjectTemplate, WorkflowGraph } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
@@ -182,6 +182,7 @@ export class ChatWithProjectUseCase {
     slug: string,
     message: string,
     idempotencyKey?: string,
+    attachments?: MediaRef[],
   ): Promise<{ turn: import("../../domain/entities.ts").ChatTurnRecord; threadId: string }> {
     if (!this.deps.turns) throw new Error("chat turn service is not configured");
     const project = this.deps.store.projects.findBySlug(slug);
@@ -203,7 +204,7 @@ export class ChatWithProjectUseCase {
       entryPoint: "web_ui",
       timeoutMs: this.deps.timeoutMs,
     };
-    const turn = await this.deps.turns.start({ thread, target, message, idempotencyKey });
+    const turn = await this.deps.turns.start({ thread, target, message, attachments, idempotencyKey });
     return { turn, threadId: thread.id };
   }
 

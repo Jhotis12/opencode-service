@@ -6,6 +6,7 @@ import {
   NotifyNodeConfigSchema,
   SubworkflowNodeConfigSchema,
   ForeachNodeConfigSchema,
+  TranscribeNodeConfigSchema,
   ValidateConfigSchema,
   type InputSchema,
   type NodeSpec,
@@ -20,6 +21,7 @@ import type { CodeWorkerPort, WorkerRpcHandlers } from "../ports/worker.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
 import { AgentPromptTimeoutError } from "../ports/runtime.ts";
 import type { SecretVault } from "../ports/security.ts";
+import type { TranscriptionPort } from "../ports/transcription.ts";
 import type { EventBus } from "../ports/events.ts";
 import type { ErrorTracker, Metrics, Logger } from "../../domain/telemetry/index.ts";
 import { WorkerTimeoutError } from "../ports/worker.ts";
@@ -37,6 +39,7 @@ import {
   validateWorkflowGraph,
 } from "../../domain/workflow/graph.ts";
 import { renderParams, renderTemplate, resolvePath } from "../../domain/workflow/template.ts";
+import { collectMedia, readMedia, toAttachmentFiles } from "../../domain/media.ts";
 import {
   NodeValidationError,
   WorkflowInputValidationError,
@@ -57,6 +60,7 @@ export interface ExecutorDeps {
   vault?: SecretVault;
   databaseAction?: ExecuteDatabaseActionUseCase;
   notification?: SendNotificationUseCase;
+  transcription?: TranscriptionPort;
   maxConcurrentRuns?: number;
   notifyApproval?: (run: WorkflowRunRecord, nodeId: string) => Promise<void>;
   knowledgeContext?: (projectSlug: string, notebookIds: string[], query: unknown, strictGrounding: boolean) => Promise<string>;
@@ -532,6 +536,7 @@ export class ExecuteWorkflowRunUseCase {
           current.type === "http" ||
           current.type === "database" ||
           current.type === "notify" ||
+          current.type === "transcribe" ||
           (current.type === "decision" && Boolean(current.codeFile) && current.config.mode !== "condition");
         let attempt = 0;
         for (;;) {
@@ -737,6 +742,79 @@ export class ExecuteWorkflowRunUseCase {
           const config = ValidateConfigSchema.parse(current.config);
           validateNodeRules(config, currentInput);
           output = currentInput;
+        } else if (current.type === "transcribe") {
+          if (!this.deps.transcription) throw new Error("transcription is not configured");
+          const config = TranscribeNodeConfigSchema.parse(current.config);
+          const project = store.projects.findBySlug(state.run.projectSlug);
+          const integrationId = config.integrationId ?? project?.transcriptionIntegrationId;
+          if (!integrationId) {
+            throw new Error(`transcribe node ${current.id} requires a transcription integration or project default`);
+          }
+          const refs = collectMedia(currentInput, config.mediaPath);
+          const audios = refs.filter((ref) => ref.kind === "audio");
+          if (audios.length === 0) {
+            throw new Error(`transcribe node ${current.id} found no audio attachment at ${config.mediaPath}`);
+          }
+          if (audios.length > 5) {
+            throw new Error(`transcribe node ${current.id} supports at most 5 audio attachments`);
+          }
+          const segments: Array<{ filename: string; text: string; language?: string; durationSeconds?: number }> = [];
+          let durationSeconds = 0;
+          const transcriptionStarted = Date.now();
+          metrics.increment("transcription_requests");
+          try {
+            for (const audio of audios) {
+              const media = await readMedia(projectDirectory, audio);
+              const result = await this.deps.transcription.transcribe({
+                integrationId,
+                scope: "project",
+                projectSlug: state.run.projectSlug,
+                bytes: media.bytes,
+                filename: media.filename,
+                mime: audio.mime,
+                model: config.model,
+                language: config.language,
+                prompt: config.prompt,
+                timeoutMs: current.timeoutMs,
+              });
+              const segmentDuration = result.durationSeconds ?? audio.durationSeconds;
+              if (segmentDuration !== undefined) durationSeconds += segmentDuration;
+              segments.push({
+                filename: media.filename,
+                text: result.text,
+                ...(result.language ? { language: result.language } : {}),
+                ...(segmentDuration !== undefined ? { durationSeconds: segmentDuration } : {}),
+              });
+            }
+            output = {
+              text: segments.map((segment) => segment.text).join("\n\n"),
+              ...(segments[0]?.language ? { language: segments[0].language } : {}),
+              ...(durationSeconds > 0 ? { durationSeconds } : {}),
+              segments,
+            };
+            metrics.increment("transcription_succeeded");
+            logger.info({
+              event: "transcription_completed",
+              entryPoint,
+              runId: state.run.id,
+              projectSlug: state.run.projectSlug,
+              nodeId: current.id,
+              durationMs: Date.now() - transcriptionStarted,
+              audioCount: audios.length,
+            });
+          } catch (error) {
+            metrics.increment("transcription_failed");
+            logger.error({
+              event: "transcription_failed",
+              entryPoint,
+              runId: state.run.id,
+              projectSlug: state.run.projectSlug,
+              nodeId: current.id,
+              durationMs: Date.now() - transcriptionStarted,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+          }
         } else if (current.type === "agent") {
           agentId = current.agentId;
           const selectedModel =
@@ -783,7 +861,38 @@ export class ExecuteWorkflowRunUseCase {
             );
             if (context) prompt = `${context}\n\n${prompt}`;
           }
-          const rawReply = await agent.prompt(state.sessionId, prompt, { timeoutMs: current.timeoutMs });
+          const mediaPath = typeof current.config.mediaPath === "string" ? current.config.mediaPath : "attachments";
+          const mediaRefs = collectMedia(currentInput, mediaPath);
+          const imageRefs = mediaRefs.filter((ref) => ref.kind === "image");
+          const files = toAttachmentFiles(projectDirectory, imageRefs);
+          if (files.length > 0) {
+            prompt = `${prompt}\n\nSe adjuntan ${files.length} imagen(es) del input.`;
+          }
+          if (mediaRefs.some((ref) => ref.kind === "audio")) {
+            prompt = `${prompt}\n\nHay audio adjunto sin transcribir; si necesitas su contenido, agrega un nodo Transcribir antes de este agente.`;
+          }
+          if (files.length > 0 && selectedModel) {
+            const models = await agent.listModels().catch(() => []);
+            const info = models.find((item) => `${item.providerID}/${item.modelID}` === selectedModel);
+            if (info?.input && !info.input.includes("image")) {
+              logs = [
+                {
+                  message: "agent_model_without_image_input",
+                  fields: { model: selectedModel, nodeId: current.id },
+                },
+              ];
+              logger.warn({
+                event: "agent_model_without_image_input",
+                nodeId: current.id,
+                model: selectedModel,
+                runId: state.run.id,
+              });
+            }
+          }
+          const rawReply = await agent.prompt(state.sessionId, prompt, {
+            timeoutMs: current.timeoutMs,
+            ...(files.length > 0 ? { files } : {}),
+          });
           const outputSchema = InputSchemaSchema.safeParse(current.config.outputSchema);
           if (outputSchema.success && outputSchema.data.fields.length > 0) {
             try {

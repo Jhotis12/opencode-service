@@ -185,6 +185,18 @@ export function getGraphIssues(graph: WorkflowGraph): GraphIssue[] {
     if (node.type === "validate" && (!Array.isArray(node.config.rules) || node.config.rules.length === 0)) {
       issue(issues, { nodeId: node.id, message: "El nodo de validación necesita al menos una regla." });
     }
+    if (node.type === "transcribe" && !String(node.config.mediaPath ?? "attachments").trim()) {
+      issue(issues, { nodeId: node.id, message: "El nodo Transcribir necesita una ruta de audios en el input." });
+    }
+    if (node.type === "trigger" && node.config.kind === "integration") {
+      const accepts = Array.isArray(node.config.accepts) ? node.config.accepts : ["text"];
+      if (accepts.includes("audio") && !graph.nodes.some((candidate) => candidate.type === "transcribe")) {
+        issue(issues, {
+          nodeId: node.id,
+          message: "El trigger acepta audio pero el flujo no tiene un nodo Transcribir.",
+        });
+      }
+    }
     if (
       node.type === "transform" &&
       typeof node.config.template !== "string" &&

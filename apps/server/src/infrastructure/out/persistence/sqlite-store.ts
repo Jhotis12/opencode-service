@@ -207,6 +207,7 @@ export class SqliteStore implements Store {
           primaryAgent: record.primaryAgent ?? null,
           approvalIntegrationId: record.approvalIntegrationId ?? null,
           approvalRecipient: record.approvalRecipient ?? null,
+          transcriptionIntegrationId: record.transcriptionIntegrationId ?? null,
           createdAt: record.createdAt,
           updatedAt: record.updatedAt ?? record.createdAt,
         })
@@ -230,6 +231,7 @@ export class SqliteStore implements Store {
         primaryAgent?: string | null;
         approvalIntegrationId?: string | null;
         approvalRecipient?: string | null;
+        transcriptionIntegrationId?: string | null;
       },
     ): void => {
       this.handle.db
@@ -244,6 +246,9 @@ export class SqliteStore implements Store {
             : {}),
           ...(patch.approvalRecipient !== undefined
             ? { approvalRecipient: patch.approvalRecipient ?? null }
+            : {}),
+          ...(patch.transcriptionIntegrationId !== undefined
+            ? { transcriptionIntegrationId: patch.transcriptionIntegrationId ?? null }
             : {}),
           updatedAt: new Date().toISOString(),
         })
@@ -932,6 +937,7 @@ export class SqliteStore implements Store {
           turnId: record.turnId ?? null,
           role: record.role,
           content: record.content,
+          attachmentsJson: record.attachments ? JSON.stringify(record.attachments) : null,
           errorCode: record.errorCode ?? null,
           createdAt: record.createdAt,
         })
@@ -966,7 +972,7 @@ export class SqliteStore implements Store {
         this.insertChatTurn(turn);
         this.handle.sqlite
           .query(
-            "INSERT INTO chat_messages (id, thread_id, turn_id, role, content, error_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO chat_messages (id, thread_id, turn_id, role, content, attachments_json, error_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
           )
           .run(
             message.id,
@@ -974,6 +980,7 @@ export class SqliteStore implements Store {
             message.turnId ?? turn.id,
             message.role,
             message.content,
+            message.attachments ? JSON.stringify(message.attachments) : null,
             message.errorCode ?? null,
             message.createdAt,
           );
@@ -993,7 +1000,7 @@ export class SqliteStore implements Store {
         if (message) {
           this.handle.sqlite
             .query(
-              "INSERT INTO chat_messages (id, thread_id, turn_id, role, content, error_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+              "INSERT INTO chat_messages (id, thread_id, turn_id, role, content, attachments_json, error_code, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .run(
               message.id,
@@ -1001,6 +1008,7 @@ export class SqliteStore implements Store {
               message.turnId ?? id,
               message.role,
               message.content,
+              message.attachments ? JSON.stringify(message.attachments) : null,
               message.errorCode ?? null,
               message.createdAt,
             );
@@ -1399,6 +1407,7 @@ export class SqliteStore implements Store {
       primaryAgent: row.primaryAgent ?? undefined,
       approvalIntegrationId: row.approvalIntegrationId ?? undefined,
       approvalRecipient: row.approvalRecipient ?? undefined,
+      transcriptionIntegrationId: row.transcriptionIntegrationId ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt ?? undefined,
     };
@@ -1443,6 +1452,7 @@ export class SqliteStore implements Store {
       turnId: row.turnId ?? undefined,
       role: row.role as ChatMessageRecord["role"],
       content: row.content,
+      attachments: parse<ChatMessageRecord["attachments"]>(row.attachmentsJson),
       errorCode: (row.errorCode as ChatMessageRecord["errorCode"]) ?? undefined,
       createdAt: row.createdAt,
     };

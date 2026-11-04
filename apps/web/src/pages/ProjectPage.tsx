@@ -418,6 +418,7 @@ export function ProjectPage() {
       decision: { mode: "condition", condition: { field: "status", operator: "equals", value: "ok" } },
       approval: { message: "Revisar antes de continuar", autoApprove: false },
       agent: { instruction: "" },
+      transcribe: { mediaPath: "attachments" },
       code: {},
     };
     const position = selected
@@ -430,7 +431,7 @@ export function ProjectPage() {
       position,
       config: defaults[type] ?? {},
       notebookIds: [],
-      timeoutMs: 30_000,
+      timeoutMs: type === "transcribe" ? 120_000 : 30_000,
       retryPolicy: { maxRetries: 0 },
     };
     try {

@@ -68,6 +68,88 @@ describe("project settings and readiness", () => {
     store.close();
   });
 
+  it("validates the default transcription connection and readiness", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "platform-settings-"));
+    dirs.push(dir);
+    const store = new SqliteStore(":memory:");
+    const workspace = new SafeFsWorkspaceAdapter(join(dir, "workspaces"));
+    await workspace.createProject({ slug: "ventas", name: "Ventas" });
+    const now = new Date().toISOString();
+    store.projects.create({
+      id: "p1",
+      slug: "ventas",
+      name: "Ventas",
+      description: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.integrations.create({
+      id: "asr1",
+      scope: "project",
+      projectSlug: "ventas",
+      kind: "transcription",
+      name: "ASR",
+      slug: "asr",
+      config: { baseUrl: "http://transcription:8000/v1", model: "Systran/faster-whisper-small" },
+      secretRefs: {},
+      capabilities: ["transcribe_audio"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.integrations.create({
+      id: "tg1",
+      scope: "project",
+      projectSlug: "ventas",
+      kind: "telegram",
+      name: "Telegram",
+      slug: "telegram",
+      config: {},
+      secretRefs: {},
+      capabilities: ["inbound_message", "outbound_message"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.integrations.create({
+      id: "global-asr",
+      scope: "global",
+      kind: "transcription",
+      name: "Global ASR",
+      slug: "global-asr",
+      config: { baseUrl: "http://transcription:8000/v1", model: "Systran/faster-whisper-small" },
+      secretRefs: {},
+      capabilities: ["transcribe_audio"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const graph = await workspace.readWorkflow("ventas");
+    graph.nodes.push({
+      id: "transcribir",
+      type: "transcribe",
+      position: { x: 0, y: 0 },
+      config: {},
+      notebookIds: [],
+      timeoutMs: 120_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    graph.edges.push({ id: "e-transcribe", source: "start", target: "transcribir" });
+    await workspace.writeWorkflow("ventas", graph);
+
+    const before = await new GetProjectSettingsUseCase(store, workspace).execute("ventas");
+    expect(before.readiness.find((item) => item.id === "transcription")?.ready).toBe(false);
+
+    const useCase = new UpdateProjectSettingsUseCase(store, { publish() {} });
+    const updated = useCase.execute("ventas", { transcriptionIntegrationId: "asr1" });
+    expect(updated.transcriptionIntegrationId).toBe("asr1");
+    expect(() => useCase.execute("ventas", { transcriptionIntegrationId: "tg1" })).toThrow(/transcription/);
+    expect(() => useCase.execute("ventas", { transcriptionIntegrationId: "global-asr" })).toThrow(/transcription/);
+    const after = await new GetProjectSettingsUseCase(store, workspace).execute("ventas");
+    expect(after.readiness.find((item) => item.id === "transcription")?.ready).toBe(true);
+    store.close();
+  });
+
   it("reports missing resources and updates the project model", async () => {
     const dir = await mkdtemp(join(tmpdir(), "platform-settings-"));
     dirs.push(dir);

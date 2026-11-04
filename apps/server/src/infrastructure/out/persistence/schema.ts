@@ -51,6 +51,7 @@ export const projects = sqliteTable("projects", {
   primaryAgent: text("primary_agent"),
   approvalIntegrationId: text("approval_integration_id"),
   approvalRecipient: text("approval_recipient"),
+  transcriptionIntegrationId: text("transcription_integration_id"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at"),
 });
@@ -265,6 +266,7 @@ export const chatMessages = sqliteTable("chat_messages", {
   turnId: text("turn_id"),
   role: text("role").notNull(),
   content: text("content").notNull(),
+  attachmentsJson: text("attachments_json"),
   errorCode: text("error_code"),
   createdAt: text("created_at").notNull(),
 });

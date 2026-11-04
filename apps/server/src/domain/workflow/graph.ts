@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Edge, NodeSpec, WorkflowGraph } from "@platform/shared";
-import { DatabaseNodeConfigSchema, NotifyNodeConfigSchema } from "@platform/shared";
+import { DatabaseNodeConfigSchema, NotifyNodeConfigSchema, TranscribeNodeConfigSchema } from "@platform/shared";
 import { isValidCronExpression } from "./cron.ts";
 
 export class WorkflowValidationError extends Error {
@@ -87,6 +87,12 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
       const parsed = NotifyNodeConfigSchema.safeParse(node.config);
       if (!parsed.success) {
         issues.push(`notify node ${node.id} requires a valid integrationId and text`);
+      }
+    }
+    if (node.type === "transcribe") {
+      const parsed = TranscribeNodeConfigSchema.safeParse(node.config);
+      if (!parsed.success) {
+        issues.push(`transcribe node ${node.id} has invalid config`);
       }
     }
     if (node.type === "subworkflow" && typeof node.config.versionId !== "string") {

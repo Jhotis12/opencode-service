@@ -63,6 +63,7 @@ export interface ProjectSummary {
   primaryAgent?: string;
   approvalIntegrationId?: string;
   approvalRecipient?: string;
+  transcriptionIntegrationId?: string;
   createdAt: string;
 }
 
@@ -141,6 +142,7 @@ export interface ModelInfo {
   providerID: string;
   modelID: string;
   name: string;
+  input?: string[];
 }
 
 export interface NotebookSummary {
@@ -364,6 +366,7 @@ export const api = {
       primaryAgent?: string | null;
       approvalIntegrationId?: string | null;
       approvalRecipient?: string | null;
+      transcriptionIntegrationId?: string | null;
     },
   ) =>
     request<ProjectSummary>(`/api/projects/${slug}/settings`, {
@@ -474,7 +477,7 @@ export const api = {
   deleteIntegration: (slug: string, id: string) =>
     request<{ ok: boolean }>(`/api/projects/${slug}/integrations/${id}`, { method: "DELETE" }),
   testIntegration: (slug: string, id: string) =>
-    request<{ ok: boolean; detail?: string; latencyMs?: number }>(`/api/projects/${slug}/integrations/${id}/test`, {
+    request<{ ok: boolean; detail?: string; latencyMs?: number; models?: string[] }>(`/api/projects/${slug}/integrations/${id}/test`, {
       method: "POST",
     }),
   connectIntegration: (slug: string, id: string) =>

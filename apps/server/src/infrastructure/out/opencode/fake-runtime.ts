@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type {
+  AgentFileAttachment,
   AgentInboxItem,
   AgentMessage,
   AgentModelInfo,
@@ -31,7 +32,7 @@ export class FakeAgentRuntime implements AgentRuntimePort {
   private counter = 0;
   registeredKeys: Array<{ providerID: string; apiKey: string }> = [];
   prompts: string[] = [];
-  promptCalls: Array<{ sessionId: string; text: string }> = [];
+  promptCalls: Array<{ sessionId: string; text: string; files?: AgentFileAttachment[] }> = [];
   switchedModels: Array<{ sessionId: string; model: string }> = [];
   scriptedReplies: string[] = [];
   scriptedEvents: Array<{ type: string; data?: Record<string, unknown>; durable?: { seq?: number } }> = [];
@@ -57,8 +58,8 @@ export class FakeAgentRuntime implements AgentRuntimePort {
 
   async listModels(): Promise<AgentModelInfo[]> {
     return [
-      { providerID: "opencode-go", modelID: "fast", name: "OpenCode Go Fast" },
-      { providerID: "opencode-go", modelID: "reasoning", name: "OpenCode Go Reasoning" },
+      { providerID: "opencode-go", modelID: "fast", name: "OpenCode Go Fast", input: ["text", "image"] },
+      { providerID: "opencode-go", modelID: "reasoning", name: "OpenCode Go Reasoning", input: ["text"] },
       { providerID: "opencode", modelID: "default", name: "OpenCode Default" },
     ];
   }
@@ -81,11 +82,15 @@ export class FakeAgentRuntime implements AgentRuntimePort {
     return { id };
   }
 
-  async prompt(sessionId: string, text: string, _options?: { model?: string; agent?: string; timeoutMs?: number }): Promise<string> {
+  async prompt(
+    sessionId: string,
+    text: string,
+    options?: { model?: string; agent?: string; timeoutMs?: number; files?: AgentFileAttachment[] },
+  ): Promise<string> {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
     this.prompts.push(text);
-    this.promptCalls.push({ sessionId, text });
+    this.promptCalls.push({ sessionId, text, files: options?.files });
     const scripted = this.scriptedReplies.shift();
     if (scripted !== undefined) {
       if (scripted) this.emit({ type: "session.text.delta", sessionID: sessionId, text: scripted });
@@ -142,7 +147,7 @@ export class FakeAgentRuntime implements AgentRuntimePort {
       created: Date.now(),
     });
     this.prompts.push(input.text);
-    this.promptCalls.push({ sessionId, text: input.text });
+    this.promptCalls.push({ sessionId, text: input.text, files: input.files });
     this.emit({ type: "session.inbox.enqueued", sessionID: sessionId, id: inboxId, data: { sessionID: sessionId, inboxID: inboxId } });
     session.timer = setTimeout(() => {
       if (!session.active) return;

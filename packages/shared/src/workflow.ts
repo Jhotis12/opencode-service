@@ -4,6 +4,7 @@ export const NodeTypeSchema = z.enum([
   "trigger",
   "code",
   "agent",
+  "transcribe",
   "decision",
   "approval",
   "http",
@@ -19,6 +20,9 @@ export type NodeType = z.infer<typeof NodeTypeSchema>;
 
 export const TriggerKindSchema = z.enum(["manual", "schedule", "webhook", "integration"]);
 export type TriggerKind = z.infer<typeof TriggerKindSchema>;
+
+export const TriggerMediaKindSchema = z.enum(["text", "image", "audio"]);
+export type TriggerMediaKind = z.infer<typeof TriggerMediaKindSchema>;
 
 export const ScheduleTimezoneSchema = z.string().min(1).refine((timezone) => {
   try {
@@ -73,6 +77,7 @@ export const TriggerConfigSchema = z.object({
   secretAlias: z.string().optional(),
   integrationId: z.string().optional(),
   event: z.string().optional(),
+  accepts: z.array(TriggerMediaKindSchema).min(1).default(["text"]),
   inputSchema: InputSchemaSchema.optional(),
 });
 export type TriggerConfig = z.infer<typeof TriggerConfigSchema>;
@@ -81,8 +86,18 @@ export const AgentNodeConfigSchema = z.object({
   instruction: z.string().optional(),
   strictGrounding: z.boolean().optional(),
   outputSchema: InputSchemaSchema.optional(),
+  mediaPath: z.string().min(1).optional(),
 });
 export type AgentNodeConfig = z.infer<typeof AgentNodeConfigSchema>;
+
+export const TranscribeNodeConfigSchema = z.object({
+  integrationId: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  language: z.string().min(2).max(16).optional(),
+  prompt: z.string().max(2000).optional(),
+  mediaPath: z.string().min(1).default("attachments"),
+});
+export type TranscribeNodeConfig = z.infer<typeof TranscribeNodeConfigSchema>;
 
 export const DatabaseStatementSchema = z.object({
   sql: z.string().min(1),

@@ -47,6 +47,7 @@ export function requiredSecretRefs(kind: IntegrationKind, config: Record<string,
       return ["password"];
     case "sqlite":
     case "http":
+    case "transcription":
       return [];
   }
 }

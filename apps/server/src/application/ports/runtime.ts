@@ -2,7 +2,14 @@ export interface AgentModelInfo {
   providerID: string;
   modelID: string;
   name: string;
+  input?: string[];
   cost?: { input: number; output: number };
+}
+
+export interface AgentFileAttachment {
+  uri: string;
+  name?: string;
+  description?: string;
 }
 
 export interface AgentSessionRef {
@@ -36,6 +43,7 @@ export interface AgentInboxItem {
 export interface AgentPromptInput {
   id?: string;
   text: string;
+  files?: AgentFileAttachment[];
   metadata?: Record<string, unknown>;
   delivery?: "queue" | "steer";
 }
@@ -61,7 +69,7 @@ export interface AgentRuntimePort {
   prompt(
     sessionId: string,
     text: string,
-    options?: { model?: string; agent?: string; timeoutMs?: number },
+    options?: { model?: string; agent?: string; timeoutMs?: number; files?: AgentFileAttachment[] },
   ): Promise<string>;
   sendPrompt(sessionId: string, input: AgentPromptInput): Promise<{ inboxId?: string }>;
   getSession(sessionId: string): Promise<AgentSessionState | undefined>;

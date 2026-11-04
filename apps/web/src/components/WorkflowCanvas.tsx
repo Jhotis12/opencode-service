@@ -38,6 +38,8 @@ function subtitle(node: NodeSpec): string | undefined {
       return node.codeFile;
     case "agent":
       return `${node.agentId ?? "sin agente"}${node.modelOverride ? ` · ${node.modelOverride}` : ""}`;
+    case "transcribe":
+      return `${String(node.config.model ?? "modelo heredado")}${node.config.integrationId ? " · conexión" : " · proyecto"}`;
     case "decision":
       return node.config.mode === "condition" ? "Condición visual" : node.codeFile;
     case "http":

@@ -1,4 +1,4 @@
-import type { ChatProgressEvent } from "@platform/shared";
+import type { ChatProgressEvent, MediaRef } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
 import type { ChatMessageRecord } from "../../domain/entities.ts";
@@ -78,6 +78,7 @@ export class ChatWithOrchestratorUseCase {
   async start(
     message: string,
     idempotencyKey?: string,
+    attachments?: MediaRef[],
   ): Promise<{ turn: import("../../domain/entities.ts").ChatTurnRecord; threadId: string }> {
     if (!this.deps.turns) throw new Error("chat turn service is not configured");
     const thread = this.deps.store.chatThreads.findOrCreate({
@@ -95,7 +96,7 @@ export class ChatWithOrchestratorUseCase {
       readOnly: true,
       timeoutMs: this.deps.timeoutMs,
     };
-    const turn = await this.deps.turns.start({ thread, target, message, idempotencyKey });
+    const turn = await this.deps.turns.start({ thread, target, message, attachments, idempotencyKey });
     return { turn, threadId: thread.id };
   }
 

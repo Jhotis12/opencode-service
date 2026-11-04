@@ -62,6 +62,8 @@ import { IntegrationEgressRouter } from "./infrastructure/in/channels/egress-rou
 import { createExternalChatRoutes } from "./infrastructure/in/http/external-chat-routes.ts";
 import { IntegrationManager } from "./infrastructure/in/channels/channel-manager.ts";
 import { WorkspaceError } from "./infrastructure/out/workspace-fs/safe-workspace.ts";
+import { FsMediaStore } from "./infrastructure/out/media/fs-media-store.ts";
+import { OpenAiCompatibleTranscriptionService } from "./infrastructure/out/transcription/openai-compatible-transcription-service.ts";
 import {
   IdempotencyMismatchError,
   RunInFlightError,
@@ -169,6 +171,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const workspacesDir = join(config.dataDir, "workspaces");
   const controlDirectory = join(config.dataDir, "control");
   const workspace = new SafeFsWorkspaceAdapter(workspacesDir);
+  const media = new FsMediaStore({ workspacesDir, controlDirectory });
   await syncProjectsFromDisk(store, workspace);
   for (const slug of await workspace.listProjects()) {
     const project = store.projects.findBySlug(slug);
@@ -229,6 +232,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const codec = new SessionCodec(masterKey.toString("base64"));
   const egress = new IntegrationEgressRouter();
   const externalDb = new DynamicDatabaseClientAdapter();
+  const transcription = new OpenAiCompatibleTranscriptionService({ store, vault, fetchImpl: fetch });
   const queryDatabase = new QueryDatabaseIntegrationUseCase(store, vault, externalDb, logger);
   const testDatabase = new TestDatabaseIntegrationUseCase(store, vault, externalDb);
   const databaseAction = new ExecuteDatabaseActionUseCase(store, vault, externalDb, logger);
@@ -256,6 +260,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     vault,
     databaseAction,
     notification,
+    transcription,
     notifyApproval: (run, nodeId) => notifyApproval.execute(run, nodeId),
     workerHandlers: {
       db: ({ projectSlug, integrationId, sql, params }) =>
@@ -293,6 +298,9 @@ export async function createApplication(config: AppConfig): Promise<Application>
     turns: useTurnEngine ? chatTurns : undefined,
     executor,
     egress,
+    media,
+    transcription,
+    metrics,
     events,
     logger,
   });
@@ -303,6 +311,9 @@ export async function createApplication(config: AppConfig): Promise<Application>
     turns: useTurnEngine ? chatTurns : undefined,
     executor,
     egress,
+    media,
+    transcription,
+    metrics,
     events,
     logger,
     controlDirectory,
@@ -325,6 +336,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     events,
     manager: integrationManager,
     databaseAdapter: externalDb,
+    transcription,
   });
 
   const createProject = new CreateProjectUseCase(store, workspace, events);
@@ -858,10 +870,11 @@ export async function createApplication(config: AppConfig): Promise<Application>
     const turn = chatTurns.get(c.req.param("turnId"));
     if (!turn) return c.json(apiError("NOT_FOUND", "chat turn not found"), 404);
     if (turn.scope !== "global") return c.json(apiError("FORBIDDEN", "control scope mismatch"), 403);
-    const message = store.chat.listByTurn(turn.id).find((item) => item.role === "user")?.content;
+    const userMessage = store.chat.listByTurn(turn.id).find((item) => item.role === "user");
+    const message = userMessage?.content;
     if (!message) return c.json(apiError("VALIDATION_ERROR", "original message not found"), 422);
     try {
-      const retried = await orchestrator.start(message, crypto.randomUUID());
+      const retried = await orchestrator.start(message, crypto.randomUUID(), userMessage?.attachments);
       return c.json({ turn: retried.turn, warning: turn.errorCode === "unknown" || turn.hasSideEffects ? "review possible side effects" : undefined });
     } catch (error) {
       if (error instanceof TurnInProgressError) {
@@ -928,6 +941,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
       primaryAgent: string | null;
       approvalIntegrationId: string | null;
       approvalRecipient: string | null;
+      transcriptionIntegrationId: string | null;
     }>;
     try {
       return c.json(
@@ -940,6 +954,9 @@ export async function createApplication(config: AppConfig): Promise<Application>
             ? { approvalIntegrationId: body.approvalIntegrationId }
             : {}),
           ...(body.approvalRecipient !== undefined ? { approvalRecipient: body.approvalRecipient } : {}),
+          ...(body.transcriptionIntegrationId !== undefined
+            ? { transcriptionIntegrationId: body.transcriptionIntegrationId }
+            : {}),
         }),
       );
     } catch (error) {
@@ -1247,10 +1264,11 @@ export async function createApplication(config: AppConfig): Promise<Application>
     if (turn.projectSlug !== c.req.param("slug")) {
       return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
     }
-    const message = store.chat.listByTurn(turn.id).find((item) => item.role === "user")?.content;
+    const userMessage = store.chat.listByTurn(turn.id).find((item) => item.role === "user");
+    const message = userMessage?.content;
     if (!message) return c.json(apiError("VALIDATION_ERROR", "original message not found"), 422);
     try {
-      const retried = await chat.start(c.req.param("slug"), message, crypto.randomUUID());
+      const retried = await chat.start(c.req.param("slug"), message, crypto.randomUUID(), userMessage?.attachments);
       return c.json({ turn: retried.turn, warning: turn.errorCode === "unknown" || turn.hasSideEffects ? "review possible side effects" : undefined });
     } catch (error) {
       if (error instanceof TurnInProgressError) {

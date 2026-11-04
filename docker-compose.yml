@@ -6,6 +6,9 @@ services:
       - "${HOST_PORT:-3001}:3000"
     volumes:
       - platform-data:/data
+    depends_on:
+      transcription:
+        condition: service_healthy
     environment:
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-admin123!}
       AGENT_CHAT_TIMEOUT_MS: ${AGENT_CHAT_TIMEOUT_MS:-900000}
@@ -29,5 +32,33 @@ services:
       EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
     restart: unless-stopped
 
+  transcription:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    expose:
+      - "8000"
+    volumes:
+      - whisper-models:/home/ubuntu/.cache/huggingface/hub
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  transcription-init:
+    image: curlimages/curl:8.10.1
+    depends_on:
+      transcription:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - |
+        curl -fsS -X POST http://transcription:8000/v1/models/Systran/faster-whisper-base &&
+        curl -fsS -X POST http://transcription:8000/v1/models/Systran/faster-whisper-small
+    restart: "no"
+
 volumes:
   platform-data:
+  whisper-models:

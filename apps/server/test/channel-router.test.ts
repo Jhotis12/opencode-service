@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteStore } from "../src/infrastructure/out/persistence/sqlite-store.ts";
@@ -12,7 +12,11 @@ import {
 import { parseApprovalCommand, routeProjectMessage, senderMatchesAllowlist } from "../src/domain/channels/router.ts";
 import { ChatTurnService } from "../src/application/use-cases/chat-turns.ts";
 import { SseHub } from "../src/infrastructure/in/sse/sse-hub.ts";
+import { FsMediaStore } from "../src/infrastructure/out/media/fs-media-store.ts";
 import type { IntegrationEgressPort, TriggerRef } from "../src/application/ports/channels.ts";
+import type { TranscriptionPort } from "../src/application/ports/transcription.ts";
+import { InMemoryMetrics } from "../src/domain/telemetry/metrics.ts";
+import type { Metrics } from "../src/domain/telemetry/index.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
 import type { IntegrationRecord } from "../src/domain/entities.ts";
 
@@ -37,6 +41,21 @@ class FakeEgress implements IntegrationEgressPort {
     this.sent.push({ integrationId, text });
     return {};
   }
+}
+
+function fakeTranscription(text = "hola transcript", fail = false): TranscriptionPort {
+  return {
+    async transcribe() {
+      if (fail) throw new Error("provider down");
+      return { text, language: "es" };
+    },
+    async listModels() {
+      return ["small"];
+    },
+    async test() {
+      return { ok: !fail, models: ["small"] };
+    },
+  };
 }
 
 const trigger: TriggerRef = {
@@ -107,7 +126,14 @@ describe("project channel routing domain", () => {
   });
 });
 
-async function setup(useTurns = false) {
+async function setup(
+  useTurns = false,
+  options: {
+    transcription?: TranscriptionPort;
+    transcriptionIntegrationId?: string;
+    metrics?: Metrics;
+  } = {},
+) {
   const dir = await mkdtemp(join(tmpdir(), "platform-channels-"));
   dirs.push(dir);
   const workspace = new SafeFsWorkspaceAdapter(join(dir, "workspaces"));
@@ -154,6 +180,9 @@ async function setup(useTurns = false) {
     name: "Ventas",
     description: "",
     primaryAgent: "principal/agente",
+    ...(options.transcriptionIntegrationId
+      ? { transcriptionIntegrationId: options.transcriptionIntegrationId }
+      : {}),
     createdAt: now,
     updatedAt: now,
   });
@@ -186,10 +215,13 @@ async function setup(useTurns = false) {
     turns,
     executor: executor as never,
     egress,
+    media: new FsMediaStore({ workspacesDir: join(dir, "workspaces"), controlDirectory: join(dir, "control") }),
+    transcription: options.transcription,
+    metrics: options.metrics,
     events: { publish() {} },
     logger: silentLogger,
   });
-  return { router, store, agent, egress, executed, approvals };
+  return { dir, workspace, router, store, agent, egress, executed, approvals };
 }
 
 describe("route incoming project messages", () => {
@@ -201,6 +233,175 @@ describe("route incoming project messages", () => {
     expect(agent.prompts).toHaveLength(2);
     expect(egress.sent).toHaveLength(2);
     expect(executed).toHaveLength(0);
+  });
+
+  it("stores inbound images and passes them to the agent prompt", async () => {
+    const { dir, router, agent } = await setup();
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "",
+      attachments: [{ kind: "image", filename: "foto.jpg", mime: "image/jpeg", bytes }],
+    });
+    expect(agent.prompts[0]).toContain("Analiza la imagen adjunta");
+    const files = await readdir(join(dir, "workspaces", "ventas", ".opencode", "media"));
+    expect(files.some((file) => file.endsWith(".jpg"))).toBe(true);
+  });
+
+  it("does not persist media for a dropped sender", async () => {
+    const { dir, router, store } = await setup();
+    const integration = store.integrations.findById("i1")!;
+    integration.config = { routing: { mode: "hybrid", allowlist: ["123"], public: false } };
+    store.integrations.update("i1", { config: integration.config });
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+    const result = await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "999",
+      text: "",
+      attachments: [{ kind: "image", filename: "foto.jpg", mime: "image/jpeg", bytes }],
+    });
+    expect(result.decision).toBe("dropped");
+    const files = await readdir(join(dir, "workspaces", "ventas", ".opencode", "media")).catch(() => []);
+    expect(files).toEqual([]);
+  });
+
+  it("includes accepted audio in the workflow payload", async () => {
+    const { router, executed, workspace } = await setup();
+    const graph = await workspace.readWorkflow("ventas");
+    graph.nodes[0] = { ...graph.nodes[0]!, config: { ...graph.nodes[0]!.config, accepts: ["audio"] } };
+    await workspace.writeWorkflow("ventas", graph);
+    const bytes = new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02, 0x00, 0x00]);
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "999",
+      text: "",
+      attachments: [{ kind: "audio", filename: "voice.ogg", mime: "audio/ogg", bytes }],
+    });
+    const payload = (executed[0] as { payload: { attachments: Array<{ kind: string; path: string }> } }).payload;
+    expect(payload.attachments[0]?.kind).toBe("audio");
+    expect(payload.attachments[0]?.path).toMatch(/^\.opencode\/media\/[a-f0-9]{64}\.ogg$/);
+  });
+
+  it("drops an image for a default text-only trigger", async () => {
+    const { router, executed } = await setup();
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+    const result = await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "999",
+      text: "",
+      attachments: [{ kind: "image", filename: "foto.jpg", mime: "image/jpeg", bytes }],
+    });
+    expect(result.decision).toBe("dropped");
+    expect(executed).toHaveLength(0);
+  });
+
+  it("passes only the accepted attachments to a mixed message", async () => {
+    const { router, executed, workspace } = await setup();
+    const graph = await workspace.readWorkflow("ventas");
+    graph.nodes[0] = { ...graph.nodes[0]!, config: { ...graph.nodes[0]!.config, accepts: ["text"] } };
+    await workspace.writeWorkflow("ventas", graph);
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "999",
+      text: "mira esto",
+      attachments: [{ kind: "image", filename: "foto.jpg", mime: "image/jpeg", bytes }],
+    });
+    const payload = (executed[0] as { payload: { message: string; attachments: unknown[] } }).payload;
+    expect(payload.message).toBe("mira esto");
+    expect(payload.attachments).toEqual([]);
+  });
+
+  it("passes text and image when the trigger accepts both", async () => {
+    const { router, executed, workspace } = await setup();
+    const graph = await workspace.readWorkflow("ventas");
+    graph.nodes[0] = { ...graph.nodes[0]!, config: { ...graph.nodes[0]!.config, accepts: ["text", "image"] } };
+    await workspace.writeWorkflow("ventas", graph);
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "999",
+      text: "mira esto",
+      attachments: [{ kind: "image", filename: "foto.jpg", mime: "image/jpeg", bytes }],
+    });
+    const payload = (executed[0] as { payload: { message: string; attachments: Array<{ kind: string }> } }).payload;
+    expect(payload.message).toBe("mira esto");
+    expect(payload.attachments[0]?.kind).toBe("image");
+  });
+
+  it("transcribes agent-mode audio with the project default connection", async () => {
+    const { router, agent } = await setup(false, {
+      transcription: fakeTranscription(),
+      transcriptionIntegrationId: "asr1",
+    });
+    const bytes = new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02, 0x00, 0x00]);
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "",
+      attachments: [{ kind: "audio", filename: "voice.ogg", mime: "audio/ogg", bytes }],
+    });
+    expect(agent.prompts[0]).toContain("Transcripción de audio:");
+    expect(agent.prompts[0]).toContain("hola transcript");
+  });
+
+  it("rejects agent-mode audio when the project has no transcription connection", async () => {
+    const { router, agent, egress } = await setup(false, { transcription: fakeTranscription() });
+    const bytes = new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02, 0x00, 0x00]);
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "",
+      attachments: [{ kind: "audio", filename: "voice.ogg", mime: "audio/ogg", bytes }],
+    });
+    expect(egress.sent[0]?.text).toContain("conexión de transcripción");
+    expect(agent.prompts).toHaveLength(0);
+  });
+
+  it("rejects agent-mode audio when transcription fails", async () => {
+    const { router, agent, egress } = await setup(false, {
+      transcription: fakeTranscription("", true),
+      transcriptionIntegrationId: "asr1",
+    });
+    const bytes = new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02, 0x00, 0x00]);
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "",
+      attachments: [{ kind: "audio", filename: "voice.ogg", mime: "audio/ogg", bytes }],
+    });
+    expect(egress.sent[0]?.text).toContain("No pude transcribir");
+    expect(agent.prompts).toHaveLength(0);
+  });
+
+  it("records media and transcription metrics without content", async () => {
+    const metrics = new InMemoryMetrics();
+    const { router } = await setup(false, {
+      transcription: fakeTranscription(),
+      transcriptionIntegrationId: "asr1",
+      metrics,
+    });
+    const audio = new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02]);
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "",
+      attachments: [{ kind: "audio", filename: "voice.ogg", mime: "audio/ogg", bytes: audio }],
+    });
+    expect(metrics.counter("channel_media_captured")).toBe(1);
+    expect(metrics.counter("transcription_requests")).toBe(1);
+    expect(metrics.counter("transcription_succeeded")).toBe(1);
   });
 
   it("deduplicates a repeated channel message and delivers once", async () => {
@@ -280,6 +481,7 @@ describe("route incoming project messages", () => {
       agent,
       executor: {} as never,
       egress,
+      media: new FsMediaStore({ workspacesDir: join(dir, "workspaces"), controlDirectory: join(dir, "control") }),
       events: { publish() {} },
       logger: silentLogger,
       controlDirectory: join(dir, "control"),

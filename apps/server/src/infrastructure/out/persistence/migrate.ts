@@ -216,6 +216,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   thread_id TEXT NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  attachments_json TEXT,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS chat_messages_thread ON chat_messages(thread_id, created_at);
@@ -370,6 +371,7 @@ export function migrate(sqlite: Database): void {
     addColumnIfMissing(sqlite, "projects", "primary_agent", "TEXT");
     addColumnIfMissing(sqlite, "projects", "approval_integration_id", "TEXT");
     addColumnIfMissing(sqlite, "projects", "approval_recipient", "TEXT");
+    addColumnIfMissing(sqlite, "projects", "transcription_integration_id", "TEXT");
     addColumnIfMissing(sqlite, "projects", "updated_at", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "launched_by", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "graph_hash", "TEXT");
@@ -381,6 +383,7 @@ export function migrate(sqlite: Database): void {
     addColumnIfMissing(sqlite, "workflow_step_runs", "agent_id", "TEXT");
     addColumnIfMissing(sqlite, "workflow_step_runs", "logs", "TEXT");
     addColumnIfMissing(sqlite, "chat_messages", "turn_id", "TEXT");
+    addColumnIfMissing(sqlite, "chat_messages", "attachments_json", "TEXT");
     addColumnIfMissing(sqlite, "chat_messages", "error_code", "TEXT");
     addColumnIfMissing(sqlite, "chat_turns", "has_side_effects", "INTEGER NOT NULL DEFAULT 0");
     backfillDatabasePolicies(sqlite);

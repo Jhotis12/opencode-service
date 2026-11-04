@@ -42,6 +42,12 @@ const KIND_OPTIONS: Array<{ value: IntegrationRecord["kind"]; label: string; con
   { value: "mssql", label: "SQL Server", config: '{"host":"localhost","port":1433,"database":"crm","user":"app"}', secrets: '{"password":"..."}' },
   { value: "sqlite", label: "SQLite", config: '{"filename":"/data/client.sqlite"}', secrets: "{}" },
   { value: "http", label: "HTTP API", config: '{"baseUrl":"https://api.example.com"}', secrets: "{}" },
+  {
+    value: "transcription",
+    label: "Transcripción (ASR)",
+    config: '{"baseUrl":"http://transcription:8000/v1","model":"Systran/faster-whisper-small","language":"es"}',
+    secrets: "{}",
+  },
 ];
 
 const DATABASE_KINDS = new Set<IntegrationRecord["kind"]>(["postgres", "mysql", "mssql", "sqlite"]);
@@ -176,6 +182,10 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
   const [token, setToken] = useState("");
   const [whatsappMode, setWhatsappMode] = useState<"baileys" | "cloud">("baileys");
   const [phoneNumberId, setPhoneNumberId] = useState("");
+  const [transcriptionBaseUrl, setTranscriptionBaseUrl] = useState("http://transcription:8000/v1");
+  const [transcriptionModel, setTranscriptionModel] = useState("Systran/faster-whisper-small");
+  const [transcriptionLanguage, setTranscriptionLanguage] = useState("es");
+  const [transcriptionApiKey, setTranscriptionApiKey] = useState("");
   const [created, setCreated] = useState<{ integration: IntegrationRecord; apiKey?: string; webhookSecret?: string }>();
   const [secretAlias, setSecretAlias] = useState("");
   const [secretValue, setSecretValue] = useState("");
@@ -201,6 +211,10 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
     setToken("");
     setWhatsappMode("baileys");
     setPhoneNumberId("");
+    setTranscriptionBaseUrl("http://transcription:8000/v1");
+    setTranscriptionModel("Systran/faster-whisper-small");
+    setTranscriptionLanguage("es");
+    setTranscriptionApiKey("");
   }
 
   const create = useMutation({
@@ -208,26 +222,42 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
       const parsedConfig = JSON.parse(config) as Record<string, unknown>;
       const parsedSecrets = JSON.parse(secrets) as Record<string, string>;
       const channel = ["telegram", "whatsapp", "external_chat"].includes(kind);
-      const finalConfig = channel
-        ? {
-            ...parsedConfig,
-            ...(kind === "whatsapp"
-              ? {
-                  mode: whatsappMode,
-                  ...(whatsappMode === "cloud" ? { phoneNumberId } : {}),
-                }
-              : {}),
-            routing: {
-              mode: channelMode,
-              allowlist: allowlist
-                .split(",")
-                .map((item) => item.trim())
-                .filter(Boolean),
-              public: channelPublic,
-            },
-          }
-        : parsedConfig;
-      const finalSecrets = token ? { ...parsedSecrets, token } : parsedSecrets;
+      const finalConfig =
+        kind === "transcription"
+          ? {
+              ...parsedConfig,
+              baseUrl: transcriptionBaseUrl,
+              model: transcriptionModel,
+              ...(transcriptionLanguage ? { language: transcriptionLanguage } : {}),
+            }
+          : channel
+            ? {
+                ...parsedConfig,
+                ...(kind === "whatsapp"
+                  ? {
+                      mode: whatsappMode,
+                      ...(whatsappMode === "cloud" ? { phoneNumberId } : {}),
+                    }
+                  : {}),
+                routing: {
+                  mode: channelMode,
+                  allowlist: allowlist
+                    .split(",")
+                    .map((item) => item.trim())
+                    .filter(Boolean),
+                  public: channelPublic,
+                },
+              }
+            : parsedConfig;
+      const finalSecrets =
+        kind === "transcription"
+          ? {
+              ...parsedSecrets,
+              ...(transcriptionApiKey ? { apiKey: transcriptionApiKey } : {}),
+            }
+          : token
+            ? { ...parsedSecrets, token }
+            : parsedSecrets;
       return api.createIntegration(projectSlug, {
         kind,
         name,
@@ -252,7 +282,12 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
 
   const test = useMutation({
     mutationFn: (id: string) => api.testIntegration(projectSlug, id),
-    onSuccess: (result, id) => setStatus(`${id}: ${result.ok ? "ok" : "error"}${result.detail ? ` · ${result.detail}` : ""}`),
+    onSuccess: (result, id) =>
+      setStatus(
+        `${id}: ${result.ok ? "ok" : "error"}${result.detail ? ` · ${result.detail}` : ""}${
+          result.models?.length ? ` · modelos: ${result.models.slice(0, 6).join(", ")}` : ""
+        }`,
+      ),
   });
 
   const connect = useMutation({
@@ -468,7 +503,63 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
           </>
         )}
 
-        {!isChannel && (
+        {kind === "transcription" && (
+          <>
+            <label className="md:col-span-2">
+              URL base del proveedor
+              <input
+                value={transcriptionBaseUrl}
+                onChange={(event) => setTranscriptionBaseUrl(event.target.value)}
+                placeholder="http://transcription:8000/v1"
+              />
+            </label>
+            <label>
+              Modelo por defecto
+              <input
+                value={transcriptionModel}
+                onChange={(event) => setTranscriptionModel(event.target.value)}
+                placeholder="Systran/faster-whisper-small"
+                list="transcription-model-suggestions"
+              />
+              <datalist id="transcription-model-suggestions">
+                <option value="Systran/faster-whisper-base" />
+                <option value="Systran/faster-whisper-small" />
+                <option value="deepdml/faster-whisper-large-v3-turbo-ct2" />
+                <option value="whisper-1" />
+                <option value="whisper-large-v3" />
+              </datalist>
+            </label>
+            <label>
+              Idioma (opcional)
+              <input
+                value={transcriptionLanguage}
+                onChange={(event) => setTranscriptionLanguage(event.target.value)}
+                placeholder="es"
+              />
+            </label>
+            <label className="md:col-span-2">
+              API key (opcional para speaches local)
+              <input
+                type="password"
+                value={transcriptionApiKey}
+                onChange={(event) => setTranscriptionApiKey(event.target.value)}
+                placeholder="Se guarda en la bóveda"
+              />
+            </label>
+            <details className="md:col-span-2">
+              <summary className="cursor-pointer text-xs text-muted">Configuración avanzada</summary>
+              <label className="mt-2">
+                JSON adicional
+                <textarea rows={2} value={config} onChange={(event) => setConfig(event.target.value)} />
+              </label>
+            </details>
+            <p className="text-xs text-muted md:col-span-2">
+              Usa “Probar” sobre la integración creada para listar los modelos disponibles y cachearlos.
+            </p>
+          </>
+        )}
+
+        {!isChannel && kind !== "transcription" && (
           <>
             <label className="md:col-span-2">
               Configuración (JSON, sin secretos)

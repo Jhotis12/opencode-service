@@ -32,6 +32,12 @@ export function NodeIcon({ type }: { type: NodeType }) {
           <path d="M12 8V4M9 13h.01M15 13h.01M9 16h6" />
         </svg>
       );
+    case "transcribe":
+      return (
+        <svg {...common}>
+          <path d="M4 12h2l2-5 3 10 2-5h3l2 3h2" />
+        </svg>
+      );
     case "decision":
       return (
         <svg {...common}>

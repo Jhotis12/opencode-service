@@ -13,6 +13,7 @@ import {
 } from "../../domain/integrations/validation.ts";
 import { TestDatabaseIntegrationUseCase } from "./connections.ts";
 import type { ExternalDatabaseAdapter } from "../ports/runtime.ts";
+import type { TranscriptionPort } from "../ports/transcription.ts";
 
 export interface IntegrationCommand {
   scope: IntegrationScope;
@@ -52,6 +53,7 @@ export class ManageIntegrationsUseCase {
       events: EventBus;
       manager: IntegrationManagerPort;
       databaseAdapter: ExternalDatabaseAdapter;
+      transcription: TranscriptionPort;
     },
   ) {}
 
@@ -216,11 +218,32 @@ export class ManageIntegrationsUseCase {
     await this.deps.manager.stop(id);
   }
 
-  async test(id: string, scope: { scope: IntegrationScope; projectSlug?: string }): Promise<{ ok: boolean; detail?: string; latencyMs?: number }> {
+  async test(
+    id: string,
+    scope: { scope: IntegrationScope; projectSlug?: string },
+  ): Promise<{ ok: boolean; detail?: string; latencyMs?: number; models?: string[] }> {
     const integration = this.get(id, scope);
     if (["postgres", "mysql", "mssql", "sqlite"].includes(integration.kind)) {
       const tester = new TestDatabaseIntegrationUseCase(this.deps.store, this.deps.vault, this.deps.databaseAdapter);
       return tester.execute(id, scope);
+    }
+    if (integration.kind === "transcription") {
+      const result = await this.deps.transcription.test({
+        integrationId: id,
+        scope: integration.scope,
+        projectSlug: integration.projectSlug,
+      });
+      this.deps.store.integrations.updateStatus(
+        id,
+        result.ok ? "connected" : "error",
+        result.ok ? undefined : result.detail,
+      );
+      if (result.ok && result.models) {
+        this.deps.store.integrations.update(id, {
+          config: { ...integration.config, models: result.models },
+        });
+      }
+      return result;
     }
     return this.deps.manager.test(integration);
   }

@@ -21,6 +21,7 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
   const [primaryAgent, setPrimaryAgent] = useState("");
   const [approvalIntegrationId, setApprovalIntegrationId] = useState("");
   const [approvalRecipient, setApprovalRecipient] = useState("");
+  const [transcriptionIntegrationId, setTranscriptionIntegrationId] = useState("");
   const [status, setStatus] = useState<string>();
 
   useEffect(() => {
@@ -31,6 +32,7 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
     setPrimaryAgent(settingsQuery.data.project.primaryAgent ?? "");
     setApprovalIntegrationId(settingsQuery.data.project.approvalIntegrationId ?? "");
     setApprovalRecipient(settingsQuery.data.project.approvalRecipient ?? "");
+    setTranscriptionIntegrationId(settingsQuery.data.project.transcriptionIntegrationId ?? "");
   }, [settingsQuery.data]);
 
   const save = useMutation({
@@ -42,6 +44,7 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
         primaryAgent: primaryAgent || null,
         approvalIntegrationId: approvalIntegrationId || null,
         approvalRecipient: approvalRecipient || null,
+        transcriptionIntegrationId: transcriptionIntegrationId || null,
       }),
     onSuccess: async () => {
       setStatus("Ajustes del proyecto guardados");
@@ -122,6 +125,29 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
             placeholder="123456789"
           />
         </label>
+        <h3 className="mt-2 text-sm font-semibold text-slate-100">Transcripción</h3>
+        <label>
+          Conexión de transcripción por defecto
+          <select
+            value={transcriptionIntegrationId}
+            onChange={(event) => setTranscriptionIntegrationId(event.target.value)}
+          >
+            <option value="">Sin conexión por defecto</option>
+            {settings.integrations
+              .filter((integration) => integration.kind === "transcription")
+              .map((integration) => (
+                <option key={integration.id} value={integration.id}>
+                  {integration.name} · {String(integration.config.model ?? "sin modelo")}
+                </option>
+              ))}
+          </select>
+        </label>
+        <p className="text-xs text-muted">
+          Se usa para transcribir audio en modo agente. Los nodos Transcribir pueden elegir otra conexión.
+        </p>
+        {settings.integrations.every((integration) => integration.kind !== "transcription") && (
+          <p className="text-xs text-warn">Crea una integración de Transcripción en Recursos para habilitar audio.</p>
+        )}
         <button className={buttonPrimary} disabled={save.isPending || !name}>
           Guardar ajustes
         </button>

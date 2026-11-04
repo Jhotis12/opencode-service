@@ -16,11 +16,11 @@
 
 ## 3. Servicio de transcripción y recurso por proyecto
 
-- [ ] 3.1 Implementar `TranscriptionService` OpenAI-compatible (`POST {baseUrl}/audio/transcriptions` con multipart, `GET {baseUrl}/models`, timeout y errores sanitizados) resolviendo configuración y API key de la bóveda; verificar con tests de adapter usando un `fetch` falso.
-- [ ] 3.2 Integrar la prueba de conexión y el descubrimiento de modelos en `ManageIntegrationsUseCase`: actualizar `config.models`, estado y last error; verificar con `bun test apps/server/test/integration-manager.test.ts` e `integrations.test.ts`.
+- [x] 3.1 Implementar `TranscriptionService` OpenAI-compatible (`POST {baseUrl}/audio/transcriptions` con multipart, `GET {baseUrl}/models`, timeout y errores sanitizados) resolviendo configuración y API key de la bóveda; verificar con tests de adapter usando un `fetch` falso.
+- [x] 3.2 Integrar la prueba de conexión y el descubrimiento de modelos en `ManageIntegrationsUseCase`: actualizar `config.models`, estado y last error; verificar con `bun test apps/server/test/integration-manager.test.ts` e `integrations.test.ts`.
 - [ ] 3.3 Agregar la conexión de transcripción por defecto al proyecto y resolverla en el router de agente y en los nodos que heredan; verificar con `bun test apps/server/test/project-settings.test.ts` y `channel-router.test.ts`.
-- [ ] 3.4 Agregar el formulario guiado de Transcripción (base URL, modelo, idioma, API key), el botón de prueba con listado de modelos y el selector de conexión por defecto en Ajustes; verificar con `bun test apps/web/test/pages.test.tsx`.
-- [ ] 3.5 Verificar que la API key nunca se devuelve, que el JSON avanzado sigue disponible y que una integración de otro proyecto se rechaza; verificar con tests de integración y revisión de la respuesta HTTP.
+- [x] 3.4 Agregar el formulario guiado de Transcripción (base URL, modelo, idioma, API key), el botón de prueba con listado de modelos y el selector de conexión por defecto en Ajustes; verificar con `bun test apps/web/test/pages.test.tsx`.
+- [x] 3.5 Verificar que la API key nunca se devuelve, que el JSON avanzado sigue disponible y que una integración de otro proyecto se rechaza; verificar con tests de integración y revisión de la respuesta HTTP.
 
 ## 4. Modo agente: transcripción automática y adjuntos
 

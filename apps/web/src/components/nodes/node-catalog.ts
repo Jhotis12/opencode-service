@@ -20,16 +20,17 @@ export const NODE_META: Record<NodeType, { title: string; color: string; categor
   delay: { title: "Esperar", color: NODE_CATEGORY_COLORS.action, category: "Acciones", description: "Pausa el flujo N milisegundos" },
   validate: { title: "Validar", color: NODE_CATEGORY_COLORS.logic, category: "Lógica", description: "Verifica campos requeridos" },
   agent: { title: "Agente", color: NODE_CATEGORY_COLORS.ai, category: "IA", description: "Sub-agente con modelo y Notebooks" },
+  transcribe: { title: "Transcribir audio", color: NODE_CATEGORY_COLORS.ai, category: "IA", description: "Convierte audio en texto con una conexión ASR" },
   decision: { title: "Condición", color: NODE_CATEGORY_COLORS.logic, category: "Lógica", description: "Bifurca en sí / no" },
   approval: { title: "Aprobación", color: NODE_CATEGORY_COLORS.human, category: "Humano", description: "Pausa hasta aprobación humana" },
 };
 
-export const NODE_CATALOG: NodeType[] = ["http", "database", "notify", "subworkflow", "code", "transform", "delay", "validate", "foreach", "agent", "decision", "approval"];
+export const NODE_CATALOG: NodeType[] = ["http", "database", "notify", "subworkflow", "code", "transform", "delay", "validate", "foreach", "agent", "transcribe", "decision", "approval"];
 
 export const PALETTE_GROUPS: ReadonlyArray<{ label: string; types: NodeType[] }> = [
   { label: "Entrada", types: ["trigger"] },
   { label: "Acciones", types: ["http", "database", "notify", "subworkflow", "code", "transform", "delay"] },
-  { label: "IA", types: ["agent"] },
+  { label: "IA", types: ["agent", "transcribe"] },
   { label: "Lógica", types: ["validate", "foreach", "decision"] },
   { label: "Humano", types: ["approval"] },
 ];

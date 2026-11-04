@@ -60,6 +60,11 @@ export class IntegrationManager implements IntegrationManagerPort {
       this.deps.store.integrations.updateStatus(integration.id, "connected");
       return;
     }
+    if (integration.kind === "transcription") {
+      this.managed.set(integration.id, { stop: async () => undefined });
+      this.deps.store.integrations.updateStatus(integration.id, "connected");
+      return;
+    }
     if (integration.kind === "telegram") {
       const token = this.resolveSecret(integration, "token");
       if (!token) {

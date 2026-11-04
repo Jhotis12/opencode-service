@@ -89,11 +89,70 @@ vi.mock("../src/api.ts", () => ({
     createNotebook: vi.fn(),
     uploadSource: vi.fn(),
     ingestUrl: vi.fn(),
+    getProjectSettings: vi.fn().mockResolvedValue({
+      project: {
+        id: "p1",
+        slug: "ventas",
+        name: "Ventas",
+        description: "",
+        primaryAgent: "principal/agente",
+        transcriptionIntegrationId: "asr1",
+        createdAt: new Date().toISOString(),
+      },
+      integrations: [
+        {
+          id: "asr1",
+          scope: "project",
+          projectSlug: "ventas",
+          kind: "transcription",
+          name: "ASR local",
+          slug: "asr-local",
+          config: { baseUrl: "http://transcription:8000/v1", model: "Systran/faster-whisper-small" },
+          secretRefs: {},
+          capabilities: ["transcribe_audio"],
+          status: "connected",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+      notebooks: [],
+      readiness: [],
+    }),
+    updateProjectSettings: vi.fn().mockResolvedValue({}),
+    listIntegrations: vi.fn().mockResolvedValue({
+      data: [
+        {
+          id: "asr1",
+          scope: "project",
+          projectSlug: "ventas",
+          kind: "transcription",
+          name: "ASR local",
+          slug: "asr-local",
+          config: { baseUrl: "http://transcription:8000/v1", model: "Systran/faster-whisper-small" },
+          secretRefs: {},
+          capabilities: ["transcribe_audio"],
+          status: "connected",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    }),
+    createIntegration: vi.fn().mockResolvedValue({ integration: { id: "asr2", name: "ASR" } }),
+    updateIntegration: vi.fn(),
+    deleteIntegration: vi.fn(),
+    testIntegration: vi.fn().mockResolvedValue({ ok: true, detail: "2 modelos", models: ["small", "base"] }),
+    connectIntegration: vi.fn(),
+    disconnectIntegration: vi.fn(),
+    listProjectSecrets: vi.fn().mockResolvedValue({ data: [] }),
+    saveProjectSecret: vi.fn(),
   },
 }));
 
 import { SettingsPage } from "../src/pages/SettingsPage.tsx";
 import { ProjectKnowledgePanel } from "../src/components/ProjectKnowledgePanel.tsx";
+import { ProjectSettingsPanel } from "../src/components/ProjectSettingsPanel.tsx";
+import { ProjectResourcesPanel } from "../src/components/ProjectResourcesPanel.tsx";
+import { api } from "../src/api.ts";
 import { renderWithProviders } from "./render.tsx";
 
 describe("SettingsPage", () => {
@@ -113,6 +172,51 @@ describe("SettingsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Elegir modelo" }));
     expect(await screen.findByRole("dialog", { name: "Modelo por defecto" })).toBeInTheDocument();
     expect(screen.getByLabelText("Modelo")).toHaveValue("opencode-go/fast");
+  });
+});
+
+describe("ProjectSettingsPanel", () => {
+  it("configures the default transcription connection", async () => {
+    renderWithProviders(<ProjectSettingsPanel projectSlug="ventas" />);
+    const select = await screen.findByLabelText("Conexión de transcripción por defecto");
+    expect(select).toHaveValue("asr1");
+    await userEvent.selectOptions(select, "");
+    await userEvent.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+    expect(vi.mocked(api.updateProjectSettings)).toHaveBeenCalledWith(
+      "ventas",
+      expect.objectContaining({ transcriptionIntegrationId: null }),
+    );
+  });
+});
+
+describe("ProjectResourcesPanel", () => {
+  it("creates a transcription connection from guided fields", async () => {
+    renderWithProviders(<ProjectResourcesPanel projectSlug="ventas" />);
+    await screen.findByText("ASR local");
+    await userEvent.selectOptions(screen.getByLabelText("Tipo"), "transcription");
+    expect(screen.getByLabelText("URL base del proveedor")).toBeInTheDocument();
+    expect(screen.getByLabelText("Modelo por defecto")).toBeInTheDocument();
+    expect(screen.getByText("Configuración avanzada")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Nombre"), "ASR local 2");
+    await userEvent.type(screen.getByLabelText("Slug"), "asr-local-2");
+    await userEvent.click(screen.getByRole("button", { name: "Crear integración" }));
+    expect(vi.mocked(api.createIntegration)).toHaveBeenCalledWith(
+      "ventas",
+      expect.objectContaining({
+        kind: "transcription",
+        config: expect.objectContaining({
+          baseUrl: "http://transcription:8000/v1",
+          model: "Systran/faster-whisper-small",
+        }),
+      }),
+    );
+  });
+
+  it("shows discovered models after testing a transcription connection", async () => {
+    renderWithProviders(<ProjectResourcesPanel projectSlug="ventas" />);
+    await screen.findByText("ASR local");
+    await userEvent.click(screen.getAllByRole("button", { name: "Probar" })[0]!);
+    expect(await screen.findByText(/modelos: small, base/)).toBeInTheDocument();
   });
 });
 

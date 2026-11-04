@@ -63,6 +63,7 @@ import { createExternalChatRoutes } from "./infrastructure/in/http/external-chat
 import { IntegrationManager } from "./infrastructure/in/channels/channel-manager.ts";
 import { WorkspaceError } from "./infrastructure/out/workspace-fs/safe-workspace.ts";
 import { FsMediaStore } from "./infrastructure/out/media/fs-media-store.ts";
+import { OpenAiCompatibleTranscriptionService } from "./infrastructure/out/transcription/openai-compatible-transcription-service.ts";
 import {
   IdempotencyMismatchError,
   RunInFlightError,
@@ -231,6 +232,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const codec = new SessionCodec(masterKey.toString("base64"));
   const egress = new IntegrationEgressRouter();
   const externalDb = new DynamicDatabaseClientAdapter();
+  const transcription = new OpenAiCompatibleTranscriptionService({ store, vault, fetchImpl: fetch });
   const queryDatabase = new QueryDatabaseIntegrationUseCase(store, vault, externalDb, logger);
   const testDatabase = new TestDatabaseIntegrationUseCase(store, vault, externalDb);
   const databaseAction = new ExecuteDatabaseActionUseCase(store, vault, externalDb, logger);
@@ -329,6 +331,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     events,
     manager: integrationManager,
     databaseAdapter: externalDb,
+    transcription,
   });
 
   const createProject = new CreateProjectUseCase(store, workspace, events);

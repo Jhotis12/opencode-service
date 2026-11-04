@@ -1,5 +1,5 @@
 import type { Store } from "../ports/store.ts";
-import type { AgentRuntimePort } from "../ports/runtime.ts";
+import type { AgentFileAttachment, AgentRuntimePort } from "../ports/runtime.ts";
 import type { ChatThreadRecord } from "../../domain/entities.ts";
 import type { Logger } from "../../domain/telemetry/index.ts";
 
@@ -84,6 +84,7 @@ export async function promptWithSessionRecovery(
   text: string,
   factory: ChatSessionFactory,
   onEvent?: (event: unknown, sessionId: string) => void,
+  files?: AgentFileAttachment[],
 ): Promise<{ reply: string; sessionId: string }> {
   let activeSessionId = sessionId;
   let unsubscribe: (() => Promise<void> | void) | undefined;
@@ -101,7 +102,10 @@ export async function promptWithSessionRecovery(
 
   try {
     try {
-      return { reply: await agent.prompt(activeSessionId, text), sessionId: activeSessionId };
+      return {
+        reply: await agent.prompt(activeSessionId, text, files && files.length > 0 ? { files } : undefined),
+        sessionId: activeSessionId,
+      };
     } catch (error) {
       if (!isSessionNotFoundError(error)) throw error;
       factory.logger?.warn({
@@ -121,7 +125,10 @@ export async function promptWithSessionRecovery(
         externalThreadId: thread.externalThreadId,
       });
       activeSessionId = session.id;
-      return { reply: await agent.prompt(activeSessionId, text), sessionId: activeSessionId };
+      return {
+        reply: await agent.prompt(activeSessionId, text, files && files.length > 0 ? { files } : undefined),
+        sessionId: activeSessionId,
+      };
     }
   } finally {
     await unsubscribe?.();

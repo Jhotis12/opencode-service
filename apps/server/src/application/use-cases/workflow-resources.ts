@@ -1,4 +1,4 @@
-import type { WorkflowGraph } from "@platform/shared";
+import { TranscribeNodeConfigSchema, type WorkflowGraph } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import { WorkflowValidationError } from "../../domain/workflow/graph.ts";
@@ -37,6 +37,26 @@ export async function validateWorkflowResources(
         .readAgent(projectSlug, `.opencode/agents/${node.agentId}.md`)
         .catch(() => undefined);
       if (!markdown) issues.push(`agent node ${node.id} references an unknown agent: ${node.agentId}`);
+    }
+    if (node.type === "transcribe") {
+      const config = TranscribeNodeConfigSchema.safeParse(node.config);
+      if (!config.success) issues.push(`transcribe node ${node.id} has invalid config`);
+      const project = store.projects.findBySlug(projectSlug);
+      const integrationId = config.success
+        ? config.data.integrationId ?? project?.transcriptionIntegrationId
+        : undefined;
+      if (!integrationId) {
+        issues.push(`transcribe node ${node.id} requires a transcription integration or project default`);
+      } else {
+        const integration = store.integrations.findById(integrationId);
+        if (!integration || integration.scope !== "project" || integration.projectSlug !== projectSlug) {
+          issues.push(
+            `transcribe node ${node.id} references a transcription integration from another project or the global scope`,
+          );
+        } else if (integration.kind !== "transcription" || !integration.capabilities.includes("transcribe_audio")) {
+          issues.push(`transcribe node ${node.id} requires a transcription integration`);
+        }
+      }
     }
     for (const notebookId of node.notebookIds) {
       const notebook = store.notebooks.findById(notebookId);

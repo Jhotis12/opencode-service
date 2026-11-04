@@ -14,6 +14,7 @@ import type { ChatMessageRecord, ChatThreadRecord, ChatTurnRecord } from "../../
 import { createChatProgressHandler } from "./chat-progress.ts";
 import { ensureChatSession, registerSessionContext } from "./chat-session.ts";
 import { resolveChatTurnPolicy, type ChatTurnPolicy } from "./chat-turn-policy.ts";
+import { toAttachmentFiles } from "../../domain/media.ts";
 
 export interface ChatTarget {
   scope: "project" | "global";
@@ -178,7 +179,7 @@ export class ChatTurnService {
       entryPoint: target.entryPoint,
     });
     this.publishTurn(turn);
-    void this.run(id, target, input.message).catch((error) => {
+    void this.run(id, target, input.message, input.attachments).catch((error) => {
       this.deps.logger?.error({
         event: "chat_turn_unhandled_failure",
         turnId: id,
@@ -359,7 +360,7 @@ export class ChatTurnService {
     }
   }
 
-  private async run(id: string, target: ChatTarget, text: string): Promise<void> {
+  private async run(id: string, target: ChatTarget, text: string, attachments?: MediaRef[]): Promise<void> {
     if (this.running.has(id)) return;
     this.running.add(id);
     let unsubscribe: (() => Promise<void> | void) | undefined;
@@ -414,9 +415,11 @@ export class ChatTurnService {
       });
 
       const promptId = `msg_${turn.id.replace(/-/g, "")}`;
+      const files = toAttachmentFiles(target.directory, attachments);
       const sent = await this.deps.agent.sendPrompt(sessionId, {
         id: promptId,
         text,
+        ...(files.length > 0 ? { files } : {}),
         metadata: { platformTurnId: turn.id, threadId: turn.threadId, projectSlug: turn.projectSlug },
         delivery: "steer",
       });

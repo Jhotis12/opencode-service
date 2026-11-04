@@ -52,6 +52,21 @@ export class GetHealthUseCase {
       });
     }
 
+    for (const integration of this.deps.store.integrations
+      .listAll()
+      .filter((item) => item.kind === "transcription")) {
+      services.push({
+        name: `Transcription ${integration.name}`,
+        status:
+          integration.status === "error"
+            ? "down"
+            : integration.status === "connected"
+              ? "ok"
+              : "degraded",
+        detail: `${String(integration.config.model ?? "sin modelo")} · ${integration.status}`,
+      });
+    }
+
     services.push({
       name: "Global orchestrator",
       status: "ok",

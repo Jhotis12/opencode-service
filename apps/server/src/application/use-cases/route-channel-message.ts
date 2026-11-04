@@ -6,7 +6,9 @@ import type { IncomingIntegrationMessage, IntegrationEgressPort, TriggerRef } fr
 import type { MediaScope, MediaStorePort } from "../ports/media.ts";
 import { MediaStoreError } from "../ports/media.ts";
 import type { EventBus } from "../ports/events.ts";
-import type { Logger } from "../../domain/telemetry/index.ts";
+import type { TranscriptionPort } from "../ports/transcription.ts";
+import type { Logger, Metrics } from "../../domain/telemetry/index.ts";
+import { readMedia, toAttachmentFiles } from "../../domain/media.ts";
 import { routeGlobalMessage, routeProjectMessage } from "../../domain/channels/router.ts";
 import type { ExecuteWorkflowRunUseCase } from "./execute-workflow.ts";
 import type { IntegrationRecord } from "../../domain/entities.ts";
@@ -109,6 +111,8 @@ export interface ChannelRouterDeps {
   executor: Pick<ExecuteWorkflowRunUseCase, "execute" | "resumeWithApproval">;
   egress: IntegrationEgressPort;
   media: MediaStorePort;
+  transcription?: TranscriptionPort;
+  metrics?: Metrics;
   events: EventBus;
   logger: Logger;
 }
@@ -126,7 +130,7 @@ function imagePrompt(text: string, attachments: MediaRef[]): string {
 }
 
 async function storeIncomingMedia(
-  deps: { media: MediaStorePort; egress: IntegrationEgressPort; logger: Logger },
+  deps: { media: MediaStorePort; egress: IntegrationEgressPort; logger: Logger; metrics?: Metrics },
   integration: IntegrationRecord,
   message: IncomingIntegrationMessage,
   scope: MediaScope,
@@ -138,6 +142,7 @@ async function storeIncomingMedia(
     await deps.egress
       .send(integration.id, "Puedo procesar hasta 5 archivos por mensaje.", message.senderId)
       .catch(() => undefined);
+    deps.metrics?.increment("channel_media_rejected");
     deps.logger.warn({
       event: "channel_media_rejected",
       entryPoint: ENTRY_POINTS[message.kind],
@@ -149,16 +154,24 @@ async function storeIncomingMedia(
   try {
     const refs: MediaRef[] = [];
     for (const attachment of incoming) {
-      refs.push(
-        await deps.media.save({
-          scope,
-          projectSlug,
-          filename: attachment.filename,
-          mime: attachment.mime,
-          bytes: attachment.bytes,
-          durationSeconds: attachment.durationSeconds,
-        }),
-      );
+      const ref = await deps.media.save({
+        scope,
+        projectSlug,
+        filename: attachment.filename,
+        mime: attachment.mime,
+        bytes: attachment.bytes,
+        durationSeconds: attachment.durationSeconds,
+      });
+      refs.push(ref);
+      deps.metrics?.increment("channel_media_captured");
+      deps.logger.info({
+        event: "channel_media_captured",
+        entryPoint: ENTRY_POINTS[message.kind],
+        integrationId: integration.id,
+        kind: ref.kind,
+        size: ref.size,
+        durationSeconds: ref.durationSeconds,
+      });
     }
     return refs;
   } catch (error) {
@@ -170,6 +183,7 @@ async function storeIncomingMedia(
           ? "Formato no soportado. Envía una imagen JPEG/PNG/WebP/GIF o un audio OGG/MP3/M4A/WAV/WebM/FLAC."
           : "No pude procesar el archivo.";
     await deps.egress.send(integration.id, text, message.senderId).catch(() => undefined);
+    deps.metrics?.increment("channel_media_rejected");
     deps.logger.warn({
       event: "channel_media_rejected",
       entryPoint: ENTRY_POINTS[message.kind],
@@ -203,11 +217,18 @@ export class RouteProjectIntegrationMessageUseCase {
       return { decision: "dropped" };
     }
     const graph = await this.deps.workspace.readWorkflow(integration.projectSlug).catch(() => undefined);
+    const kinds = new Set<string>();
+    if (message.text.trim()) kinds.add("text");
+    for (const attachment of message.attachments ?? []) kinds.add(attachment.kind);
     const triggers = graph
       ? graph.nodes
           .filter((node) => node.type === "trigger")
           .filter((node) => node.config.integrationId === integration.id)
           .filter((node) => String(node.config.event ?? "message.received") === (message.event ?? "message.received"))
+          .filter((node) => {
+            const accepts = Array.isArray(node.config.accepts) ? node.config.accepts : ["text"];
+            return accepts.some((kind) => kinds.has(String(kind)));
+          })
           .map<TriggerRef>((node) => ({
             projectSlug: integration.projectSlug!,
             workflowId: graph.id,
@@ -235,19 +256,32 @@ export class RouteProjectIntegrationMessageUseCase {
         integration.projectSlug,
       );
       if (!attachments) return { decision: "dropped" };
-      await this.handleAgent(integration, project.primaryAgent, project.defaultModel, message, attachments);
+      await this.handleAgent(
+        integration,
+        project.primaryAgent,
+        project.defaultModel,
+        project.transcriptionIntegrationId,
+        message,
+        attachments,
+      );
       return { decision: "agent" };
     }
     if (decision.type === "workflow") {
+      const triggerNode = graph?.nodes.find((node) => node.id === decision.trigger.nodeId);
+      const accepts = Array.isArray(triggerNode?.config.accepts) ? triggerNode.config.accepts : ["text"];
+      const acceptedMessage = {
+        ...message,
+        attachments: (message.attachments ?? []).filter((attachment) => accepts.includes(attachment.kind)),
+      };
       const attachments = await storeIncomingMedia(
         this.deps,
         integration,
-        message,
+        acceptedMessage,
         "project",
         integration.projectSlug,
       );
       if (!attachments) return { decision: "dropped" };
-      await this.handleWorkflow(integration, decision.trigger, message, attachments);
+      await this.handleWorkflow(integration, decision.trigger, acceptedMessage, attachments);
       return { decision: "workflow" };
     }
     if (decision.type === "approval") {
@@ -262,6 +296,7 @@ export class RouteProjectIntegrationMessageUseCase {
     integration: IntegrationRecord,
     primaryAgent: string | undefined,
     defaultModel: string | undefined,
+    transcriptionIntegrationId: string | undefined,
     message: IncomingIntegrationMessage,
     attachments: MediaRef[],
   ): Promise<void> {
@@ -273,6 +308,83 @@ export class RouteProjectIntegrationMessageUseCase {
       title: `${integration.name} · ${message.senderId}`,
     });
     const directory = await this.deps.workspace.projectDirectory(integration.projectSlug!);
+    let text = message.text.trim();
+    const audio = attachments.filter((attachment) => attachment.kind === "audio");
+    if (audio.length > 0) {
+      if (!this.deps.transcription) {
+        await this.deps.egress.send(
+          integration.id,
+          "La transcripción de audio no está configurada en este servidor.",
+          message.senderId,
+        );
+        this.deps.logger.warn({
+          event: "channel_transcription_unavailable",
+          entryPoint: ENTRY_POINTS[message.kind],
+          integrationId: integration.id,
+          reason: "provider_missing",
+        });
+        return;
+      }
+      if (!transcriptionIntegrationId) {
+        await this.deps.egress.send(
+          integration.id,
+          "El proyecto no tiene una conexión de transcripción por defecto. Configúrala en Ajustes.",
+          message.senderId,
+        );
+        this.deps.logger.warn({
+          event: "channel_transcription_unavailable",
+          entryPoint: ENTRY_POINTS[message.kind],
+          integrationId: integration.id,
+          reason: "project_default_missing",
+        });
+        return;
+      }
+      const transcriptionStarted = Date.now();
+      this.deps.metrics?.increment("transcription_requests");
+      try {
+        const parts: string[] = [];
+        for (const item of audio) {
+          const media = await readMedia(directory, item);
+          const result = await this.deps.transcription.transcribe({
+            integrationId: transcriptionIntegrationId,
+            scope: "project",
+            projectSlug: integration.projectSlug,
+            bytes: media.bytes,
+            filename: media.filename,
+            mime: item.mime,
+            timeoutMs: 120_000,
+          });
+          if (result.text.trim()) parts.push(result.text.trim());
+        }
+        const transcript = parts.join("\n\n");
+        if (!transcript) throw new Error("empty transcript");
+        text = [text, `Transcripción de audio:\n${transcript}`].filter(Boolean).join("\n\n");
+        this.deps.metrics?.increment("transcription_succeeded");
+        this.deps.logger.info({
+          event: "transcription_completed",
+          entryPoint: ENTRY_POINTS[message.kind],
+          integrationId: integration.id,
+          durationMs: Date.now() - transcriptionStarted,
+          audioCount: audio.length,
+        });
+      } catch (error) {
+        this.deps.metrics?.increment("transcription_failed");
+        this.deps.logger.error({
+          event: "channel_transcription_failed",
+          entryPoint: ENTRY_POINTS[message.kind],
+          integrationId: integration.id,
+          durationMs: Date.now() - transcriptionStarted,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await this.deps.egress.send(
+          integration.id,
+          "No pude transcribir el audio. Intenta de nuevo o envía un texto.",
+          message.senderId,
+        );
+        return;
+      }
+    }
+    const prompt = text || imagePrompt("", attachments);
     if (this.deps.turns) {
       const target: ChatTarget = {
         scope: "project",
@@ -286,7 +398,7 @@ export class RouteProjectIntegrationMessageUseCase {
       const turn = await this.deps.turns.start({
         thread,
         target,
-        message: imagePrompt(message.text, attachments),
+        message: prompt,
         attachments,
         idempotencyKey: message.externalMessageId ? `${integration.id}:${message.externalMessageId}` : undefined,
       });
@@ -307,8 +419,10 @@ export class RouteProjectIntegrationMessageUseCase {
       this.deps.agent,
       thread,
       sessionId,
-      imagePrompt(message.text, attachments),
+      prompt,
       sessionFactory,
+      undefined,
+      toAttachmentFiles(directory, attachments),
     );
     this.deps.store.chatThreads.touch(thread.id);
     await this.deps.egress.send(integration.id, result.reply || "(sin respuesta)", message.senderId);
@@ -410,6 +524,20 @@ export class RouteGlobalIntegrationMessageUseCase {
     }
     const attachments = await storeIncomingMedia(this.deps, integration, message, "global");
     if (!attachments) return { decision: "dropped" };
+    if (attachments.some((attachment) => attachment.kind === "audio")) {
+      await this.deps.egress.send(
+        integration.id,
+        "El orquestador global todavía no procesa audio. Envía un texto o una imagen.",
+        message.senderId,
+      );
+      this.deps.logger.warn({
+        event: "global_transcription_unsupported",
+        entryPoint: "global_orchestrator",
+        integrationId: integration.id,
+      });
+      return { decision: "dropped" };
+    }
+    const prompt = imagePrompt(message.text, attachments);
     const thread = this.deps.store.chatThreads.findOrCreate({
       scope: "global",
       integrationId: integration.id,
@@ -428,7 +556,7 @@ export class RouteGlobalIntegrationMessageUseCase {
       const turn = await this.deps.turns.start({
         thread,
         target,
-        message: imagePrompt(message.text, attachments),
+        message: prompt,
         attachments,
         idempotencyKey: message.externalMessageId ? `${integration.id}:${message.externalMessageId}` : undefined,
       });
@@ -458,8 +586,10 @@ export class RouteGlobalIntegrationMessageUseCase {
       this.deps.agent,
       thread,
       sessionId,
-      imagePrompt(message.text, attachments),
+      prompt,
       sessionFactory,
+      undefined,
+      toAttachmentFiles(this.deps.controlDirectory, attachments),
     );
     this.deps.store.chatThreads.touch(thread.id);
     await this.deps.egress.send(integration.id, result.reply || "(sin respuesta)", message.senderId);

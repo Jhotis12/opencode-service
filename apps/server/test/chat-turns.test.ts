@@ -55,6 +55,35 @@ describe("ChatTurnService", () => {
     expect(store.chatTurns.findById(turn.id)?.deliveryState).toBe("completed");
   });
 
+  it("passes image attachments to the runtime and persists them in history", async () => {
+    const { store, agent, service, thread } = setup();
+    agent.scriptedReplies.push("visto");
+    const turn = await service.start({
+      thread,
+      target: target(),
+      message: "mira",
+      attachments: [{ kind: "image", path: ".opencode/media/abc.jpg", mime: "image/jpeg", filename: "foto.jpg" }],
+    });
+    const final = await service.waitForTerminal(turn.id, 2_000);
+    expect(final.status).toBe("succeeded");
+    expect(agent.promptCalls[0]?.files?.[0]?.uri).toContain(".opencode/media/abc.jpg");
+    const userMessage = store.chat.listByTurn(turn.id).find((message) => message.role === "user");
+    expect(userMessage?.attachments?.[0]?.filename).toBe("foto.jpg");
+  });
+
+  it("rejects attachments outside the managed media area", async () => {
+    const { service, thread } = setup();
+    const turn = await service.start({
+      thread,
+      target: target(),
+      message: "mira",
+      attachments: [{ kind: "image", path: "../escape.jpg", mime: "image/jpeg" }],
+    });
+    const final = await service.waitForTerminal(turn.id, 2_000);
+    expect(final.status).toBe("failed");
+    expect(final.errorMessage).toMatch(/managed area/);
+  });
+
   it("publishes progress and terminal events to subscribers", async () => {
     const { agent, service, thread } = setup();
     agent.scriptedReplies.push("progreso");

@@ -19,7 +19,13 @@ function fakeClient(overrides: Partial<OpenCodeClientLike> = {}): OpenCodeClient
     model: {
       list: async () => ({
         data: [
-          { providerID: "opencode-go", modelID: "fast", name: "Fast", cost: [{ input: 1, output: 2 }] },
+          {
+            providerID: "opencode-go",
+            modelID: "fast",
+            name: "Fast",
+            cost: [{ input: 1, output: 2 }],
+            capabilities: { input: ["text", "image"] },
+          },
           { providerID: "other", id: "x", name: "Other" },
         ],
       }),
@@ -80,7 +86,13 @@ describe("opencode v2 adapter contract", () => {
     const { adapter } = adapterWith(fakeClient());
     const models = await adapter.listModels();
     expect(models).toEqual([
-      { providerID: "opencode-go", modelID: "fast", name: "Fast", cost: { input: 1, output: 2 } },
+      {
+        providerID: "opencode-go",
+        modelID: "fast",
+        name: "Fast",
+        input: ["text", "image"],
+        cost: { input: 1, output: 2 },
+      },
       { providerID: "other", modelID: "x", name: "Other", cost: undefined },
     ]);
   });
@@ -101,6 +113,15 @@ describe("opencode v2 adapter contract", () => {
     const reply = await adapter.prompt("s1", "hola");
     expect(reply).toBe("primera\nsegunda");
     expect(client.calls.wait?.[0]).toEqual({ sessionID: "s1" });
+  });
+
+  it("passes file attachments through prompt and sendPrompt", async () => {
+    const { adapter, client } = adapterWith(fakeClient());
+    const files = [{ uri: "file:///tmp/a.jpg", name: "a.jpg" }];
+    await adapter.prompt("s1", "hola", { files });
+    expect(client.calls.prompt?.[0]).toMatchObject({ sessionID: "s1", text: "hola", files });
+    await adapter.sendPrompt("s1", { id: "msg_files", text: "hola", files });
+    expect(client.calls.prompt?.[1]).toMatchObject({ id: "msg_files", files });
   });
 
   it("interrupts a prompt that exceeds its timeout", async () => {

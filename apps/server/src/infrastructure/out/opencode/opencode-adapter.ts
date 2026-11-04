@@ -17,6 +17,7 @@ interface ModelLike {
   id?: string;
   name: string;
   cost?: Array<{ input: number; output: number }>;
+  capabilities?: { input?: string[] };
 }
 
 interface MessageLike {
@@ -41,6 +42,7 @@ export interface OpenCodeClientLike {
       sessionID: string;
       text: string;
       id?: string;
+      files?: Array<{ uri: string; name?: string; description?: string }>;
       metadata?: Record<string, unknown>;
       delivery?: "queue" | "steer";
     }): Promise<{ id?: string }>;
@@ -165,6 +167,7 @@ export class OpenCodeV2Adapter implements AgentRuntimePort {
       providerID: model.providerID,
       modelID: model.modelID ?? model.id ?? model.name,
       name: model.name,
+      ...(Array.isArray(model.capabilities?.input) ? { input: model.capabilities.input } : {}),
       cost: model.cost?.[0] ? { input: model.cost[0].input, output: model.cost[0].output } : undefined,
     }));
   }
@@ -198,6 +201,7 @@ export class OpenCodeV2Adapter implements AgentRuntimePort {
         sessionID: sessionId,
         text: input.text,
         id: input.id,
+        files: input.files,
         metadata: input.metadata,
         delivery: input.delivery,
       });
@@ -308,13 +312,13 @@ export class OpenCodeV2Adapter implements AgentRuntimePort {
   async prompt(
     sessionId: string,
     text: string,
-    options: { timeoutMs?: number } = {},
+    options: { timeoutMs?: number; files?: Array<{ uri: string; name?: string; description?: string }> } = {},
   ): Promise<string> {
     const client = await this.client();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const run = (async () => {
-        await client.session.prompt({ sessionID: sessionId, text });
+        await client.session.prompt({ sessionID: sessionId, text, files: options.files });
         await client.experimental.session.wait({ sessionID: sessionId });
       })();
       if (options.timeoutMs && options.timeoutMs > 0) {

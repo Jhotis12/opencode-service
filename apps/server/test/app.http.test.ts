@@ -247,6 +247,57 @@ describe("application HTTP surface", () => {
     expect(messages.data[1]?.content).toContain("[simulado");
   });
 
+  it("shows transcription connections in the health snapshot", async () => {
+    const created = await json("/api/projects/ventas-bot/integrations", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "transcription",
+        name: "ASR salud",
+        slug: "asr-salud",
+        config: { baseUrl: "http://transcription:8000/v1", model: "Systran/faster-whisper-small" },
+      }),
+    });
+    expect(created.status).toBe(201);
+    const body = (await created.json()) as { integration: { id: string } };
+    const health = (await (await json("/api/system/health")).json()) as {
+      services: Array<{ name: string; detail?: string }>;
+    };
+    const transcription = health.services.find((service) => service.name.includes("Transcription ASR salud"));
+    expect(transcription?.detail).toContain("Systran/faster-whisper-small");
+    await json(`/api/projects/ventas-bot/integrations/${body.integration.id}`, { method: "DELETE" });
+  });
+
+  it("retries a project turn with its original attachments", async () => {
+    const thread = application.store.chatThreads.findOrCreate({
+      scope: "project",
+      projectSlug: "ventas-bot",
+      externalThreadId: "web",
+    });
+    const first = await application.chatTurns.start({
+      thread,
+      target: {
+        scope: "project",
+        projectSlug: "ventas-bot",
+        directory: join(dir, "workspaces", "ventas-bot"),
+        agentId: "principal/agente",
+        context: "chat",
+        entryPoint: "web_ui",
+      },
+      message: "mira",
+      attachments: [{ kind: "image", path: ".opencode/media/abc.jpg", mime: "image/jpeg", filename: "foto.jpg" }],
+    });
+    await application.chatTurns.waitForTerminal(first.id, 2_000);
+    const retried = await json(`/api/projects/ventas-bot/chat/turns/${first.id}/retry`, { method: "POST" });
+    expect(retried.status).toBe(200);
+    const payload = (await retried.json()) as { turn: { id: string } };
+    await application.chatTurns.waitForTerminal(payload.turn.id, 2_000);
+    const detail = (await (await json(`/api/projects/ventas-bot/chat/turns/${payload.turn.id}`)).json()) as {
+      messages: Array<{ role: string; attachments?: Array<{ filename?: string }> }>;
+    };
+    const user = detail.messages.find((message) => message.role === "user");
+    expect(user?.attachments?.[0]?.filename).toBe("foto.jpg");
+  });
+
   it("creates sub-agents and lists them", async () => {
     const created = await json("/api/projects/ventas-bot/agents/ventas/calificador", {
       method: "PUT",

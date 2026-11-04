@@ -90,6 +90,10 @@ describe("media store", () => {
         media: { ...ref, path: ".opencode/media/missing.jpg" },
       }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const saved = await store.save({ scope: "project", projectSlug: "ventas", bytes: jpeg });
+    await expect(
+      store.resolve({ scope: "project", projectSlug: "soporte", media: saved }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(store.resolve({ scope: "project", media: ref })).rejects.toMatchObject({ code: "UNSAFE_PATH" });
   });
 });

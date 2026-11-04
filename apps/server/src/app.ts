@@ -260,6 +260,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     vault,
     databaseAction,
     notification,
+    transcription,
     notifyApproval: (run, nodeId) => notifyApproval.execute(run, nodeId),
     workerHandlers: {
       db: ({ projectSlug, integrationId, sql, params }) =>
@@ -298,6 +299,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
     executor,
     egress,
     media,
+    transcription,
+    metrics,
     events,
     logger,
   });
@@ -309,6 +312,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
     executor,
     egress,
     media,
+    transcription,
+    metrics,
     events,
     logger,
     controlDirectory,
@@ -865,10 +870,11 @@ export async function createApplication(config: AppConfig): Promise<Application>
     const turn = chatTurns.get(c.req.param("turnId"));
     if (!turn) return c.json(apiError("NOT_FOUND", "chat turn not found"), 404);
     if (turn.scope !== "global") return c.json(apiError("FORBIDDEN", "control scope mismatch"), 403);
-    const message = store.chat.listByTurn(turn.id).find((item) => item.role === "user")?.content;
+    const userMessage = store.chat.listByTurn(turn.id).find((item) => item.role === "user");
+    const message = userMessage?.content;
     if (!message) return c.json(apiError("VALIDATION_ERROR", "original message not found"), 422);
     try {
-      const retried = await orchestrator.start(message, crypto.randomUUID());
+      const retried = await orchestrator.start(message, crypto.randomUUID(), userMessage?.attachments);
       return c.json({ turn: retried.turn, warning: turn.errorCode === "unknown" || turn.hasSideEffects ? "review possible side effects" : undefined });
     } catch (error) {
       if (error instanceof TurnInProgressError) {
@@ -1258,10 +1264,11 @@ export async function createApplication(config: AppConfig): Promise<Application>
     if (turn.projectSlug !== c.req.param("slug")) {
       return c.json(apiError("FORBIDDEN", "project scope mismatch"), 403);
     }
-    const message = store.chat.listByTurn(turn.id).find((item) => item.role === "user")?.content;
+    const userMessage = store.chat.listByTurn(turn.id).find((item) => item.role === "user");
+    const message = userMessage?.content;
     if (!message) return c.json(apiError("VALIDATION_ERROR", "original message not found"), 422);
     try {
-      const retried = await chat.start(c.req.param("slug"), message, crypto.randomUUID());
+      const retried = await chat.start(c.req.param("slug"), message, crypto.randomUUID(), userMessage?.attachments);
       return c.json({ turn: retried.turn, warning: turn.errorCode === "unknown" || turn.hasSideEffects ? "review possible side effects" : undefined });
     } catch (error) {
       if (error instanceof TurnInProgressError) {

@@ -62,6 +62,7 @@ import { IntegrationEgressRouter } from "./infrastructure/in/channels/egress-rou
 import { createExternalChatRoutes } from "./infrastructure/in/http/external-chat-routes.ts";
 import { IntegrationManager } from "./infrastructure/in/channels/channel-manager.ts";
 import { WorkspaceError } from "./infrastructure/out/workspace-fs/safe-workspace.ts";
+import { FsMediaStore } from "./infrastructure/out/media/fs-media-store.ts";
 import {
   IdempotencyMismatchError,
   RunInFlightError,
@@ -169,6 +170,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const workspacesDir = join(config.dataDir, "workspaces");
   const controlDirectory = join(config.dataDir, "control");
   const workspace = new SafeFsWorkspaceAdapter(workspacesDir);
+  const media = new FsMediaStore({ workspacesDir, controlDirectory });
   await syncProjectsFromDisk(store, workspace);
   for (const slug of await workspace.listProjects()) {
     const project = store.projects.findBySlug(slug);
@@ -293,6 +295,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     turns: useTurnEngine ? chatTurns : undefined,
     executor,
     egress,
+    media,
     events,
     logger,
   });
@@ -303,6 +306,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     turns: useTurnEngine ? chatTurns : undefined,
     executor,
     egress,
+    media,
     events,
     logger,
     controlDirectory,

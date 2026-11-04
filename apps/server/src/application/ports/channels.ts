@@ -6,6 +6,14 @@ export interface IntegrationEgressPort {
   send(integrationId: string, text: string, recipient?: string): Promise<EgressSendResult>;
 }
 
+export interface IncomingAttachment {
+  kind: "image" | "audio";
+  filename: string;
+  mime: string;
+  bytes: Uint8Array;
+  durationSeconds?: number;
+}
+
 export interface IncomingIntegrationMessage {
   integrationId: string;
   kind: "telegram" | "whatsapp" | "external_chat" | "email";
@@ -14,13 +22,19 @@ export interface IncomingIntegrationMessage {
   externalMessageId?: string;
   event?: string;
   externalThreadId?: string;
+  attachments?: IncomingAttachment[];
   metadata?: Record<string, unknown>;
 }
 
 export interface IntegrationTransport {
   readonly type: "telegram" | "whatsapp";
   start(
-    handler: (message: { senderId: string; text: string; messageId?: string }) => void,
+    handler: (message: {
+      senderId: string;
+      text: string;
+      messageId?: string;
+      attachments?: IncomingAttachment[];
+    }) => void | Promise<void>,
     onQr?: (qr: string) => void,
   ): Promise<void>;
   send(senderId: string, text: string): Promise<EgressSendResult | void>;

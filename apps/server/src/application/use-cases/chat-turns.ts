@@ -4,6 +4,7 @@ import type {
   ChatTurnStatus,
   ChatTurnErrorCode,
   EntryPointType,
+  MediaRef,
 } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { AgentRuntimePort, AgentSessionState } from "../ports/runtime.ts";
@@ -31,6 +32,7 @@ export interface StartChatTurnInput {
   thread: ChatThreadRecord;
   target: ChatTarget;
   message: string;
+  attachments?: MediaRef[];
   idempotencyKey?: string;
 }
 
@@ -163,6 +165,7 @@ export class ChatTurnService {
       turnId: id,
       role: "user",
       content: input.message,
+      attachments: input.attachments,
       createdAt: nowIso(now),
     };
     this.deps.store.chatTurns.createWithMessage(turn, message);

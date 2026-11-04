@@ -8,6 +8,7 @@ import {
   parseCloudWebhook,
   type WhatsAppTransport,
 } from "../src/infrastructure/in/channels/whatsapp-adapter.ts";
+import type { IncomingAttachment } from "../src/application/ports/channels.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
 
 const silentLogger: Logger = {
@@ -22,10 +23,20 @@ const silentLogger: Logger = {
 
 class FakeTelegram implements TelegramTransport {
   readonly type = "telegram" as const;
-  handler?: (message: { senderId: string; text: string }) => void;
+  handler?: (message: {
+    senderId: string;
+    text: string;
+    messageId?: string;
+    attachments?: IncomingAttachment[];
+  }) => void | Promise<void>;
   sent: Array<{ to: string; text: string }> = [];
   running = false;
-  async start(handler: (message: { senderId: string; text: string }) => void) {
+  async start(handler: (message: {
+    senderId: string;
+    text: string;
+    messageId?: string;
+    attachments?: IncomingAttachment[];
+  }) => void | Promise<void>) {
     this.handler = handler;
     this.running = true;
   }
@@ -101,6 +112,37 @@ describe("channel adapters", () => {
     expect(events.some((event) => event.type === "integration.status" && event.status === "connected")).toBe(true);
     await adapter.stop();
     expect(events.some((event) => event.type === "integration.status" && event.status === "disconnected")).toBe(true);
+  });
+
+  it("forwards telegram media attachments to the router", async () => {
+    const transport = new FakeTelegram();
+    const { router, calls } = routerRecorder();
+    const adapter = new TelegramChannelAdapter({
+      integrationId: "telegram",
+      scope: "project",
+      projectSlug: "ventas",
+      transport,
+      router: router as never,
+      events: { publish() {} },
+      logger: silentLogger,
+    });
+    await adapter.start();
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+    transport.handler?.({
+      senderId: "123",
+      text: "mira",
+      messageId: "m1",
+      attachments: [{ kind: "image", filename: "foto.jpg", mime: "image/jpeg", bytes }],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(calls[0]).toEqual({
+      integrationId: "telegram",
+      kind: "telegram",
+      senderId: "123",
+      text: "mira",
+      externalMessageId: "m1",
+      attachments: [{ kind: "image", filename: "foto.jpg", mime: "image/jpeg", bytes }],
+    });
   });
 
   it("requires a recipient for telegram replies", async () => {

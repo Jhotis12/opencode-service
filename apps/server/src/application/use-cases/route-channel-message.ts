@@ -1,8 +1,10 @@
-import { ChannelRoutingSchema } from "@platform/shared";
+import { ChannelRoutingSchema, type MediaRef } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
 import type { IncomingIntegrationMessage, IntegrationEgressPort, TriggerRef } from "../ports/channels.ts";
+import type { MediaScope, MediaStorePort } from "../ports/media.ts";
+import { MediaStoreError } from "../ports/media.ts";
 import type { EventBus } from "../ports/events.ts";
 import type { Logger } from "../../domain/telemetry/index.ts";
 import { routeGlobalMessage, routeProjectMessage } from "../../domain/channels/router.ts";
@@ -106,8 +108,77 @@ export interface ChannelRouterDeps {
   turns?: ChatTurnService;
   executor: Pick<ExecuteWorkflowRunUseCase, "execute" | "resumeWithApproval">;
   egress: IntegrationEgressPort;
+  media: MediaStorePort;
   events: EventBus;
   logger: Logger;
+}
+
+function imagePrompt(text: string, attachments: MediaRef[]): string {
+  const trimmed = text.trim();
+  if (trimmed) return trimmed;
+  if (attachments.some((attachment) => attachment.kind === "image")) {
+    return "Analiza la imagen adjunta y responde.";
+  }
+  if (attachments.some((attachment) => attachment.kind === "audio")) {
+    return "Analiza el audio adjunto y responde.";
+  }
+  return "";
+}
+
+async function storeIncomingMedia(
+  deps: { media: MediaStorePort; egress: IntegrationEgressPort; logger: Logger },
+  integration: IntegrationRecord,
+  message: IncomingIntegrationMessage,
+  scope: MediaScope,
+  projectSlug?: string,
+): Promise<MediaRef[] | undefined> {
+  const incoming = message.attachments ?? [];
+  if (incoming.length === 0) return [];
+  if (incoming.length > 5) {
+    await deps.egress
+      .send(integration.id, "Puedo procesar hasta 5 archivos por mensaje.", message.senderId)
+      .catch(() => undefined);
+    deps.logger.warn({
+      event: "channel_media_rejected",
+      entryPoint: ENTRY_POINTS[message.kind],
+      integrationId: integration.id,
+      reason: "too_many_attachments",
+    });
+    return undefined;
+  }
+  try {
+    const refs: MediaRef[] = [];
+    for (const attachment of incoming) {
+      refs.push(
+        await deps.media.save({
+          scope,
+          projectSlug,
+          filename: attachment.filename,
+          mime: attachment.mime,
+          bytes: attachment.bytes,
+          durationSeconds: attachment.durationSeconds,
+        }),
+      );
+    }
+    return refs;
+  } catch (error) {
+    const code = error instanceof MediaStoreError ? error.code : "UNSUPPORTED_TYPE";
+    const text =
+      code === "TOO_LARGE"
+        ? "El archivo supera el límite permitido (20 MB o 5 minutos de audio)."
+        : code === "UNSUPPORTED_TYPE"
+          ? "Formato no soportado. Envía una imagen JPEG/PNG/WebP/GIF o un audio OGG/MP3/M4A/WAV/WebM/FLAC."
+          : "No pude procesar el archivo.";
+    await deps.egress.send(integration.id, text, message.senderId).catch(() => undefined);
+    deps.logger.warn({
+      event: "channel_media_rejected",
+      entryPoint: ENTRY_POINTS[message.kind],
+      integrationId: integration.id,
+      reason: code,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return undefined;
+  }
 }
 
 const ENTRY_POINTS = {
@@ -156,11 +227,27 @@ export class RouteProjectIntegrationMessageUseCase {
     });
 
     if (decision.type === "agent") {
-      await this.handleAgent(integration, project.primaryAgent, project.defaultModel, message);
+      const attachments = await storeIncomingMedia(
+        this.deps,
+        integration,
+        message,
+        "project",
+        integration.projectSlug,
+      );
+      if (!attachments) return { decision: "dropped" };
+      await this.handleAgent(integration, project.primaryAgent, project.defaultModel, message, attachments);
       return { decision: "agent" };
     }
     if (decision.type === "workflow") {
-      await this.handleWorkflow(integration, decision.trigger, message);
+      const attachments = await storeIncomingMedia(
+        this.deps,
+        integration,
+        message,
+        "project",
+        integration.projectSlug,
+      );
+      if (!attachments) return { decision: "dropped" };
+      await this.handleWorkflow(integration, decision.trigger, message, attachments);
       return { decision: "workflow" };
     }
     if (decision.type === "approval") {
@@ -176,6 +263,7 @@ export class RouteProjectIntegrationMessageUseCase {
     primaryAgent: string | undefined,
     defaultModel: string | undefined,
     message: IncomingIntegrationMessage,
+    attachments: MediaRef[],
   ): Promise<void> {
     const thread = this.deps.store.chatThreads.findOrCreate({
       scope: "project",
@@ -198,7 +286,8 @@ export class RouteProjectIntegrationMessageUseCase {
       const turn = await this.deps.turns.start({
         thread,
         target,
-        message: message.text,
+        message: imagePrompt(message.text, attachments),
+        attachments,
         idempotencyKey: message.externalMessageId ? `${integration.id}:${message.externalMessageId}` : undefined,
       });
       void this.deliverTurn(integration.id, message.senderId, turn.id);
@@ -218,7 +307,7 @@ export class RouteProjectIntegrationMessageUseCase {
       this.deps.agent,
       thread,
       sessionId,
-      message.text,
+      imagePrompt(message.text, attachments),
       sessionFactory,
     );
     this.deps.store.chatThreads.touch(thread.id);
@@ -233,6 +322,7 @@ export class RouteProjectIntegrationMessageUseCase {
     integration: IntegrationRecord,
     trigger: TriggerRef,
     message: IncomingIntegrationMessage,
+    attachments: MediaRef[],
   ): Promise<void> {
     const graph = await this.deps.workspace.readWorkflow(trigger.projectSlug);
     await validateWorkflowResources(this.deps.store, this.deps.workspace, trigger.projectSlug, graph);
@@ -243,6 +333,7 @@ export class RouteProjectIntegrationMessageUseCase {
         message: message.text,
         senderId: message.senderId,
         integrationId: integration.id,
+        attachments,
         metadata: message.metadata ?? {},
       },
       entryPoint: ENTRY_POINTS[message.kind],
@@ -317,6 +408,8 @@ export class RouteGlobalIntegrationMessageUseCase {
       });
       return { decision: "dropped" };
     }
+    const attachments = await storeIncomingMedia(this.deps, integration, message, "global");
+    if (!attachments) return { decision: "dropped" };
     const thread = this.deps.store.chatThreads.findOrCreate({
       scope: "global",
       integrationId: integration.id,
@@ -335,7 +428,8 @@ export class RouteGlobalIntegrationMessageUseCase {
       const turn = await this.deps.turns.start({
         thread,
         target,
-        message: message.text,
+        message: imagePrompt(message.text, attachments),
+        attachments,
         idempotencyKey: message.externalMessageId ? `${integration.id}:${message.externalMessageId}` : undefined,
       });
       void deliverChatTurn(
@@ -364,7 +458,7 @@ export class RouteGlobalIntegrationMessageUseCase {
       this.deps.agent,
       thread,
       sessionId,
-      message.text,
+      imagePrompt(message.text, attachments),
       sessionFactory,
     );
     this.deps.store.chatThreads.touch(thread.id);

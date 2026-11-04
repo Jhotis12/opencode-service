@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteStore } from "../src/infrastructure/out/persistence/sqlite-store.ts";
@@ -12,6 +12,7 @@ import {
 import { parseApprovalCommand, routeProjectMessage, senderMatchesAllowlist } from "../src/domain/channels/router.ts";
 import { ChatTurnService } from "../src/application/use-cases/chat-turns.ts";
 import { SseHub } from "../src/infrastructure/in/sse/sse-hub.ts";
+import { FsMediaStore } from "../src/infrastructure/out/media/fs-media-store.ts";
 import type { IntegrationEgressPort, TriggerRef } from "../src/application/ports/channels.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
 import type { IntegrationRecord } from "../src/domain/entities.ts";
@@ -186,10 +187,11 @@ async function setup(useTurns = false) {
     turns,
     executor: executor as never,
     egress,
+    media: new FsMediaStore({ workspacesDir: join(dir, "workspaces"), controlDirectory: join(dir, "control") }),
     events: { publish() {} },
     logger: silentLogger,
   });
-  return { router, store, agent, egress, executed, approvals };
+  return { dir, router, store, agent, egress, executed, approvals };
 }
 
 describe("route incoming project messages", () => {
@@ -201,6 +203,54 @@ describe("route incoming project messages", () => {
     expect(agent.prompts).toHaveLength(2);
     expect(egress.sent).toHaveLength(2);
     expect(executed).toHaveLength(0);
+  });
+
+  it("stores inbound images and passes them to the agent prompt", async () => {
+    const { dir, router, agent } = await setup();
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "",
+      attachments: [{ kind: "image", filename: "foto.jpg", mime: "image/jpeg", bytes }],
+    });
+    expect(agent.prompts[0]).toContain("Analiza la imagen adjunta");
+    const files = await readdir(join(dir, "workspaces", "ventas", ".opencode", "media"));
+    expect(files.some((file) => file.endsWith(".jpg"))).toBe(true);
+  });
+
+  it("does not persist media for a dropped sender", async () => {
+    const { dir, router, store } = await setup();
+    const integration = store.integrations.findById("i1")!;
+    integration.config = { routing: { mode: "hybrid", allowlist: ["123"], public: false } };
+    store.integrations.update("i1", { config: integration.config });
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+    const result = await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "999",
+      text: "",
+      attachments: [{ kind: "image", filename: "foto.jpg", mime: "image/jpeg", bytes }],
+    });
+    expect(result.decision).toBe("dropped");
+    const files = await readdir(join(dir, "workspaces", "ventas", ".opencode", "media")).catch(() => []);
+    expect(files).toEqual([]);
+  });
+
+  it("includes accepted media in the workflow payload", async () => {
+    const { router, executed } = await setup();
+    const bytes = new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02, 0x00, 0x00]);
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "999",
+      text: "",
+      attachments: [{ kind: "audio", filename: "voice.ogg", mime: "audio/ogg", bytes }],
+    });
+    const payload = (executed[0] as { payload: { attachments: Array<{ kind: string; path: string }> } }).payload;
+    expect(payload.attachments[0]?.kind).toBe("audio");
+    expect(payload.attachments[0]?.path).toMatch(/^\.opencode\/media\/[a-f0-9]{64}\.ogg$/);
   });
 
   it("deduplicates a repeated channel message and delivers once", async () => {
@@ -280,6 +330,7 @@ describe("route incoming project messages", () => {
       agent,
       executor: {} as never,
       egress,
+      media: new FsMediaStore({ workspacesDir: join(dir, "workspaces"), controlDirectory: join(dir, "control") }),
       events: { publish() {} },
       logger: silentLogger,
       controlDirectory: join(dir, "control"),

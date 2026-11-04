@@ -70,7 +70,7 @@ export class IntegrationManager implements IntegrationManagerPort {
         integrationId: integration.id,
         scope: integration.scope,
         projectSlug: integration.projectSlug,
-        transport: new GrammyTransport(token),
+        transport: new GrammyTransport(token, this.deps.logger),
         router: integration.scope === "global" ? this.deps.globalRouter : this.deps.projectRouter,
         events: this.deps.events,
         logger: this.deps.logger,

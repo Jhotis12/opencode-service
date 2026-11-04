@@ -9,10 +9,10 @@
 
 ## 2. Captura y almacenamiento de media
 
-- [ ] 2.1 Implementar `MediaStore` con detección de tipo por magic bytes, límites de tamaño/cantidad/duración, nombre por hash SHA-256, permisos restrictivos y raíces separadas para proyecto y control; verificar con tests unitarios de tipo, tamaño, deduplicación y path traversal.
-- [ ] 2.2 Extender `IntegrationTransport`/`IncomingIntegrationMessage` con adjuntos y agregar al transporte de Telegram los handlers de foto, nota de voz, audio y documento de imagen con descarga vía `getFile()`; verificar con `bun test apps/server/test/channel-adapters.test.ts`.
-- [ ] 2.3 Integrar `MediaStore` en los routers de proyecto y global, guardar solo después de decidir el ruteo y responder con un error claro ante tipo/tamaño no soportado; verificar con tests de `channel-router` que un mensaje descartado no persiste archivos.
-- [ ] 2.4 Mantener compatibilidad con los transports existentes y los fakes de WhatsApp/Telegram al hacer opcional el campo de adjuntos; verificar que los tests de canales y `bun run typecheck` sigan pasando.
+- [x] 2.1 Implementar `MediaStore` con detección de tipo por magic bytes, límites de tamaño/cantidad/duración, nombre por hash SHA-256, permisos restrictivos y raíces separadas para proyecto y control; verificar con tests unitarios de tipo, tamaño, deduplicación y path traversal.
+- [x] 2.2 Extender `IntegrationTransport`/`IncomingIntegrationMessage` con adjuntos y agregar al transporte de Telegram los handlers de foto, nota de voz, audio y documento de imagen con descarga vía `getFile()`; verificar con `bun test apps/server/test/channel-adapters.test.ts`.
+- [x] 2.3 Integrar `MediaStore` en los routers de proyecto y global, guardar solo después de decidir el ruteo y responder con un error claro ante tipo/tamaño no soportado; verificar con tests de `channel-router` que un mensaje descartado no persiste archivos.
+- [x] 2.4 Mantener compatibilidad con los transports existentes y los fakes de WhatsApp/Telegram al hacer opcional el campo de adjuntos; verificar que los tests de canales y `bun run typecheck` sigan pasando.
 
 ## 3. Servicio de transcripción y recurso por proyecto
 

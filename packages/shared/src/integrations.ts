@@ -13,6 +13,7 @@ export const IntegrationKindSchema = z.enum([
   "mssql",
   "sqlite",
   "http",
+  "transcription",
 ]);
 export type IntegrationKind = z.infer<typeof IntegrationKindSchema>;
 
@@ -22,6 +23,7 @@ export const IntegrationCapabilitySchema = z.enum([
   "send_email",
   "read_email",
   "query",
+  "transcribe_audio",
 ]);
 export type IntegrationCapability = z.infer<typeof IntegrationCapabilitySchema>;
 
@@ -113,6 +115,14 @@ export const HttpIntegrationConfigSchema = z.object({
   baseUrl: z.string().url(),
 }).passthrough();
 
+export const TranscriptionIntegrationConfigSchema = z.object({
+  kind: z.literal("transcription"),
+  baseUrl: z.string().url(),
+  model: z.string().min(1),
+  language: z.string().min(2).max(16).optional(),
+  models: z.array(z.string().min(1)).optional(),
+}).passthrough();
+
 export const IntegrationConfigSchema = z.discriminatedUnion("kind", [
   TelegramIntegrationConfigSchema,
   WhatsAppIntegrationConfigSchema,
@@ -123,6 +133,7 @@ export const IntegrationConfigSchema = z.discriminatedUnion("kind", [
   MssqlIntegrationConfigSchema,
   SqliteIntegrationConfigSchema,
   HttpIntegrationConfigSchema,
+  TranscriptionIntegrationConfigSchema,
 ]);
 export type IntegrationConfig = z.infer<typeof IntegrationConfigSchema>;
 
@@ -145,6 +156,8 @@ export function defaultCapabilities(kind: IntegrationKind): IntegrationCapabilit
       return [...DATABASE_CAPABILITIES];
     case "http":
       return [];
+    case "transcription":
+      return ["transcribe_audio"];
   }
 }
 

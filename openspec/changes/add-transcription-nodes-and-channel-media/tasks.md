@@ -2,10 +2,10 @@
 
 ## 1. Contratos compartidos y persistencia
 
-- [ ] 1.1 Agregar `transcription` a `IntegrationKindSchema`, `transcribe_audio` a `IntegrationCapabilitySchema`, `TranscriptionIntegrationConfigSchema` (`baseUrl`, `model`, `language`) y los defaults/secretos requeridos; verificar con `bun test packages/shared` y `bun run --cwd packages/shared typecheck`.
-- [ ] 1.2 Agregar `MediaRefSchema`, `TriggerConfig.accepts` con default `["text"]`, `transcribe` a `NodeTypeSchema`, `TranscribeNodeConfigSchema`, `AgentNodeConfig.mediaPath`, `ChatMessageSchema.attachments` y `AgentModelInfo.input`; verificar con los tests de contratos y `bun run typecheck`.
-- [ ] 1.3 Agregar las columnas aditivas `chat_messages.attachments_json` y `projects.transcription_integration_id`, sus entidades y mapeos en SQLite, y verificar con `bun test apps/server/test/persistence.test.ts` y una migración sobre una base existente.
-- [ ] 1.4 Extender los ajustes de proyecto con `transcriptionIntegrationId`, validar que la integración sea `transcription` del mismo proyecto y agregar el ítem de readiness cuando falte; verificar con `bun test apps/server/test/project-settings.test.ts`.
+- [x] 1.1 Agregar `transcription` a `IntegrationKindSchema`, `transcribe_audio` a `IntegrationCapabilitySchema`, `TranscriptionIntegrationConfigSchema` (`baseUrl`, `model`, `language`) y los defaults/secretos requeridos; verificar con `bun test packages/shared` y `bun run --cwd packages/shared typecheck`.
+- [x] 1.2 Agregar `MediaRefSchema`, `TriggerConfig.accepts` con default `["text"]`, `transcribe` a `NodeTypeSchema`, `TranscribeNodeConfigSchema`, `AgentNodeConfig.mediaPath`, `ChatMessageSchema.attachments` y `AgentModelInfo.input`; verificar con los tests de contratos y `bun run typecheck`.
+- [x] 1.3 Agregar las columnas aditivas `chat_messages.attachments_json` y `projects.transcription_integration_id`, sus entidades y mapeos en SQLite, y verificar con `bun test apps/server/test/persistence.test.ts` y una migración sobre una base existente.
+- [x] 1.4 Extender los ajustes de proyecto con `transcriptionIntegrationId`, validar que la integración sea `transcription` del mismo proyecto y agregar el ítem de readiness cuando falte; verificar con `bun test apps/server/test/project-settings.test.ts`.
 
 ## 2. Captura y almacenamiento de media
 

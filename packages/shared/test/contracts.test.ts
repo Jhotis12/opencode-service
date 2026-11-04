@@ -4,6 +4,10 @@ import {
   AgentNodeConfigSchema,
   ApiErrorSchema,
   ChatMessageRequestSchema,
+  ChatMessageSchema,
+  MediaRefSchema,
+  TranscribeNodeConfigSchema,
+  TranscriptionIntegrationConfigSchema,
   CreateProjectRequestSchema,
   DatabaseNodeConfigSchema,
   EntryPointTypeSchema,
@@ -98,6 +102,43 @@ describe("agent contracts", () => {
     const ref = parseModelRef("opencode-go/gpt-5#high");
     expect(ref).toEqual({ providerID: "opencode-go", modelID: "gpt-5", variant: "high" });
     expect(modelRefToString(ref!)).toBe("opencode-go/gpt-5#high");
+  });
+});
+
+describe("media and transcription contracts", () => {
+  it("validates an OpenAI-compatible transcription integration", () => {
+    const parsed = TranscriptionIntegrationConfigSchema.parse({
+      kind: "transcription",
+      baseUrl: "http://transcription:8000/v1",
+      model: "Systran/faster-whisper-small",
+      language: "es",
+    });
+    expect(parsed.model).toBe("Systran/faster-whisper-small");
+    expect(TranscriptionIntegrationConfigSchema.safeParse({ kind: "transcription", baseUrl: "nope" }).success).toBe(false);
+  });
+
+  it("defaults trigger media acceptance to text", () => {
+    expect(TriggerConfigSchema.parse({ kind: "integration" }).accepts).toEqual(["text"]);
+    expect(TriggerConfigSchema.parse({ kind: "integration", accepts: ["text", "image", "audio"] }).accepts).toHaveLength(3);
+  });
+
+  it("validates transcribe node configuration and media references", () => {
+    expect(TranscribeNodeConfigSchema.parse({}).mediaPath).toBe("attachments");
+    expect(
+      MediaRefSchema.parse({
+        kind: "audio",
+        path: ".opencode/media/abc.ogg",
+        mime: "audio/ogg",
+        filename: "voice.ogg",
+      }).kind,
+    ).toBe("audio");
+  });
+
+  it("keeps attachments optional in chat messages", () => {
+    expect(
+      ChatMessageSchema.parse({ id: "m1", threadId: "t1", role: "user", content: "hola", createdAt: new Date().toISOString() })
+        .attachments,
+    ).toBeUndefined();
   });
 });
 

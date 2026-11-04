@@ -10,6 +10,7 @@ import type {
   ChatTurnStatus,
   ChatTurnErrorCode,
   ChatTurnUsage,
+  MediaRef,
 } from "@platform/shared";
 
 export type EntityScope = "project" | "global";
@@ -42,6 +43,7 @@ export interface ProjectRecord {
   primaryAgent?: string;
   approvalIntegrationId?: string;
   approvalRecipient?: string;
+  transcriptionIntegrationId?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -203,6 +205,7 @@ export interface ChatMessageRecord {
   turnId?: string;
   role: "user" | "agent" | "system";
   content: string;
+  attachments?: MediaRef[];
   errorCode?: ChatTurnErrorCode;
   createdAt: string;
 }

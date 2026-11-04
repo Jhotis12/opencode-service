@@ -928,6 +928,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
       primaryAgent: string | null;
       approvalIntegrationId: string | null;
       approvalRecipient: string | null;
+      transcriptionIntegrationId: string | null;
     }>;
     try {
       return c.json(
@@ -940,6 +941,9 @@ export async function createApplication(config: AppConfig): Promise<Application>
             ? { approvalIntegrationId: body.approvalIntegrationId }
             : {}),
           ...(body.approvalRecipient !== undefined ? { approvalRecipient: body.approvalRecipient } : {}),
+          ...(body.transcriptionIntegrationId !== undefined
+            ? { transcriptionIntegrationId: body.transcriptionIntegrationId }
+            : {}),
         }),
       );
     } catch (error) {

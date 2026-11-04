@@ -63,6 +63,7 @@ export interface ProjectSummary {
   primaryAgent?: string;
   approvalIntegrationId?: string;
   approvalRecipient?: string;
+  transcriptionIntegrationId?: string;
   createdAt: string;
 }
 
@@ -364,6 +365,7 @@ export const api = {
       primaryAgent?: string | null;
       approvalIntegrationId?: string | null;
       approvalRecipient?: string | null;
+      transcriptionIntegrationId?: string | null;
     },
   ) =>
     request<ProjectSummary>(`/api/projects/${slug}/settings`, {

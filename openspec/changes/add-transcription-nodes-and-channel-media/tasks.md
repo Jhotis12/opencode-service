@@ -48,14 +48,14 @@
 
 - [x] 7.1 Agregar el servicio `transcription` con `ghcr.io/speaches-ai/speaches:latest-cpu`, volumen de modelos, healthcheck e init que descargue `Systran/faster-whisper-base` y `Systran/faster-whisper-small`; verificar con `docker compose config` y un arranque limpio.
 - [x] 7.2 Documentar en README y `.env.example` la conexión local por defecto (`http://transcription:8000/v1`, modelo small), la creación de conexiones terceras y la limitación de OGG/Opus en algunos proveedores; verificar que los comandos documentados funcionan.
-- [ ] 7.3 Ejecutar una prueba real con una nota de voz OGG/Opus de Telegram contra speaches y verificar que el transcript llega a un turno de agente y a un nodo `transcribe`.
+- [x] 7.3 Ejecutar una prueba real con una nota de voz OGG/Opus de Telegram contra speaches y verificar que el transcript llega a un turno de agente y a un nodo `transcribe`.
 
 ## 8. Observabilidad, seguridad y verificación integral
 
 - [x] 8.1 Emitir logs y métricas de captura/transcripción sin contenido ni transcripciones, y agregar el estado de las conexiones de transcripción al health; verificar con tests de telemetría y una consulta a `/api/system/health`.
 - [x] 8.2 Agregar tests de aislamiento para media y conexiones de transcripción entre proyectos, path traversal y secretos enmascarados; verificar que fallen si se permite un acceso cruzado.
 - [x] 8.3 Ejecutar `bun run typecheck`, `bun run test` y `bun run build`; corregir cualquier regresión antes de cerrar el cambio.
-- [ ] 8.4 Ejecutar la verificación manual: foto de Telegram sin caption, nota de voz en modo agente, workflow con `accepts: ["audio"]` y nodo `transcribe`, reintento de turno con imagen, y confirmar las respuestas y el historial.
+- [x] 8.4 Ejecutar la verificación manual: foto de Telegram sin caption, nota de voz en modo agente, workflow con `accepts: ["audio"]` y nodo `transcribe`, reintento de turno con imagen, y confirmar las respuestas y el historial.
 - [x] 8.5 Ejecutar `graphify update .` y verificar que el grafo se actualiza sin errores.
 
 ## Workflow follow-up

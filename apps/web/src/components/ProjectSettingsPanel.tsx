@@ -88,6 +88,7 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
             {models.map((model) => (
               <option key={`${model.providerID}/${model.modelID}`} value={`${model.providerID}/${model.modelID}`}>
                 {model.name} · {model.providerID}/{model.modelID}
+                {model.input?.includes("image") ? " · visión" : ""}
               </option>
             ))}
           </select>

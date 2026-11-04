@@ -47,7 +47,7 @@ function graph(nodes: NodeSpec[], edges: WorkflowGraph["edges"] = []): WorkflowG
   };
 }
 
-const allTypes: NodeType[] = ["trigger", "http", "database", "notify", "subworkflow", "code", "transform", "delay", "validate", "foreach", "agent", "decision", "approval"];
+const allTypes: NodeType[] = ["trigger", "http", "database", "notify", "subworkflow", "code", "transform", "delay", "validate", "foreach", "agent", "transcribe", "decision", "approval"];
 
 function renderCanvas(overrides: Partial<React.ComponentProps<typeof WorkflowCanvas>> = {}) {
   const props: React.ComponentProps<typeof WorkflowCanvas> = {
@@ -183,6 +183,10 @@ describe("NodePaletteModal", () => {
     await userEvent.type(screen.getByLabelText("Buscar nodo"), "agente");
     expect(screen.getByRole("button", { name: /Agente/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /HTTP Request/ })).not.toBeInTheDocument();
+
+    await userEvent.clear(screen.getByLabelText("Buscar nodo"));
+    await userEvent.type(screen.getByLabelText("Buscar nodo"), "transcribir");
+    expect(screen.getByRole("button", { name: /Transcribir audio/ })).toBeInTheDocument();
 
     await userEvent.clear(screen.getByLabelText("Buscar nodo"));
     await userEvent.type(screen.getByLabelText("Buscar nodo"), "zzzz");
@@ -324,6 +328,52 @@ describe("NodeInspectorModal", () => {
     expect(onConfig).toHaveBeenCalledWith({ recipient: "123" });
     fireEvent.change(within(dialog).getByLabelText("Mensaje"), { target: { value: "Hola {{input.nombre}}" } });
     expect(onConfig).toHaveBeenCalledWith({ text: "Hola {{input.nombre}}" });
+  });
+
+  it("configures a transcribe node connection and media path", async () => {
+    const asr: IntegrationRecord = {
+      id: "asr1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "transcription",
+      name: "ASR local",
+      slug: "asr-local",
+      config: { baseUrl: "http://transcription:8000/v1", model: "small", models: ["small", "base"] },
+      secretRefs: {},
+      capabilities: ["transcribe_audio"],
+      status: "connected",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const transcribe = node("transcribe", "transcribe", { config: { mediaPath: "attachments" } });
+    const { onConfig } = renderInspector({
+      node: transcribe,
+      graph: graph([node("start", "trigger"), transcribe], [{ id: "e1", source: "start", target: "transcribe" }]),
+      integrations: [asr],
+      lastStep: undefined,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: transcribe" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Conexión de transcripción"), "asr1");
+    expect(onConfig).toHaveBeenCalledWith({ integrationId: "asr1" });
+    fireEvent.change(within(dialog).getByLabelText("Ruta de los audios en el input"), {
+      target: { value: "media" },
+    });
+    expect(onConfig).toHaveBeenCalledWith({ mediaPath: "media" });
+  });
+
+  it("accepts audio on an integration trigger", async () => {
+    const trigger = node("start", "trigger", {
+      config: { kind: "integration", integrationId: "tg1", event: "message.received", accepts: ["text"] },
+    });
+    const { onConfig } = renderInspector({
+      node: trigger,
+      graph: graph([trigger]),
+      integrations: [],
+      lastStep: undefined,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: start" });
+    await userEvent.click(within(dialog).getByLabelText("Audio"));
+    expect(onConfig).toHaveBeenCalledWith({ accepts: ["text", "audio"] });
   });
 
   it("loads and edits the node error strategy", async () => {

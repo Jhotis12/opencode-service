@@ -142,6 +142,7 @@ export interface ModelInfo {
   providerID: string;
   modelID: string;
   name: string;
+  input?: string[];
 }
 
 export interface NotebookSummary {

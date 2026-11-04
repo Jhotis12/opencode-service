@@ -20,7 +20,10 @@ vi.mock("../src/api.ts", () => ({
     }),
     listSecrets: vi.fn().mockResolvedValue({ data: [{ alias: "setting:sentry_dsn", kind: "sentry_dsn", createdAt: new Date().toISOString() }] }),
     listModels: vi.fn().mockResolvedValue({
-      data: [{ providerID: "opencode-go", modelID: "fast", name: "Fast" }],
+      data: [
+        { providerID: "opencode-go", modelID: "fast", name: "Fast" },
+        { providerID: "opencode-go", modelID: "vision", name: "Vision", input: ["text", "image"] },
+      ],
     }),
     controlIntegrations: vi.fn().mockResolvedValue({
       data: [
@@ -180,6 +183,10 @@ describe("ProjectSettingsPanel", () => {
     renderWithProviders(<ProjectSettingsPanel projectSlug="ventas" />);
     const select = await screen.findByLabelText("Conexión de transcripción por defecto");
     expect(select).toHaveValue("asr1");
+    const fast = screen.getByRole("option", { name: /opencode-go\/fast/ });
+    const vision = screen.getByRole("option", { name: /opencode-go\/vision/ });
+    expect(fast.textContent).not.toContain("visión");
+    expect(vision.textContent).toContain("visión");
     await userEvent.selectOptions(select, "");
     await userEvent.click(screen.getByRole("button", { name: "Guardar ajustes" }));
     expect(vi.mocked(api.updateProjectSettings)).toHaveBeenCalledWith(

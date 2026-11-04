@@ -306,6 +306,14 @@ export function NodeInspector({
 }) {
   const modelOptions = models.map((model) => `${model.providerID}/${model.modelID}`);
   const isCode = node.type === "code" || (node.type === "decision" && node.config.mode === "code");
+  const accepts = Array.isArray(node.config.accepts) ? node.config.accepts.map(String) : ["text"];
+  const transcriptionIntegrations = integrations.filter((integration) => integration.kind === "transcription");
+  const selectedTranscription = transcriptionIntegrations.find(
+    (integration) => integration.id === node.config.integrationId,
+  );
+  const transcriptionModels = Array.isArray(selectedTranscription?.config.models)
+    ? selectedTranscription.config.models.map(String)
+    : [];
 
   return (
     <div className="grid gap-3 md:grid-cols-2">
@@ -445,6 +453,34 @@ export function NodeInspector({
                       placeholder="message.received"
                     />
                   </label>
+                  <div className="flex flex-col gap-1 text-xs text-muted md:col-span-2">
+                    <strong className="text-xs text-muted">Tipos de mensaje aceptados</strong>
+                    <div className="flex flex-wrap gap-3">
+                      {[
+                        ["text", "Texto"],
+                        ["image", "Imagen"],
+                        ["audio", "Audio"],
+                      ].map(([value, label]) => (
+                        <label key={value} className="flex-row items-center gap-2">
+                          <input
+                            type="checkbox"
+                            className="w-auto"
+                            checked={accepts.includes(value)}
+                            onChange={(event) => {
+                              const next = event.target.checked
+                                ? [...accepts, value]
+                                : accepts.filter((item) => item !== value);
+                              onConfig({ accepts: next });
+                            }}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                    <span>
+                      Por defecto solo texto. Si aceptas audio, agrega un nodo <strong>Transcribir audio</strong> antes del agente.
+                    </span>
+                  </div>
                   <p className="text-xs text-muted md:col-span-2">
                     El modo del canal se define en <strong>Recursos</strong>. En modo agente, el mensaje va al agente principal; en modo flujo, dispara este trigger.
                   </p>
@@ -696,6 +732,73 @@ export function NodeInspector({
             </>
           )}
 
+          {node.type === "transcribe" && (
+            <>
+              <label>
+                Conexión de transcripción
+                <select
+                  value={String(node.config.integrationId ?? "")}
+                  onChange={(event) => onConfig({ integrationId: event.target.value || undefined })}
+                >
+                  <option value="">Heredar del proyecto</option>
+                  {transcriptionIntegrations.map((integration) => (
+                    <option key={integration.id} value={integration.id}>
+                      {integration.name} · {String(integration.config.model ?? "sin modelo")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Modelo (override)
+                <input
+                  value={String(node.config.model ?? "")}
+                  onChange={(event) => onConfig({ model: event.target.value || undefined })}
+                  placeholder={String(selectedTranscription?.config.model ?? "Heredar de la conexión")}
+                  list="transcription-node-models"
+                />
+                <datalist id="transcription-node-models">
+                  {transcriptionModels.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                  <option value="Systran/faster-whisper-base" />
+                  <option value="Systran/faster-whisper-small" />
+                  <option value="whisper-1" />
+                  <option value="whisper-large-v3" />
+                </datalist>
+              </label>
+              <label>
+                Idioma (override)
+                <input
+                  value={String(node.config.language ?? "")}
+                  onChange={(event) => onConfig({ language: event.target.value || undefined })}
+                  placeholder={String(selectedTranscription?.config.language ?? "Auto")}
+                />
+              </label>
+              <label>
+                Prompt de contexto
+                <textarea
+                  rows={2}
+                  value={String(node.config.prompt ?? "")}
+                  onChange={(event) => onConfig({ prompt: event.target.value || undefined })}
+                  placeholder="Vocabulario o contexto para el ASR"
+                />
+              </label>
+              <label className="md:col-span-2">
+                Ruta de los audios en el input
+                <input
+                  value={String(node.config.mediaPath ?? "attachments")}
+                  onChange={(event) => onConfig({ mediaPath: event.target.value })}
+                  placeholder="attachments"
+                />
+              </label>
+              <p className="text-xs text-muted md:col-span-2">
+                {transcriptionIntegrations.length === 0
+                  ? "No hay conexiones de transcripción en el proyecto. Créalas en Recursos."
+                  : "Toma los audios de la ruta indicada y devuelve { text, language, durationSeconds, segments }."}
+              </p>
+            </>
+          )}
+
           {node.type === "agent" && (
             <>
               <p className="text-[11px] text-muted md:col-span-2">
@@ -716,13 +819,26 @@ export function NodeInspector({
                 Modelo del nodo
                 <select value={node.modelOverride ?? ""} onChange={(event) => onPatch({ modelOverride: event.target.value || undefined })}>
                   <option value="">Heredar del flujo</option>
-                  {modelOptions.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
+                  {models.map((model) => {
+                    const ref = `${model.providerID}/${model.modelID}`;
+                    return (
+                      <option key={ref} value={ref}>
+                        {ref}
+                        {model.input?.includes("image") ? " · visión" : ""}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
+              {node.modelOverride &&
+                models.find((model) => `${model.providerID}/${model.modelID}` === node.modelOverride)?.input &&
+                !models
+                  .find((model) => `${model.providerID}/${model.modelID}` === node.modelOverride)
+                  ?.input?.includes("image") && (
+                  <p className="text-xs text-warn md:col-span-2">
+                    Este modelo no reporta entrada de imagen; los adjuntos pueden no analizarse.
+                  </p>
+                )}
               <label>
                 Notebooks (coma)
                 <input
@@ -743,6 +859,14 @@ export function NodeInspector({
                   rows={2}
                   value={String(node.config.instruction ?? "")}
                   onChange={(event) => onConfig({ instruction: event.target.value })}
+                />
+              </label>
+              <label>
+                Adjuntar imágenes desde
+                <input
+                  value={String(node.config.mediaPath ?? "attachments")}
+                  onChange={(event) => onConfig({ mediaPath: event.target.value })}
+                  placeholder="attachments"
                 />
               </label>
               <label className="flex-row items-center gap-2 md:col-span-2">

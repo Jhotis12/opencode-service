@@ -82,6 +82,20 @@ Un canal de proyecto declara un modo:
 
 El ruteo es determinista por `integrationId` y evento; no escanea todos los proyectos. Un trigger de integración debe declarar `integrationId` y evento, y no puede haber dos triggers del mismo proyecto para la misma integración/evento.
 
+### Media y transcripción
+
+Telegram puede capturar fotos, notas de voz, audio y documentos de imagen. El archivo se valida por contenido y se guarda en `.opencode/media/` del proyecto; los límites son 20 MB por archivo, 5 adjuntos por mensaje y 5 minutos de audio.
+
+- **Modo agente:** la plataforma transcribe el audio con la conexión de transcripción por defecto del proyecto antes de iniciar el turno. Sin conexión, responde con un mensaje accionable.
+- **Modo workflow:** el trigger declara qué acepta (`text`, `image`, `audio`) y el flujo decide cuándo convertir el audio con el nodo **Transcribir audio**.
+- **Imágenes:** el nodo **Agente** adjunta las imágenes del input al prompt. El modelo elegido debe aceptar imagen.
+- **Conexiones:** se crean en **Recursos > Transcripción (ASR)** y se prueban desde la misma tarjeta; el botón de prueba lista y cachea los modelos del proveedor.
+- **Local:** `docker-compose.yml` incluye `speaches` CPU con `Systran/faster-whisper-base` y `Systran/faster-whisper-small` preinstalados. La conexión local usa `http://transcription:8000/v1` y `Systran/faster-whisper-small`.
+- **Terceros:** cualquier endpoint OpenAI-compatible sirve, por ejemplo `https://api.groq.com/openai/v1` con `whisper-large-v3`. Las notas de voz de Telegram son OGG/Opus; algunos modelos de OpenAI no aceptan ese formato, así que verifica el proveedor antes de usarlo.
+- **Ajustes:** el proyecto elige su conexión de transcripción por defecto en **Ajustes > Transcripción**.
+
+Fuera de alcance en esta versión: ASR para el orquestador global, media en WhatsApp, subida desde el chat web y retención automática de archivos.
+
 ### Chat externo (API)
 
 ```bash

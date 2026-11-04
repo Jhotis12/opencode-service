@@ -56,7 +56,7 @@
 - [x] 8.2 Agregar tests de aislamiento para media y conexiones de transcripción entre proyectos, path traversal y secretos enmascarados; verificar que fallen si se permite un acceso cruzado.
 - [x] 8.3 Ejecutar `bun run typecheck`, `bun run test` y `bun run build`; corregir cualquier regresión antes de cerrar el cambio.
 - [ ] 8.4 Ejecutar la verificación manual: foto de Telegram sin caption, nota de voz en modo agente, workflow con `accepts: ["audio"]` y nodo `transcribe`, reintento de turno con imagen, y confirmar las respuestas y el historial.
-- [ ] 8.5 Ejecutar `graphify update .` y verificar que el grafo se actualiza sin errores.
+- [x] 8.5 Ejecutar `graphify update .` y verificar que el grafo se actualiza sin errores.
 
 ## Workflow follow-up
 

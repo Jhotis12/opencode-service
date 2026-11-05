@@ -90,7 +90,7 @@ describe("ProjectPage canvas workspace", () => {
   });
 
   it("adds a node from the modal palette, preserves unsaved edits and saves it", async () => {
-    renderPage();
+    const { container } = renderPage();
     expect(await screen.findByText("Demo")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "+ Nodo" }));
@@ -103,6 +103,16 @@ describe("ProjectPage canvas workspace", () => {
     await userEvent.type(within(inspector).getByLabelText("Etiqueta"), "Mi HTTP");
     await userEvent.click(within(inspector).getByRole("button", { name: "Cerrar" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /Nodo:/ })).not.toBeInTheDocument());
+
+    fireEvent.click(container.querySelector('[data-node-id="code"]')!);
+    const codeInspector = await screen.findByRole("dialog", { name: "Nodo: Consultar" });
+    await userEvent.click(within(codeInspector).getByRole("tab", { name: "Conexiones" }));
+    await userEvent.selectOptions(
+      within(codeInspector).getByLabelText("Nodo destino"),
+      within(codeInspector).getByRole("option", { name: "Mi HTTP" }),
+    );
+    await userEvent.click(within(codeInspector).getByRole("button", { name: "Conectar" }));
+    await userEvent.click(within(codeInspector).getByRole("button", { name: "Cerrar" }));
 
     await userEvent.click(screen.getByRole("button", { name: "Guardar flujo" }));
     await waitFor(() => expect(apiMock.saveWorkflow).toHaveBeenCalled());

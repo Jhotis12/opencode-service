@@ -1,4 +1,4 @@
-import type { Edge, NodeSpec, WorkflowGraph } from "@platform/shared";
+import { validateNodeConfig, type Edge, type NodeSpec, type WorkflowGraph } from "@platform/shared";
 
 export interface GraphIssue {
   id: string;
@@ -160,6 +160,16 @@ export function getGraphIssues(graph: WorkflowGraph): GraphIssue[] {
   }
 
   for (const node of graph.nodes) {
+    const validation = validateNodeConfig(node.type, node.config);
+    if (!validation.success) {
+      for (const problem of validation.error.issues) {
+        const path = problem.path.length > 0 ? `config.${problem.path.join(".")}` : "config";
+        issue(issues, {
+          nodeId: node.id,
+          message: `Configuración inválida (${path}): ${problem.message}`,
+        });
+      }
+    }
     if (node.type === "trigger") {
       const kind = String(node.config.kind ?? "manual");
       if (!["manual", "integration", "schedule", "webhook"].includes(kind)) {

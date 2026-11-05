@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ChatTurnEvent, NodeSpec, WorkflowGraph } from "@platform/shared";
+import { defaultNodeConfig, type ChatTurnEvent, type NodeSpec, type WorkflowGraph } from "@platform/shared";
 import { api, ApiClientError, type RunRecord } from "../api.ts";
 import { qk } from "../query.ts";
 import { AgentCatalog } from "../components/AgentCatalog.tsx";
@@ -382,6 +382,11 @@ export function ProjectPage() {
     updateNode({ config: { ...selected.config, ...patch } });
   }
 
+  function replaceConfig(config: Record<string, unknown>) {
+    if (!selected) return;
+    updateNode({ config });
+  }
+
   async function enableDecisionCode() {
     if (!selected || !slug) return;
     const file = selected.codeFile ?? `nodes/${selected.id}.ts`;
@@ -414,18 +419,6 @@ export function ProjectPage() {
       return;
     }
     const id = `${type}-${crypto.randomUUID().slice(0, 6)}`;
-    const defaults: Record<string, Record<string, unknown>> = {
-      trigger: { kind: "manual", inputSchema: { fields: [] } },
-      http: { method: "GET", url: "https://api.example.com", headers: "{}", body: "" },
-      delay: { ms: 1000 },
-      transform: { template: '{"result":"{{input}}"}' },
-      validate: { rules: [{ name: "tema", type: "string", required: true, message: "Falta el campo tema." }] },
-      decision: { mode: "condition", condition: { field: "status", operator: "equals", value: "ok" } },
-      approval: { message: "Revisar antes de continuar", autoApprove: false },
-      agent: { instruction: "" },
-      transcribe: { mediaPath: "attachments" },
-      code: {},
-    };
     const position = selected
       ? { x: selected.position.x + 280, y: selected.position.y + 20 }
       : { x: 80 + graph.nodes.length * 40, y: 80 + (graph.nodes.length % 3) * 120 };
@@ -434,7 +427,7 @@ export function ProjectPage() {
       type,
       label: NODE_LABELS[type],
       position,
-      config: defaults[type] ?? {},
+      config: defaultNodeConfig(type),
       notebookIds: [],
       timeoutMs: type === "transcribe" ? 120_000 : 30_000,
       retryPolicy: { maxRetries: 0 },
@@ -691,6 +684,7 @@ export function ProjectPage() {
               onClose={closeInspector}
               onPatch={updateNode}
               onConfig={updateConfig}
+              onReplaceConfig={replaceConfig}
               onRemove={() => removeNode(selected.id)}
               onDuplicate={() => void duplicateNode(selected.id)}
               onConnect={connect}

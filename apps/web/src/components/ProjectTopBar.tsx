@@ -254,7 +254,7 @@ export function ProjectTopBar({
               </div>
             )}
           </div>
-          <button type="button" className={button} onClick={onSave} disabled={saving}>
+          <button type="button" className={button} onClick={onSave} disabled={saving || issueCount > 0}>
             Guardar<span className="hidden min-[1400px]:inline"> flujo</span>
           </button>
           <button type="button" className={buttonPrimary} onClick={onRun}>

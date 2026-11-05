@@ -53,6 +53,7 @@ export function NodeInspectorModal({
   onClose,
   onPatch,
   onConfig,
+  onReplaceConfig,
   onCodeChange,
   onSaveCode,
   onEnableDecisionCode,
@@ -78,6 +79,7 @@ export function NodeInspectorModal({
   onClose(): void;
   onPatch(patch: Partial<NodeSpec>): void;
   onConfig(patch: Record<string, unknown>): void;
+  onReplaceConfig(config: Record<string, unknown>): void;
   onCodeChange(value: string): void;
   onSaveCode(): void;
   onEnableDecisionCode(): void;
@@ -212,6 +214,7 @@ export function NodeInspectorModal({
             codeDirty={codeDirty}
             onPatch={onPatch}
             onConfig={onConfig}
+            onReplaceConfig={onReplaceConfig}
             onCodeChange={onCodeChange}
             onSaveCode={onSaveCode}
             onEnableDecisionCode={onEnableDecisionCode}

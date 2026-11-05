@@ -51,11 +51,11 @@
 
 ## 7. Inspector de nodos dirigido por contrato
 
-- [ ] 7.1 Crear el renderer de campos del registro y conservar widgets custom para `inputSchema`, `outputSchema`, reglas, SQL, condición y código; verificar con un test que cada `NodeType` renderiza sus campos requeridos.
-- [ ] 7.2 Mover los defaults de `addNode` al registro y aplicarlos al crear un nodo; verificar con un test que un nodo nuevo pasa la validación de guardado.
-- [ ] 7.3 Reemplazar el config al cambiar de tipo/kind, con confirmación en la UI cuando se descartan claves incompatibles; verificar con un test que un trigger integration→manual elimina `integrationId` y `event`.
-- [ ] 7.4 Mostrar errores de validación por campo en el inspector y bloquear el guardado inválido; verificar con un test de componente y con una respuesta 422 del servidor.
-- [ ] 7.5 Agregar pruebas de canvas e inspector para defaults, cambio de kind y validación; verificar con `bun test apps/web/test/canvas-ui.test.tsx apps/web/test/node-inspector.test.tsx`.
+- [x] 7.1 Crear el renderer de campos del registro y conservar widgets custom para `inputSchema`, `outputSchema`, reglas, SQL, condición y código; verificar con un test que cada `NodeType` renderiza sus campos requeridos.
+- [x] 7.2 Mover los defaults de `addNode` al registro y aplicarlos al crear un nodo; verificar con un test que un nodo nuevo pasa la validación de guardado.
+- [x] 7.3 Reemplazar el config al cambiar de tipo/kind, con confirmación en la UI cuando se descartan claves incompatibles; verificar con un test que un trigger integration→manual elimina `integrationId` y `event`.
+- [x] 7.4 Mostrar errores de validación por campo en el inspector y bloquear el guardado inválido; verificar con un test de componente y con una respuesta 422 del servidor.
+- [x] 7.5 Agregar pruebas de canvas e inspector para defaults, cambio de kind y validación; verificar con `bun test apps/web/test/canvas-ui.test.tsx apps/web/test/node-inspector.test.tsx`.
 
 ## 8. Configuración efectiva y ajustes
 

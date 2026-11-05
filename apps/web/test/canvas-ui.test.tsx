@@ -223,6 +223,7 @@ describe("NodeInspectorModal", () => {
     const onRemove = vi.fn();
     const onConfig = vi.fn();
     const onPatch = vi.fn();
+    const onReplaceConfig = vi.fn();
     render(
       <NodeInspectorModal
         node={agent}
@@ -238,6 +239,7 @@ describe("NodeInspectorModal", () => {
         onClose={vi.fn()}
         onPatch={onPatch}
         onConfig={onConfig}
+        onReplaceConfig={onReplaceConfig}
         onCodeChange={vi.fn()}
         onSaveCode={vi.fn()}
         onEnableDecisionCode={vi.fn()}
@@ -250,7 +252,7 @@ describe("NodeInspectorModal", () => {
         {...overrides}
       />,
     );
-    return { onConnect, onStartCanvasConnect, onDuplicate, onRemove, onConfig, onPatch };
+    return { onConnect, onStartCanvasConnect, onDuplicate, onRemove, onConfig, onPatch, onReplaceConfig };
   }
 
   it("edits database node settings and validates statement JSON", async () => {
@@ -466,6 +468,7 @@ describe("NodeInspectorModal", () => {
         onClose={vi.fn()}
         onPatch={vi.fn()}
         onConfig={vi.fn()}
+        onReplaceConfig={vi.fn()}
         onCodeChange={vi.fn()}
         onSaveCode={vi.fn()}
         onEnableDecisionCode={vi.fn()}
@@ -493,6 +496,7 @@ describe("NodeInspectorModal", () => {
         onClose={vi.fn()}
         onPatch={vi.fn()}
         onConfig={vi.fn()}
+        onReplaceConfig={vi.fn()}
         onCodeChange={vi.fn()}
         onSaveCode={vi.fn()}
         onEnableDecisionCode={vi.fn()}
@@ -535,6 +539,36 @@ describe("NodeInspectorModal", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Eliminar" }));
     expect(onDuplicate).toHaveBeenCalled();
     expect(onRemove).toHaveBeenCalled();
+  });
+
+  it("resets incompatible trigger config when the kind changes", async () => {
+    const trigger = node("start", "trigger", {
+      config: { kind: "integration", integrationId: "tg1", event: "message.received" },
+    });
+    const { onReplaceConfig } = renderInspector({
+      node: trigger,
+      graph: graph([trigger]),
+      lastStep: undefined,
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dialog = screen.getByRole("dialog", { name: "Nodo: start" });
+    await userEvent.selectOptions(within(dialog).getByLabelText("Entrada del flujo"), "manual");
+    expect(onReplaceConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "manual" }),
+    );
+    expect(onReplaceConfig.mock.calls[0]?.[0]).not.toHaveProperty("integrationId");
+    confirm.mockRestore();
+  });
+
+  it("shows inline errors for incomplete node configuration", () => {
+    const database = node("db", "database", { config: {} });
+    renderInspector({
+      node: database,
+      graph: graph([node("start", "trigger"), database]),
+      lastStep: undefined,
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: db" });
+    expect(within(dialog).getAllByText(/obligatorio|Required/).length).toBeGreaterThan(0);
   });
 
   it("starts the canvas connection mode with the chosen decision branch", async () => {

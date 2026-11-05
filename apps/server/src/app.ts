@@ -61,6 +61,7 @@ import {
 import { IntegrationEgressRouter } from "./infrastructure/in/channels/egress-router.ts";
 import { createExternalChatRoutes } from "./infrastructure/in/http/external-chat-routes.ts";
 import { IntegrationManager } from "./infrastructure/in/channels/channel-manager.ts";
+import type { TelegramTransport } from "./infrastructure/in/channels/telegram-adapter.ts";
 import { WorkspaceError } from "./infrastructure/out/workspace-fs/safe-workspace.ts";
 import { FsMediaStore } from "./infrastructure/out/media/fs-media-store.ts";
 import { OpenAiCompatibleTranscriptionService } from "./infrastructure/out/transcription/openai-compatible-transcription-service.ts";
@@ -93,6 +94,7 @@ export interface AppConfig {
   secureCookies?: boolean;
   env?: Record<string, string | undefined>;
   logger?: Logger;
+  telegramTransportFactory?: (token: string) => TelegramTransport;
 }
 
 export interface Application {
@@ -339,6 +341,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     globalRouter,
     dataDir: config.dataDir,
     fetchImpl: fetch,
+    createTelegramTransport: config.telegramTransportFactory,
   });
   const integrations = new ManageIntegrationsUseCase({
     store,
@@ -733,8 +736,15 @@ export async function createApplication(config: AppConfig): Promise<Application>
     }
   });
   app.post("/api/projects/:slug/integrations/:id/test", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { recipient?: string };
     try {
-      return c.json(await integrations.test(c.req.param("id"), { scope: "project", projectSlug: c.req.param("slug") }));
+      return c.json(
+        await integrations.test(
+          c.req.param("id"),
+          { scope: "project", projectSlug: c.req.param("slug") },
+          { recipient: body.recipient },
+        ),
+      );
     } catch (error) {
       return integrationError(c, error);
     }
@@ -757,6 +767,17 @@ export async function createApplication(config: AppConfig): Promise<Application>
   app.get("/api/projects/:slug/integrations/:id/qr", (c) => {
     const qr = integrationManager.qr(c.req.param("id"));
     return qr ? c.json({ qr }) : c.json(apiError("NOT_FOUND", "no QR available"), 404);
+  });
+  app.post("/api/projects/:slug/integrations/:id/telegram/clear-webhook", async (c) => {
+    try {
+      await integrations.clearTelegramWebhook(c.req.param("id"), {
+        scope: "project",
+        projectSlug: c.req.param("slug"),
+      });
+      return c.json({ ok: true });
+    } catch (error) {
+      return integrationError(c, error);
+    }
   });
 
   // Project destinations
@@ -824,8 +845,9 @@ export async function createApplication(config: AppConfig): Promise<Application>
     }
   });
   app.post("/api/control/integrations/:id/test", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { recipient?: string };
     try {
-      return c.json(await integrations.test(c.req.param("id"), { scope: "global" }));
+      return c.json(await integrations.test(c.req.param("id"), { scope: "global" }, { recipient: body.recipient }));
     } catch (error) {
       return integrationError(c, error);
     }
@@ -848,6 +870,14 @@ export async function createApplication(config: AppConfig): Promise<Application>
   app.get("/api/control/integrations/:id/qr", (c) => {
     const qr = integrationManager.qr(c.req.param("id"));
     return qr ? c.json({ qr }) : c.json(apiError("NOT_FOUND", "no QR available"), 404);
+  });
+  app.post("/api/control/integrations/:id/telegram/clear-webhook", async (c) => {
+    try {
+      await integrations.clearTelegramWebhook(c.req.param("id"), { scope: "global" });
+      return c.json({ ok: true });
+    } catch (error) {
+      return integrationError(c, error);
+    }
   });
 
   app.get("/api/control/overview", (c) => c.json(orchestrator.overview()));

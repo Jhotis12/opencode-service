@@ -37,6 +37,7 @@ const fakeManager: IntegrationManagerPort = {
   async test() {
     return { ok: true };
   },
+  async clearTelegramWebhook() {},
   status() {
     return "connected";
   },

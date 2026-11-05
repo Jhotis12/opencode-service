@@ -31,6 +31,15 @@ class FakeTelegram implements TelegramTransport {
   }) => void | Promise<void>;
   sent: Array<{ to: string; text: string }> = [];
   running = false;
+  verified = false;
+  webhookCleared = false;
+  async verify() {
+    this.verified = true;
+    return { botId: "1", username: "test_bot" };
+  }
+  async clearWebhook() {
+    this.webhookCleared = true;
+  }
   async start(handler: (message: {
     senderId: string;
     text: string;

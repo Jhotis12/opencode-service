@@ -26,12 +26,12 @@
 
 ## 4. Ciclo de vida de Telegram
 
-- [ ] 4.1 Extender `TelegramTransport` con `verify()` basado en `getMe` y timeout, y usarlo en `IntegrationManager.start`; verificar con un transporte falso que un token inválido no marca la integración como conectada.
-- [ ] 4.2 Agregar el estado `connecting`, persistir `status: error` y `lastError` sanitizado en fallos de conexión, y devolver el estado real desde `connect`; verificar con tests de lifecycle y con la respuesta HTTP de `connect`.
-- [ ] 4.3 Detectar tokens de Telegram duplicados en create/update y en `startAll` mediante fingerprint en memoria; verificar que la segunda integración queda en `error` con un mensaje que nombra a la primera.
-- [ ] 4.4 Detectar el conflicto de webhook activo, devolver un error accionable y exponer una acción explícita para limpiar el webhook; verificar con un transporte falso que simula el conflicto y con un test de la acción de limpieza.
-- [ ] 4.5 Extender `POST /test` para aceptar un destinatario opcional y enviar un mensaje de prueba real cuando se provee; verificar con un transporte falso que registra el envío y con un test de token inválido.
-- [ ] 4.6 Agregar tests de rotación de token que conservan el `integrationId` y las referencias; verificar con `bun test apps/server/test/channel-adapters.test.ts apps/server/test/integration-lifecycle.test.ts`.
+- [x] 4.1 Extender `TelegramTransport` con `verify()` basado en `getMe` y timeout, y usarlo en `IntegrationManager.start`; verificar con un transporte falso que un token inválido no marca la integración como conectada.
+- [x] 4.2 Agregar el estado `connecting`, persistir `status: error` y `lastError` sanitizado en fallos de conexión, y devolver el estado real desde `connect`; verificar con tests de lifecycle y con la respuesta HTTP de `connect`.
+- [x] 4.3 Detectar tokens de Telegram duplicados en create/update y en `startAll` mediante fingerprint en memoria; verificar que la segunda integración queda en `error` con un mensaje que nombra a la primera.
+- [x] 4.4 Detectar el conflicto de webhook activo, devolver un error accionable y exponer una acción explícita para limpiar el webhook; verificar con un transporte falso que simula el conflicto y con un test de la acción de limpieza.
+- [x] 4.5 Extender `POST /test` para aceptar un destinatario opcional y enviar un mensaje de prueba real cuando se provee; verificar con un transporte falso que registra el envío y con un test de token inválido.
+- [x] 4.6 Agregar tests de rotación de token que conservan el `integrationId` y las referencias; verificar con `bun test apps/server/test/channel-adapters.test.ts apps/server/test/integration-lifecycle.test.ts`.
 
 ## 5. Editor compartido de integraciones
 

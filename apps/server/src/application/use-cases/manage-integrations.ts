@@ -73,6 +73,9 @@ export class ManageIntegrationsUseCase {
     const generatedSecrets: Record<string, string> = {};
     const providedSecrets = command.secrets ?? {};
     const secretRefs: Record<string, string> = { ...(command.secretRefs ?? {}) };
+    if (command.kind === "telegram" && providedSecrets.token) {
+      this.assertTelegramTokenAvailable(undefined, providedSecrets.token);
+    }
 
     for (const [field, value] of Object.entries(providedSecrets)) {
       const alias = `integration:${id}:${field}`;
@@ -168,6 +171,9 @@ export class ManageIntegrationsUseCase {
       secretRefs[field] = alias;
       generatedSecrets[field] = value;
     }
+    if (current.kind === "telegram" && command.secrets?.token) {
+      this.assertTelegramTokenAvailable(current.id, command.secrets.token);
+    }
     const config = command.config ?? current.config;
     const validated = validateIntegrationInput(
       {
@@ -221,6 +227,7 @@ export class ManageIntegrationsUseCase {
   async test(
     id: string,
     scope: { scope: IntegrationScope; projectSlug?: string },
+    options: { recipient?: string } = {},
   ): Promise<{ ok: boolean; detail?: string; latencyMs?: number; models?: string[] }> {
     const integration = this.get(id, scope);
     if (["postgres", "mysql", "mssql", "sqlite"].includes(integration.kind)) {
@@ -245,7 +252,45 @@ export class ManageIntegrationsUseCase {
       }
       return result;
     }
-    return this.deps.manager.test(integration);
+    const result = await this.deps.manager.test(integration, options);
+    if (integration.kind === "telegram") {
+      if (!result.ok) {
+        this.deps.store.integrations.updateStatus(id, "error", result.detail);
+      } else if (integration.status === "error" || integration.status === "needs_config") {
+        this.deps.store.integrations.updateStatus(id, "disconnected");
+      }
+    }
+    return result;
+  }
+
+  async clearTelegramWebhook(
+    id: string,
+    scope: { scope: IntegrationScope; projectSlug?: string },
+  ): Promise<void> {
+    const integration = this.get(id, scope);
+    if (integration.kind !== "telegram") {
+      throw new IntegrationValidationError("VALIDATION_ERROR", "integration is not a Telegram channel");
+    }
+    await this.deps.manager.clearTelegramWebhook(integration);
+  }
+
+  private assertTelegramTokenAvailable(id: string | undefined, token: string): void {
+    const fingerprint = createHash("sha256").update(token).digest("hex");
+    for (const other of this.deps.store.integrations.listAll()) {
+      if (other.id === id || other.kind !== "telegram") continue;
+      const alias = other.secretRefs.token;
+      if (!alias) continue;
+      const secret = this.deps.store.vault.findByAlias({
+        scope: other.scope,
+        projectSlug: other.projectSlug,
+        alias,
+      });
+      if (!secret) continue;
+      const otherToken = this.deps.vault.decrypt(secret.ciphertext);
+      if (createHash("sha256").update(otherToken).digest("hex") !== fingerprint) continue;
+      const owner = other.projectSlug ? `${other.projectSlug}/${other.slug}` : `global/${other.slug}`;
+      throw new IntegrationValidationError("CONFLICT", `telegram bot token already used by ${owner}`);
+    }
   }
 
   private persistSecrets(id: string, validated: ValidatedIntegrationInput, secrets: Record<string, string>): void {

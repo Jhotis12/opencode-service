@@ -28,6 +28,7 @@ export const IntegrationCapabilitySchema = z.enum([
 export type IntegrationCapability = z.infer<typeof IntegrationCapabilitySchema>;
 
 export const IntegrationStatusSchema = z.enum([
+  "connecting",
   "connected",
   "disconnected",
   "needs_config",

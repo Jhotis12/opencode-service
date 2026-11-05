@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createApplication, type Application } from "../src/app.ts";
+import type { TelegramTransport } from "../src/infrastructure/in/channels/telegram-adapter.ts";
 import type { Logger, LogBindings } from "../src/domain/telemetry/index.ts";
 import type { WorkflowGraph } from "@platform/shared";
 
@@ -33,6 +34,24 @@ const testLogger: Logger = {
   },
 };
 
+function fakeTelegramTransport(): TelegramTransport {
+  return {
+    type: "telegram",
+    async verify() {
+      return { botId: "test-bot", username: "test_bot" };
+    },
+    async clearWebhook() {},
+    async start() {},
+    async send() {
+      return { providerMessageId: "fake-1" };
+    },
+    async stop() {},
+    status() {
+      return "connected";
+    },
+  };
+}
+
 async function json(path: string, init: RequestInit = {}, useCookie = true) {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (useCookie && cookie) headers.cookie = cookie;
@@ -47,6 +66,7 @@ beforeAll(async () => {
     serviceToken,
     globalServiceToken,
     logger: testLogger,
+    telegramTransportFactory: () => fakeTelegramTransport(),
   });
   app = application.app;
   const login = await app.request("/api/auth/login", {

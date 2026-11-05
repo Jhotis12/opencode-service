@@ -2,11 +2,11 @@
 
 ## 1. Registro compartido de configuración
 
-- [ ] 1.1 Definir en `packages/shared` los tipos `ConfigField`, `ConfigDefinition` y helpers de resolución de metadata, y verificar que el paquete compila con `bun run typecheck`.
-- [ ] 1.2 Crear el registro de integraciones para Telegram, WhatsApp, chat externo, email, PostgreSQL, MySQL, SQL Server, SQLite y HTTP con esquema, defaults, campos, campos secretos y capacidades; verificar con un test que recorre todos los `IntegrationKind` y falla si falta uno.
-- [ ] 1.3 Crear el registro de nodos para todos los `NodeType` con esquema, defaults, campos y eventos; verificar con un test que recorre todos los tipos y falla si falta uno o si un default no valida contra su esquema.
-- [ ] 1.4 Agregar el catálogo de eventos por canal (`message.received` para Telegram/WhatsApp/chat externo, vacío para los demás) y verificar con tests de contrato.
-- [ ] 1.5 Agregar pruebas de contrato que parseen configuraciones válidas existentes y rechacen campos inválidos; verificar con `bun test packages/shared/test/config-registry.test.ts`.
+- [x] 1.1 Definir en `packages/shared` los tipos `ConfigField`, `ConfigDefinition` y helpers de resolución de metadata, y verificar que el paquete compila con `bun run typecheck`.
+- [x] 1.2 Crear el registro de integraciones para Telegram, WhatsApp, chat externo, email, PostgreSQL, MySQL, SQL Server, SQLite y HTTP con esquema, defaults, campos, campos secretos y capacidades; verificar con un test que recorre todos los `IntegrationKind` y falla si falta uno.
+- [x] 1.3 Crear el registro de nodos para todos los `NodeType` con esquema, defaults, campos y eventos; verificar con un test que recorre todos los tipos y falla si falta uno o si un default no valida contra su esquema.
+- [x] 1.4 Agregar el catálogo de eventos por canal (`message.received` para Telegram/WhatsApp/chat externo, vacío para los demás) y verificar con tests de contrato.
+- [x] 1.5 Agregar pruebas de contrato que parseen configuraciones válidas existentes y rechacen campos inválidos; verificar con `bun test packages/shared/test/config-registry.test.ts`.
 
 ## 2. Validación de servidor y ruteo de triggers
 

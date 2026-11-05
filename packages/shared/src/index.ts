@@ -2,6 +2,7 @@ export * from "./api.ts";
 export * from "./workflow.ts";
 export * from "./agents.ts";
 export * from "./integrations.ts";
+export * from "./configuration.ts";
 export * from "./chat.ts";
 export * from "./media.ts";
 export * from "./telemetry.ts";

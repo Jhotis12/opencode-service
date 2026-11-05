@@ -6,7 +6,7 @@ import type { EventBus } from "../../../application/ports/events.ts";
 import type { IntegrationManagerPort } from "../../../application/ports/integrations.ts";
 import type { EgressSendResult } from "../../../application/ports/channels.ts";
 import type { IntegrationEgressRouter } from "./egress-router.ts";
-import type { Logger } from "../../../domain/telemetry/index.ts";
+import type { ErrorTracker, Logger } from "../../../domain/telemetry/index.ts";
 import type { IntegrationRecord } from "../../../domain/entities.ts";
 import type { RouteGlobalIntegrationMessageUseCase, RouteProjectIntegrationMessageUseCase } from "../../../application/use-cases/route-channel-message.ts";
 import { deliverWebhook } from "../../../application/use-cases/external-chat.ts";
@@ -34,6 +34,7 @@ export class IntegrationManager implements IntegrationManagerPort {
       egress: IntegrationEgressRouter;
       events: EventBus;
       logger: Logger;
+      errorTracker?: ErrorTracker;
       projectRouter: RouteProjectIntegrationMessageUseCase;
       globalRouter: RouteGlobalIntegrationMessageUseCase;
       dataDir: string;
@@ -84,6 +85,12 @@ export class IntegrationManager implements IntegrationManagerPort {
       } catch (error) {
         const message = sanitizeTelegramError(error);
         this.deps.store.integrations.updateStatus(integration.id, "error", message);
+        this.deps.errorTracker?.captureException(error, {
+          entryPoint: "telegram",
+          integrationId: integration.id,
+          projectSlug: integration.projectSlug,
+          kind: integration.kind,
+        });
         this.deps.logger.error({
           event: "telegram_token_duplicate",
           entryPoint: "telegram",
@@ -117,6 +124,12 @@ export class IntegrationManager implements IntegrationManagerPort {
         this.deps.egress.unregister(integration.id);
         const message = sanitizeTelegramError(error);
         this.deps.store.integrations.updateStatus(integration.id, "error", message);
+        this.deps.errorTracker?.captureException(error, {
+          entryPoint: "telegram",
+          integrationId: integration.id,
+          projectSlug: integration.projectSlug,
+          kind: integration.kind,
+        });
         this.deps.logger.error({
           event: "telegram_connection_failed",
           entryPoint: "telegram",

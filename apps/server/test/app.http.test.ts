@@ -899,4 +899,29 @@ describe("application HTTP surface", () => {
     );
     expect(history.data.some((message) => message.role === "agent" && message.content.trim() === "")).toBe(false);
   });
+
+  it("shows integration lastError in health", async () => {
+    const now = new Date().toISOString();
+    application.store.integrations.create({
+      id: "health-error",
+      scope: "project",
+      projectSlug: "ventas-bot",
+      kind: "telegram",
+      name: "Health Error",
+      slug: "health-error",
+      config: {},
+      secretRefs: {},
+      capabilities: ["inbound_message", "outbound_message"],
+      status: "error",
+      lastError: "invalid token",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const response = await json("/api/system/health");
+    const body = (await response.json()) as { services: Array<{ name: string; detail?: string }> };
+    expect(body.services.find((service) => service.name === "Integration Health Error")?.detail).toContain(
+      "invalid token",
+    );
+    application.store.integrations.remove("health-error");
+  });
 });

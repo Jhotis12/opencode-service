@@ -48,7 +48,7 @@ export class GetHealthUseCase {
             : integration.status === "needs_config"
               ? "degraded"
               : "ok",
-        detail: `${integration.kind} · ${integration.status}`,
+        detail: `${integration.kind} · ${integration.status}${integration.lastError ? ` · ${integration.lastError}` : ""}`,
       });
     }
 
@@ -63,7 +63,7 @@ export class GetHealthUseCase {
             : integration.status === "connected"
               ? "ok"
               : "degraded",
-        detail: `${String(integration.config.model ?? "sin modelo")} · ${integration.status}`,
+        detail: `${String(integration.config.model ?? "sin modelo")} · ${integration.status}${integration.lastError ? ` · ${integration.lastError}` : ""}`,
       });
     }
 

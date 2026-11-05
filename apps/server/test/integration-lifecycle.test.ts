@@ -104,13 +104,19 @@ async function setup() {
   return { dir, store, vault };
 }
 
-function managerFor(store: SqliteStore, vault: Aes256GcmVaultAdapter, fake: FakeTelegram): IntegrationManager {
+function managerFor(
+  store: SqliteStore,
+  vault: Aes256GcmVaultAdapter,
+  fake: FakeTelegram,
+  errorTracker?: { captureException(error: unknown, context?: Record<string, unknown>): void },
+): IntegrationManager {
   return new IntegrationManager({
     store,
     vault,
     egress: new IntegrationEgressRouter(),
     events: { publish() {} },
     logger: silentLogger,
+    errorTracker,
     projectRouter: {} as never,
     globalRouter: {} as never,
     dataDir: "/tmp",
@@ -129,6 +135,22 @@ describe("telegram integration lifecycle", () => {
     const current = store.integrations.findById("i1")!;
     expect(current.status).toBe("error");
     expect(current.lastError).toContain("Unauthorized");
+    store.close();
+  });
+
+  it("reports connection failures to the error tracker", async () => {
+    const { store, vault } = await setup();
+    const integration = createIntegration(store, vault, "i1", "bad-token");
+    const fake = new FakeTelegram();
+    fake.verifyError = new Error("Unauthorized");
+    const captured: unknown[] = [];
+    const manager = managerFor(store, vault, fake, {
+      captureException(error) {
+        captured.push(error);
+      },
+    });
+    await manager.start(integration);
+    expect(captured).toHaveLength(1);
     store.close();
   });
 

@@ -241,6 +241,82 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await expect(page.getByRole("heading", { name: "Preparación del proyecto" })).toBeVisible();
   await page.getByRole("button", { name: "Canvas" }).click();
 
+  // Telegram configuration: real verification, editable token, failure/success and destination reuse.
+  const telegram = await page.request.post("/api/projects/e2e-bot/integrations", {
+    data: {
+      kind: "telegram",
+      name: "E2E Telegram",
+      slug: "e2e-telegram",
+      config: { routing: { mode: "agent", allowlist: [], public: false } },
+      secrets: { token: "valid-token" },
+    },
+  });
+  expect(telegram.ok()).toBeTruthy();
+  const telegramBody = (await telegram.json()) as { integration: { id: string } };
+
+  await page.reload();
+  await page.getByRole("button", { name: /^Configuración/ }).click();
+  await page.getByRole("tab", { name: "Canales" }).click();
+  const telegramCard = page.locator("article").filter({ hasText: "E2E Telegram" });
+  await telegramCard.getByRole("button", { name: "Probar" }).click();
+  await expect(page.getByText(/E2E Telegram: ok/)).toBeVisible();
+
+  await telegramCard.getByRole("button", { name: "Editar" }).click();
+  await telegramCard.getByLabel("Token del bot (@BotFather)").fill("invalid-token");
+  await telegramCard.getByRole("button", { name: "Guardar cambios" }).click();
+  await expect(page.getByText(/E2E Telegram guardada/)).toBeVisible();
+  await telegramCard.getByRole("button", { name: "Probar" }).click();
+  await expect(page.getByText(/E2E Telegram: error/)).toBeVisible();
+
+  await telegramCard.getByRole("button", { name: "Editar" }).click();
+  await telegramCard.getByLabel("Token del bot (@BotFather)").fill("valid-token-2");
+  await telegramCard.getByRole("button", { name: "Guardar cambios" }).click();
+  await telegramCard.getByRole("button", { name: "Conectar", exact: true }).click();
+  await expect(telegramCard.getByText("Conectado")).toBeVisible();
+
+  const telegramAfter = (await (
+    await page.request.get(`/api/projects/e2e-bot/integrations/${telegramBody.integration.id}`)
+  ).json()) as { id: string; config: { botUsername?: string; routing: { allowlist: string[] } } };
+  expect(telegramAfter.id).toBe(telegramBody.integration.id);
+  expect(telegramAfter.config.botUsername).toBe("e2e_bot");
+
+  const destination = (await (
+    await page.request.post("/api/projects/e2e-bot/destinations", {
+      data: { kind: "telegram_chat", label: "Admin Telegram", value: "123456" },
+    })
+  ).json()) as { id: string };
+  const patched = await page.request.patch(`/api/projects/e2e-bot/integrations/${telegramBody.integration.id}`, {
+    data: {
+      config: {
+        ...telegramAfter.config,
+        routing: { ...telegramAfter.config.routing, allowlist: [destination.id] },
+      },
+    },
+  });
+  expect(patched.ok()).toBeTruthy();
+  const telegramPatched = (await (
+    await page.request.get(`/api/projects/e2e-bot/integrations/${telegramBody.integration.id}`)
+  ).json()) as { config: { routing: { allowlist: string[] } } };
+  expect(telegramPatched.config.routing.allowlist).toContain(destination.id);
+
+  const telegramWorkflowResponse = await page.request.get("/api/projects/e2e-bot/workflow");
+  const telegramWorkflow = (await telegramWorkflowResponse.json()) as {
+    nodes: Array<{ id: string; config: Record<string, unknown> }>;
+  };
+  telegramWorkflow.nodes[0] = {
+    ...telegramWorkflow.nodes[0]!,
+    config: { kind: "manual", integrationId: telegramBody.integration.id, event: "message.received" },
+  };
+  const telegramWorkflowSaved = await page.request.put("/api/projects/e2e-bot/workflow", { data: telegramWorkflow });
+  expect(telegramWorkflowSaved.ok()).toBeTruthy();
+  const telegramWorkflowReloaded = (await (
+    await page.request.get("/api/projects/e2e-bot/workflow")
+  ).json()) as {
+    nodes: Array<{ config: Record<string, unknown> }>;
+  };
+  expect(telegramWorkflowReloaded.nodes[0]?.config.integrationId).toBeUndefined();
+  await page.getByRole("button", { name: "Canvas" }).click();
+
   // Project-owned resources: create an external chat integration inside the project.
   const createdIntegration = await page.request.post("/api/projects/e2e-bot/integrations", {
     data: {

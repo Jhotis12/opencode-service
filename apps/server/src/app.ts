@@ -349,6 +349,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     egress,
     events,
     logger,
+    errorTracker,
     projectRouter,
     globalRouter,
     dataDir: config.dataDir,

@@ -67,10 +67,10 @@
 
 ## 9. Integración final y verificación
 
-- [ ] 9.1 Mostrar `lastError` de integraciones en salud y asegurar que los fallos de conexión se reportan a Sentry cuando hay DSN activo; verificar con tests de health y de captura de errores.
-- [ ] 9.2 Agregar el E2E de edición de canal Telegram, rotación de token, prueba fallida/exitosa, trigger manual que no dispara y destino reutilizado; verificar con Playwright y con el transporte falso.
-- [ ] 9.3 Ejecutar la suite completa, el typecheck y el build; verificar `bun test`, `bun run typecheck`, `bun run build` y el E2E sin errores de consola.
-- [ ] 9.4 Hacer una verificación manual con una instancia real o transporte falso de: conectar, probar, desconectar, rotar token y editar routing sin recrear la integración; registrar el resultado en la PR.
+- [x] 9.1 Mostrar `lastError` de integraciones en salud y asegurar que los fallos de conexión se reportan a Sentry cuando hay DSN activo; verificar con tests de health y de captura de errores.
+- [x] 9.2 Agregar el E2E de edición de canal Telegram, rotación de token, prueba fallida/exitosa, trigger manual que no dispara y destino reutilizado; verificar con Playwright y con el transporte falso.
+- [x] 9.3 Ejecutar la suite completa, el typecheck y el build; verificar `bun test`, `bun run typecheck`, `bun run build` y el E2E sin errores de consola.
+- [x] 9.4 Hacer una verificación manual con una instancia real o transporte falso de: conectar, probar, desconectar, rotar token y editar routing sin recrear la integración; registrar el resultado en la PR.
 
 ## Workflow follow-up
 

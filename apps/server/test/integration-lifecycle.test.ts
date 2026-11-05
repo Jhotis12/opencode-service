@@ -9,7 +9,7 @@ import { IntegrationManager } from "../src/infrastructure/in/channels/channel-ma
 import type { TelegramTransport } from "../src/infrastructure/in/channels/telegram-adapter.ts";
 import { ManageIntegrationsUseCase } from "../src/application/use-cases/manage-integrations.ts";
 import type { IntegrationManagerPort } from "../src/application/ports/integrations.ts";
-import type { Logger } from "../src/domain/telemetry/index.ts";
+import type { ErrorTracker, Logger } from "../src/domain/telemetry/index.ts";
 import type { IntegrationRecord } from "../src/domain/entities.ts";
 
 const dirs: string[] = [];
@@ -108,7 +108,7 @@ function managerFor(
   store: SqliteStore,
   vault: Aes256GcmVaultAdapter,
   fake: FakeTelegram,
-  errorTracker?: { captureException(error: unknown, context?: Record<string, unknown>): void },
+  errorTracker?: ErrorTracker,
 ): IntegrationManager {
   return new IntegrationManager({
     store,
@@ -144,11 +144,16 @@ describe("telegram integration lifecycle", () => {
     const fake = new FakeTelegram();
     fake.verifyError = new Error("Unauthorized");
     const captured: unknown[] = [];
-    const manager = managerFor(store, vault, fake, {
+    const tracker: ErrorTracker = {
       captureException(error) {
         captured.push(error);
       },
-    });
+      captureMessage() {},
+      enabled() {
+        return true;
+      },
+    };
+    const manager = managerFor(store, vault, fake, tracker);
     await manager.start(integration);
     expect(captured).toHaveLength(1);
     store.close();

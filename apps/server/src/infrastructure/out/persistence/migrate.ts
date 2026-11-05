@@ -71,6 +71,16 @@ CREATE TABLE IF NOT EXISTS integrations (
 CREATE UNIQUE INDEX IF NOT EXISTS integrations_scoped_slug
   ON integrations(scope, project_slug, slug);
 CREATE INDEX IF NOT EXISTS integrations_project ON integrations(scope, project_slug);
+CREATE TABLE IF NOT EXISTS project_destinations (
+  id TEXT PRIMARY KEY,
+  project_slug TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  label TEXT NOT NULL,
+  value TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS project_destinations_project ON project_destinations(project_slug);
 CREATE TABLE IF NOT EXISTS workflow_runs (
   id TEXT PRIMARY KEY,
   project_slug TEXT NOT NULL,

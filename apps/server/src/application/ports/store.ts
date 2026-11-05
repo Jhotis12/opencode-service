@@ -8,6 +8,7 @@ import type {
   KbChunkRecord,
   KbSourceRecord,
   NotebookRecord,
+  ProjectDestinationRecord,
   ProjectRecord,
   StepRunRecord,
   UserRecord,
@@ -73,6 +74,14 @@ export interface IntegrationRepository {
   listAll(): IntegrationRecord[];
   remove(id: string): boolean;
   updateStatus(id: string, status: IntegrationRecord["status"], lastError?: string): void;
+}
+
+export interface ProjectDestinationRepository {
+  create(record: ProjectDestinationRecord): void;
+  update(id: string, patch: Partial<Pick<ProjectDestinationRecord, "kind" | "label" | "value">>): void;
+  findById(id: string): ProjectDestinationRecord | undefined;
+  list(projectSlug: string): ProjectDestinationRecord[];
+  remove(id: string): boolean;
 }
 
 export interface WorkflowRunRepository {
@@ -238,6 +247,7 @@ export interface Store {
   errors: ErrorEventRepository;
   projects: ProjectRepository;
   integrations: IntegrationRepository;
+  destinations: ProjectDestinationRepository;
   runs: WorkflowRunRepository;
   deliveries: WorkflowDeliveryRepository;
   scheduleStates: WorkflowScheduleStateRepository;

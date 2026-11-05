@@ -112,6 +112,34 @@ describe("application HTTP surface", () => {
     expect(graph.nodes[0]?.type).toBe("trigger");
   });
 
+  it("manages project destinations and keeps them scoped", async () => {
+    const project = await json("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ slug: "destinos-bot", name: "Destinos Bot" }),
+    });
+    expect(project.status).toBe(201);
+    const created = await json("/api/projects/destinos-bot/destinations", {
+      method: "POST",
+      body: JSON.stringify({ kind: "telegram_chat", label: "Admin", value: "123456" }),
+    });
+    expect(created.status).toBe(201);
+    const destination = (await created.json()) as { id: string };
+    const list = await json("/api/projects/destinos-bot/destinations");
+    expect(((await list.json()) as { data: unknown[] }).data).toHaveLength(1);
+    const updated = await json(`/api/projects/destinos-bot/destinations/${destination.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ label: "Supervisor" }),
+    });
+    expect(updated.status).toBe(200);
+    const forbidden = await json(`/api/projects/ventas-bot/destinations/${destination.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ label: "Nope" }),
+    });
+    expect(forbidden.status).toBe(403);
+    const removed = await json(`/api/projects/destinos-bot/destinations/${destination.id}`, { method: "DELETE" });
+    expect(removed.status).toBe(200);
+  });
+
   it("creates project-owned integrations and keeps them scoped", async () => {
     const created = await json("/api/projects/ventas-bot/integrations", {
       method: "POST",

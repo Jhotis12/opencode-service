@@ -74,6 +74,7 @@ import { WorkflowInputValidationError } from "./domain/workflow/input.ts";
 import { ManageIntegrationsUseCase, type IntegrationCommand, type IntegrationUpdateCommand } from "./application/use-cases/manage-integrations.ts";
 import { IntegrationValidationError } from "./domain/integrations/validation.ts";
 import { GetProjectSettingsUseCase, UpdateProjectSettingsUseCase } from "./application/use-cases/project-settings.ts";
+import { DestinationError, ManageDestinationsUseCase } from "./application/use-cases/destinations.ts";
 import { ChatWithOrchestratorUseCase, resolveOrchestratorModel } from "./application/use-cases/orchestrator.ts";
 import { ChatTurnService, TurnInProgressError } from "./application/use-cases/chat-turns.ts";
 import { assertChatTimeoutsCoverOpenCode, resolveChatTurnPolicy } from "./application/use-cases/chat-turn-policy.ts";
@@ -138,6 +139,15 @@ function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function destinationError(c: { json(body: unknown, status?: number): Response }, error: unknown): Response {
+  if (error instanceof DestinationError) {
+    const status =
+      error.code === "FORBIDDEN" ? 403 : error.code === "NOT_FOUND" ? 404 : error.code === "CONFLICT" ? 409 : 422;
+    return c.json(apiError(error.code, error.message), status);
+  }
+  throw error;
 }
 
 function integrationError(c: { json(body: unknown, status?: number): Response }, error: unknown): Response {
@@ -338,6 +348,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     databaseAdapter: externalDb,
     transcription,
   });
+  const destinations = new ManageDestinationsUseCase({ store, workspace });
 
   const createProject = new CreateProjectUseCase(store, workspace, events);
   const deleteProject = new DeleteProjectUseCase(store, workspace, events);
@@ -746,6 +757,38 @@ export async function createApplication(config: AppConfig): Promise<Application>
   app.get("/api/projects/:slug/integrations/:id/qr", (c) => {
     const qr = integrationManager.qr(c.req.param("id"));
     return qr ? c.json({ qr }) : c.json(apiError("NOT_FOUND", "no QR available"), 404);
+  });
+
+  // Project destinations
+  app.get("/api/projects/:slug/destinations", (c) => {
+    try {
+      return c.json({ data: destinations.list(c.req.param("slug")) });
+    } catch (error) {
+      return destinationError(c, error);
+    }
+  });
+  app.post("/api/projects/:slug/destinations", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      return c.json(destinations.create(c.req.param("slug"), body), 201);
+    } catch (error) {
+      return destinationError(c, error);
+    }
+  });
+  app.patch("/api/projects/:slug/destinations/:id", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      return c.json(destinations.update(c.req.param("slug"), c.req.param("id"), body));
+    } catch (error) {
+      return destinationError(c, error);
+    }
+  });
+  app.delete("/api/projects/:slug/destinations/:id", async (c) => {
+    try {
+      return c.json({ ok: await destinations.remove(c.req.param("slug"), c.req.param("id")) });
+    } catch (error) {
+      return destinationError(c, error);
+    }
   });
 
   // Global control integrations and orchestrator

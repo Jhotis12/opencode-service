@@ -3,6 +3,7 @@ import type { Store } from "../ports/store.ts";
 import type { IntegrationEgressPort } from "../ports/channels.ts";
 import type { Logger } from "../../domain/telemetry/index.ts";
 import type { IntegrationRecord } from "../../domain/entities.ts";
+import { resolveDestinationValue } from "./destinations.ts";
 
 const DEFAULT_THROTTLE_MS = 5 * 60_000;
 
@@ -97,7 +98,11 @@ export class AlertService {
     const text = [input.title, ...input.lines.filter((line): line is string => Boolean(line))].join("\n");
     for (const channel of selected) {
       try {
-        const recipient = typeof channel.config.alertRecipient === "string" ? channel.config.alertRecipient : undefined;
+        const rawRecipient = typeof channel.config.alertRecipient === "string" ? channel.config.alertRecipient : undefined;
+        const recipient =
+          channel.scope === "project" && channel.projectSlug
+            ? resolveDestinationValue(this.deps.store, channel.projectSlug, rawRecipient)
+            : rawRecipient;
         await this.deps.egress.send(channel.id, text, recipient);
         this.deps.logger.info({ event: "alert_sent", type, key: input.key, integrationId: channel.id });
       } catch (error) {

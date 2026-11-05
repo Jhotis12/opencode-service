@@ -10,6 +10,7 @@ import type {
   ChatTurnStatus,
   ChatTurnErrorCode,
   ChatTurnUsage,
+  DestinationKind,
   MediaRef,
 } from "@platform/shared";
 
@@ -61,6 +62,16 @@ export interface IntegrationRecord {
   status: IntegrationStatus;
   keyHash?: string;
   lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectDestinationRecord {
+  id: string;
+  projectSlug: string;
+  kind: DestinationKind;
+  label: string;
+  value: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -13,6 +13,7 @@ import { routeGlobalMessage, routeProjectMessage } from "../../domain/channels/r
 import type { ExecuteWorkflowRunUseCase } from "./execute-workflow.ts";
 import type { IntegrationRecord } from "../../domain/entities.ts";
 import { validateWorkflowResources } from "./workflow-resources.ts";
+import { resolveDestinationList } from "./destinations.ts";
 import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
 import type { ChatTarget, ChatTurnService } from "./chat-turns.ts";
 
@@ -241,11 +242,18 @@ export class RouteProjectIntegrationMessageUseCase {
           }))
       : [];
     const routing = ChannelRoutingSchema.parse(integration.config.routing ?? {});
+    let allowlist: string[];
+    try {
+      allowlist = resolveDestinationList(this.deps.store, integration.projectSlug, routing.allowlist);
+    } catch {
+      this.logDrop(message, "invalid_destination_reference");
+      return { decision: "dropped" };
+    }
     const decision = routeProjectMessage({
       senderId: message.senderId,
       text: message.text,
       mode: routing.mode,
-      allowlist: routing.allowlist,
+      allowlist,
       publicTriggers: routing.public,
       triggers,
     });

@@ -18,11 +18,11 @@
 
 ## 3. Destinos de proyecto
 
-- [ ] 3.1 Agregar la migración aditiva `project_destinations` y el repositorio en `Store`; verificar con un test de migración que la tabla existe y que una base existente se abre sin pérdida de datos.
-- [ ] 3.2 Implementar casos de uso y endpoints CRUD de destinos por proyecto (`GET/POST/PATCH/DELETE /api/projects/:slug/destinations`); verificar con tests HTTP de creación, listado, actualización y aislamiento entre proyectos.
-- [ ] 3.3 Implementar el resolver de destinatarios que acepta un ID de destino o un valor crudo en allowlist, `alertRecipient`, `approvalRecipient` y `notify.recipient`; verificar con tests de compatibilidad hacia atrás y de rechazo cross-project.
-- [ ] 3.4 Bloquear el borrado de un destino referenciado por integraciones, ajustes o workflows y listar las referencias; verificar con un test que el borrado devuelve error y que el destino sigue disponible.
-- [ ] 3.5 Agregar tests de contrato y de aislamiento para destinos; verificar con `bun test apps/server/test/destinations.test.ts`.
+- [x] 3.1 Agregar la migración aditiva `project_destinations` y el repositorio en `Store`; verificar con un test de migración que la tabla existe y que una base existente se abre sin pérdida de datos.
+- [x] 3.2 Implementar casos de uso y endpoints CRUD de destinos por proyecto (`GET/POST/PATCH/DELETE /api/projects/:slug/destinations`); verificar con tests HTTP de creación, listado, actualización y aislamiento entre proyectos.
+- [x] 3.3 Implementar el resolver de destinatarios que acepta un ID de destino o un valor crudo en allowlist, `alertRecipient`, `approvalRecipient` y `notify.recipient`; verificar con tests de compatibilidad hacia atrás y de rechazo cross-project.
+- [x] 3.4 Bloquear el borrado de un destino referenciado por integraciones, ajustes o workflows y listar las referencias; verificar con un test que el borrado devuelve error y que el destino sigue disponible.
+- [x] 3.5 Agregar tests de contrato y de aislamiento para destinos; verificar con `bun test apps/server/test/destinations.test.ts`.
 
 ## 4. Ciclo de vida de Telegram
 

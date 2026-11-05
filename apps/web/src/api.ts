@@ -4,6 +4,7 @@ import type {
   ChatTurn,
   ChatTurnEvent,
   ChatTurnStatus,
+  EffectiveConfig,
   HealthSnapshot,
   IntegrationRecord,
   NodeSpec,
@@ -612,11 +613,14 @@ export const api = {
         sentryConfigured: boolean;
         providerConnected: boolean;
         defaultModel?: string;
+        orchestratorModel?: string;
         dataDir: string;
       };
     }>("/api/settings"),
-  saveSettings: (input: { sentryDsn?: string; defaultModel?: string | null }) =>
+  saveSettings: (input: { sentryDsn?: string; defaultModel?: string | null; orchestratorModel?: string | null }) =>
     request<{ ok: boolean; requiresRestart: boolean }>("/api/settings", { method: "PUT", body: JSON.stringify(input) }),
+  getEffectiveConfig: (project?: string) =>
+    request<EffectiveConfig>(`/api/config/effective${project ? `?project=${encodeURIComponent(project)}` : ""}`),
 
   health: () => request<HealthPayload>("/api/system/health"),
   errors: () => request<{ data: HealthPayload["recentErrors"] }>("/api/system/errors"),

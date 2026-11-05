@@ -168,6 +168,9 @@ export type ChatTurnEvent = z.infer<typeof ChatTurnEventSchema>;
 export const ProjectSettingsSchema = z.object({
   defaultModel: z.string().optional(),
   primaryAgent: z.string().optional(),
+  approvalIntegrationId: z.string().optional(),
+  approvalRecipient: z.string().optional(),
+  transcriptionIntegrationId: z.string().optional(),
 });
 export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>;
 

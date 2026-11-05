@@ -25,7 +25,9 @@ Abre `http://localhost:3001` (el contenedor escucha en `3000`; el host usa `3001
 | Variable | Uso |
 |---|---|
 | `INITIAL_ADMIN_PASSWORD` | Contraseña inicial del administrador. |
-| `SENTRY_DSN` | Sentry / GlitchTip. |
+| `SENTRY_DSN` | Sentry / GlitchTip. También se puede guardar desde Ajustes; se aplica en el siguiente arranque. |
+| `SESSION_TTL_HOURS` | Vigencia de la sesión web en horas (168 por defecto). |
+| `OPENCODE_BASE_URL` / `OPENCODE_SERVICE_FILE` | Conexión a un servicio OpenCode externo cuando `OPENCODE_MODE=service`. |
 | `EMBEDDINGS_URL` / `EMBEDDINGS_API_KEY` | Embeddings para búsqueda híbrida. |
 | `PLATFORM_SERVICE_TOKEN` | Token de llamadas con scope de proyecto. |
 | `PLATFORM_GLOBAL_TOKEN` | Token del plano de control (orquestador global). |
@@ -34,7 +36,7 @@ Abre `http://localhost:3001` (el contenedor escucha en `3000`; el host usa `3001
 | `AGENT_TURN_IDLE_MS` | Inactividad máxima antes de interrumpir un turno (10 min por defecto). |
 | `AGENT_TURN_POLL_MS` / `AGENT_TURN_RETRY_MS` | Intervalo de polling y reintento de transporte del turno. |
 | `CHAT_TURN_ENGINE` | `v2` para el ciclo durable; `legacy` conserva la ruta anterior durante el rollout. |
-| `ORCHESTRATOR_MODEL` | Modelo del orquestador global; si se omite usa el modelo por defecto de la plataforma. |
+| `ORCHESTRATOR_MODEL` | Modelo del orquestador global; Ajustes puede sobrescribirlo en base y, si ambos faltan, usa el modelo por defecto de la plataforma. |
 | `OPENCODE_MODE=fake` | Runtime simulado para desarrollo y E2E. |
 
 ## Dos planos
@@ -71,6 +73,14 @@ Cada proyecto contiene:
 ```
 
 La configuración no secreta de integraciones vive en la base con `project_slug`; los secretos viven cifrados en la bóveda con scope de proyecto. El proyecto es la unidad de aislamiento: no puede leer ni operar recursos de un proyecto hermano.
+
+## Configuración centralizada
+
+Cada proyecto tiene una sola pestaña **Configuración** con secciones de General, Conexiones, Canales, Destinos, Secretos y Preparación. El editor de integraciones es el mismo para canales de proyecto y canales globales del orquestador: permite crear y editar sin recrear la integración, rotar el token de Telegram y conservar el `integrationId` y sus referencias.
+
+Los **destinos** son etiquetas reutilizables (chat de Telegram/WhatsApp, email, webhook) para allowlists, alertas, aprobaciones y nodos `notify`. Los valores crudos existentes siguen funcionando; adoptar un valor como destino no reescribe las referencias actuales.
+
+La configuración efectiva se resuelve con la precedencia **entidad → proyecto → plataforma → entorno → default** y se expone en `GET /api/config/effective` (con `?project=<slug>` para el ámbito de proyecto). Los secretos se devuelven enmascarados y cada valor indica su fuente y si requiere reinicio. El DSN de Sentry guardado desde Ajustes se lee de la bóveda en el siguiente arranque, sin depender de `SENTRY_DSN`.
 
 ## Canales de proyecto
 

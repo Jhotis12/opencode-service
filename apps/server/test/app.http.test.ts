@@ -62,7 +62,7 @@ beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "platform-http-"));
   application = await createApplication({
     dataDir: dir,
-    env: { ...process.env, OPENCODE_MODE: "fake", ORCHESTRATOR_MODEL: "opencode-go/fast" },
+    env: { ...process.env, OPENCODE_MODE: "fake", ORCHESTRATOR_MODEL: "opencode-go/fast", SENTRY_DSN: "" },
     serviceToken,
     globalServiceToken,
     logger: testLogger,
@@ -158,6 +158,43 @@ describe("application HTTP surface", () => {
     expect(forbidden.status).toBe(403);
     const removed = await json(`/api/projects/destinos-bot/destinations/${destination.id}`, { method: "DELETE" });
     expect(removed.status).toBe(200);
+  });
+
+  it("exposes effective configuration with source and masked secrets", async () => {
+    await json("/api/projects/ventas-bot/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ defaultModel: "opencode-go/vision" }),
+    });
+    const response = await json("/api/config/effective?project=ventas-bot");
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      platform: Array<{ key: string; source: string; editable: boolean; masked?: string }>;
+      project: Array<{ key: string; source: string; value: unknown }>;
+    };
+    expect(body.platform.find((item) => item.key === "orchestratorModel")?.source).toBe("environment");
+    expect(body.platform.find((item) => item.key === "opencodeMode")?.editable).toBe(false);
+    expect(body.project.find((item) => item.key === "defaultModel")?.source).toBe("project");
+    expect(body.project.find((item) => item.key === "defaultModel")?.value).toBe("opencode-go/vision");
+  });
+
+  it("persists a UI Sentry DSN and exposes it masked", async () => {
+    const saved = await json("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ sentryDsn: "https://public@example.com/1" }),
+    });
+    expect(saved.status).toBe(200);
+    const effective = await json("/api/config/effective");
+    const body = (await effective.json()) as { platform: Array<{ key: string; source: string; masked?: string; value: unknown }> };
+    const sentry = body.platform.find((item) => item.key === "sentryDsn");
+    expect(sentry?.source).toBe("platform");
+    expect(sentry?.masked).toContain("…");
+    expect(JSON.stringify(sentry)).not.toContain("public@example.com");
+
+    const invalid = await json("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ sentryDsn: "not-a-url" }),
+    });
+    expect(invalid.status).toBe(422);
   });
 
   it("creates project-owned integrations and keeps them scoped", async () => {

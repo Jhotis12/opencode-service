@@ -59,11 +59,11 @@
 
 ## 8. Configuración efectiva y ajustes
 
-- [ ] 8.1 Definir `PlatformSettingsSchema` y `ProjectSettingsSchema`, y agregar `GET /api/config/effective` con valor, fuente, máscara, editabilidad y `restartRequired`; verificar con tests de precedencia entidad→proyecto→plataforma→entorno→default.
-- [ ] 8.2 Cablear `ORCHESTRATOR_MODEL` desde `system_settings` con fallback a entorno, aplicar el DSN de Sentry desde la bóveda al arrancar y conectar `SESSION_TTL_HOURS` a `SessionCodec`; verificar con tests de arranque y de expiración de sesión.
-- [ ] 8.3 Eliminar `DATABASE_URL` de `.env.example` o documentar que no se usa, y agregar `OPENCODE_BASE_URL`/`OPENCODE_SERVICE_FILE` a `docker-compose.yml`; verificar que las variables documentadas son las que el contenedor recibe.
-- [ ] 8.4 Mostrar en Ajustes el valor efectivo, la fuente y los campos read-only o secrets enmascarados; verificar con tests de componente y con el endpoint de configuración efectiva.
-- [ ] 8.5 Actualizar README y la guía de configuración con la nueva superficie, precedencia, edición de canales y destinos; verificar que los comandos y variables documentados coinciden con `.env.example` y `docker-compose.yml`.
+- [x] 8.1 Definir `PlatformSettingsSchema` y `ProjectSettingsSchema`, y agregar `GET /api/config/effective` con valor, fuente, máscara, editabilidad y `restartRequired`; verificar con tests de precedencia entidad→proyecto→plataforma→entorno→default.
+- [x] 8.2 Cablear `ORCHESTRATOR_MODEL` desde `system_settings` con fallback a entorno, aplicar el DSN de Sentry desde la bóveda al arrancar y conectar `SESSION_TTL_HOURS` a `SessionCodec`; verificar con tests de arranque y de expiración de sesión.
+- [x] 8.3 Eliminar `DATABASE_URL` de `.env.example` o documentar que no se usa, y agregar `OPENCODE_BASE_URL`/`OPENCODE_SERVICE_FILE` a `docker-compose.yml`; verificar que las variables documentadas son las que el contenedor recibe.
+- [x] 8.4 Mostrar en Ajustes el valor efectivo, la fuente y los campos read-only o secrets enmascarados; verificar con tests de componente y con el endpoint de configuración efectiva.
+- [x] 8.5 Actualizar README y la guía de configuración con la nueva superficie, precedencia, edición de canales y destinos; verificar que los comandos y variables documentados coinciden con `.env.example` y `docker-compose.yml`.
 
 ## 9. Integración final y verificación
 

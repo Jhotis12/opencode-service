@@ -31,5 +31,6 @@ export const qk = {
   controlOverview: ["control-overview"] as const,
   controlChat: ["control-chat"] as const,
   settings: ["settings"] as const,
+  effectiveConfig: (project?: string) => ["effective-config", project ?? "platform"] as const,
   health: ["health"] as const,
 };

@@ -9,6 +9,9 @@ import { IntegrationEditor, type SavedIntegration } from "./IntegrationEditor.ts
 import { badge, button, buttonDanger, buttonGhost, card, friendlyError } from "../ui.ts";
 
 const DATABASE_KINDS = new Set<IntegrationRecord["kind"]>(["postgres", "mysql", "mssql", "sqlite"]);
+const CHANNEL_KINDS = new Set<IntegrationRecord["kind"]>(["telegram", "whatsapp", "external_chat"]);
+
+export type ResourceSection = "all" | "connections" | "channels" | "secrets";
 
 function DatabasePolicyEditor({
   projectSlug,
@@ -63,7 +66,13 @@ function DatabasePolicyEditor({
   );
 }
 
-export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) {
+export function ProjectResourcesPanel({
+  projectSlug,
+  section = "all",
+}: {
+  projectSlug: string;
+  section?: ResourceSection;
+}) {
   const queryClient = useQueryClient();
   const integrationsQuery = useQuery({
     queryKey: qk.integrations(projectSlug),
@@ -83,8 +92,15 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
   const [rawError, setRawError] = useState<string>();
   const [qr, setQr] = useState<{ id: string; qr: string }>();
 
-  const integrations = integrationsQuery.data ?? [];
+  const allIntegrations = integrationsQuery.data ?? [];
+  const integrations = allIntegrations.filter((integration) => {
+    if (section === "secrets") return false;
+    if (section === "channels") return CHANNEL_KINDS.has(integration.kind);
+    if (section === "connections") return !CHANNEL_KINDS.has(integration.kind);
+    return true;
+  });
   const secretsList = secretsQuery.data ?? [];
+  const defaultKind = section === "channels" ? "telegram" : section === "connections" ? "postgres" : "telegram";
 
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: qk.integrations(projectSlug) });
@@ -249,8 +265,14 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
             )}
           </article>
         ))}
-        {integrations.length === 0 && (
-          <p className="text-sm text-muted">Este proyecto aún no tiene integraciones. Crea una para que el flujo reciba o envíe datos.</p>
+        {integrations.length === 0 && section !== "secrets" && (
+          <p className="text-sm text-muted">
+            {section === "channels"
+              ? "Este proyecto aún no tiene canales. Crea uno para recibir o enviar mensajes."
+              : section === "connections"
+                ? "Este proyecto aún no tiene conexiones. Crea una base, API o servicio de transcripción."
+                : "Este proyecto aún no tiene integraciones. Crea una para que el flujo reciba o envíe datos."}
+          </p>
         )}
       </div>
 
@@ -261,7 +283,15 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
         </div>
       )}
 
-      <IntegrationEditor key={editorKey} scope="project" projectSlug={projectSlug} onSaved={saved} />
+      {section !== "secrets" && (
+        <IntegrationEditor
+          key={editorKey}
+          scope="project"
+          projectSlug={projectSlug}
+          defaultKind={defaultKind}
+          onSaved={saved}
+        />
+      )}
 
       {created && (created.apiKey || created.webhookSecret) && (
         <div className="flex flex-col gap-1.5 rounded-lg border border-accent/35 bg-accent/10 p-3 text-sm">
@@ -282,31 +312,33 @@ export function ProjectResourcesPanel({ projectSlug }: { projectSlug: string }) 
         </div>
       )}
 
-      <section className={card}>
-        <h2 className="text-base font-semibold text-slate-100">Secretos del proyecto</h2>
-        <p className="text-xs text-muted">Se resuelven solo en el servidor y nunca se envían al agente ni a los workers.</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <input value={secretAlias} onChange={(event) => setSecretAlias(event.target.value)} placeholder="alias" className="min-w-[160px] flex-1" />
-          <input
-            type="password"
-            value={secretValue}
-            onChange={(event) => setSecretValue(event.target.value)}
-            placeholder="valor"
-            className="min-w-[160px] flex-1"
-          />
-          <button className={button} disabled={addSecret.isPending || !secretAlias || !secretValue} onClick={() => addSecret.mutate()}>
-            Guardar secreto
-          </button>
-        </div>
-        <ul className="flex flex-wrap gap-1.5">
-          {secretsList.map((secret) => (
-            <li key={secret.alias} className={badge}>
-              {secret.alias} · {secret.kind}
-            </li>
-          ))}
-          {secretsList.length === 0 && <li className="text-sm text-muted">Sin secretos de proyecto.</li>}
-        </ul>
-      </section>
+      {(section === "all" || section === "secrets") && (
+        <section className={card}>
+          <h2 className="text-base font-semibold text-slate-100">Secretos del proyecto</h2>
+          <p className="text-xs text-muted">Se resuelven solo en el servidor y nunca se envían al agente ni a los workers.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input value={secretAlias} onChange={(event) => setSecretAlias(event.target.value)} placeholder="alias" className="min-w-[160px] flex-1" />
+            <input
+              type="password"
+              value={secretValue}
+              onChange={(event) => setSecretValue(event.target.value)}
+              placeholder="valor"
+              className="min-w-[160px] flex-1"
+            />
+            <button className={button} disabled={addSecret.isPending || !secretAlias || !secretValue} onClick={() => addSecret.mutate()}>
+              Guardar secreto
+            </button>
+          </div>
+          <ul className="flex flex-wrap gap-1.5">
+            {secretsList.map((secret) => (
+              <li key={secret.alias} className={badge}>
+                {secret.alias} · {secret.kind}
+              </li>
+            ))}
+            {secretsList.length === 0 && <li className="text-sm text-muted">Sin secretos de proyecto.</li>}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

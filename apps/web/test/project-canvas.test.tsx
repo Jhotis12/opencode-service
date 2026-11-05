@@ -12,6 +12,7 @@ const apiMock = vi.hoisted(() => ({
   listModels: vi.fn(),
   chatHistory: vi.fn(),
   listIntegrations: vi.fn(),
+  listDestinations: vi.fn(),
   getProjectSettings: vi.fn(),
   readNode: vi.fn(),
   saveWorkflow: vi.fn(),
@@ -57,6 +58,7 @@ function setupApi() {
   apiMock.listModels.mockResolvedValue({ data: [] });
   apiMock.chatHistory.mockResolvedValue({ data: [] });
   apiMock.listIntegrations.mockResolvedValue({ data: [] });
+  apiMock.listDestinations.mockResolvedValue({ data: [] });
   apiMock.getProjectSettings.mockResolvedValue({
     project: { id: "p1", slug: "demo", name: "Demo", description: "", createdAt: new Date().toISOString() },
     integrations: [],

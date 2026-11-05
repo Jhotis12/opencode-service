@@ -92,7 +92,7 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
     const nav = page.locator('nav[aria-label="Secciones del proyecto"]');
     const navBox = await nav.boundingBox();
     expect(navBox).not.toBeNull();
-    for (const name of [/^Canvas$/, /^Ejecuciones/, /^Agentes/, /^Conocimiento$/, /^Recursos/, /^Ajustes$/]) {
+    for (const name of [/^Canvas$/, /^Ejecuciones/, /^Agentes/, /^Conocimiento$/, /^Configuración/]) {
       const box = await page.getByRole("button", { name }).boundingBox();
       expect(box).not.toBeNull();
       expect(box!.x).toBeGreaterThanOrEqual(navBox!.x - 1);
@@ -227,6 +227,19 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
         agent.frontmatter.description === "Califica leads entrantes v2",
     ),
   ).toBe(true);
+
+  // One project configuration surface with guided sections.
+  await page.getByRole("button", { name: /^Configuración/ }).click();
+  await page.getByRole("tab", { name: "Canales" }).click();
+  await expect(page.getByRole("heading", { name: "Nueva integración" })).toBeVisible();
+  await page.getByRole("tab", { name: "Destinos" }).click();
+  await page.getByLabel("Etiqueta").fill("Admin E2E");
+  await page.getByLabel("Valor").fill("123456");
+  await page.getByRole("button", { name: "Crear destino" }).click();
+  await expect(page.getByText("Admin E2E")).toBeVisible();
+  await page.getByRole("tab", { name: "Preparación" }).click();
+  await expect(page.getByRole("heading", { name: "Preparación del proyecto" })).toBeVisible();
+  await page.getByRole("button", { name: "Canvas" }).click();
 
   // Project-owned resources: create an external chat integration inside the project.
   const createdIntegration = await page.request.post("/api/projects/e2e-bot/integrations", {

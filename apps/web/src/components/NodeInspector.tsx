@@ -4,6 +4,7 @@ import type {
   InputField,
   IntegrationRecord,
   NodeSpec,
+  ProjectDestination,
   SubagentProfile,
   ValidateRule,
 } from "@platform/shared";
@@ -18,10 +19,12 @@ const HTTP_KINDS = new Set<IntegrationRecord["kind"]>(["http"]);
 function NotifyNodeFields({
   node,
   integrations,
+  destinations,
   onConfig,
 }: {
   node: NodeSpec;
   integrations: IntegrationRecord[];
+  destinations: ProjectDestination[];
   onConfig(patch: Record<string, unknown>): void;
 }) {
   const channels = integrations.filter(
@@ -52,8 +55,16 @@ function NotifyNodeFields({
         <input
           value={String(node.config.recipient ?? "")}
           onChange={(event) => onConfig({ recipient: event.target.value || undefined })}
-          placeholder={requiresRecipient ? "123456789" : "Se usa el webhook del canal"}
+          placeholder={requiresRecipient ? "ID de destino o 123456789" : "Se usa el webhook del canal"}
+          list="notify-destinations"
         />
+        <datalist id="notify-destinations">
+          {destinations.map((destination) => (
+            <option key={destination.id} value={destination.id}>
+              {destination.label} · {destination.value}
+            </option>
+          ))}
+        </datalist>
       </label>
       <label className="md:col-span-2">
         Mensaje
@@ -281,6 +292,7 @@ export function NodeInspector({
   agents,
   models,
   integrations,
+  destinations,
   code,
   codeDirty,
   scheduleNextRun,
@@ -295,6 +307,7 @@ export function NodeInspector({
   agents: SubagentProfile[];
   models: ModelInfo[];
   integrations: IntegrationRecord[];
+  destinations: ProjectDestination[];
   code: string;
   codeDirty: boolean;
   scheduleNextRun?: string;
@@ -511,7 +524,7 @@ export function NodeInspector({
           )}
 
           {node.type === "notify" && (
-            <NotifyNodeFields node={node} integrations={integrations} onConfig={onConfig} />
+            <NotifyNodeFields node={node} integrations={integrations} destinations={destinations} onConfig={onConfig} />
           )}
 
           {node.type === "subworkflow" && (

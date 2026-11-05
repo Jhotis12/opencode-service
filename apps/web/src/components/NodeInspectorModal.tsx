@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Edge, IntegrationRecord, NodeSpec, SubagentProfile, WorkflowGraph } from "@platform/shared";
+import type { Edge, IntegrationRecord, NodeSpec, ProjectDestination, SubagentProfile, WorkflowGraph } from "@platform/shared";
 import type { ModelInfo, StepRun } from "../api.ts";
 import { Modal } from "./Modal.tsx";
 import { NodeInspector } from "./NodeInspector.tsx";
@@ -43,6 +43,7 @@ export function NodeInspectorModal({
   agents,
   models,
   integrations,
+  destinations,
   lastStep,
   scheduleNextRun,
   code,
@@ -67,6 +68,7 @@ export function NodeInspectorModal({
   agents: SubagentProfile[];
   models: ModelInfo[];
   integrations: IntegrationRecord[];
+  destinations: ProjectDestination[];
   lastStep?: StepRun;
   scheduleNextRun?: string;
   code: string;
@@ -204,6 +206,7 @@ export function NodeInspectorModal({
             agents={agents}
             models={models}
             integrations={integrations}
+            destinations={destinations}
             scheduleNextRun={scheduleNextRun}
             code={code}
             codeDirty={codeDirty}

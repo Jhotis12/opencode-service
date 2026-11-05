@@ -4,11 +4,24 @@ import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { badge, buttonPrimary, card, statusBadge } from "../ui.ts";
 
-export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
+export function ProjectSettingsPanel({
+  projectSlug,
+  section = "all",
+}: {
+  projectSlug: string;
+  section?: "all" | "general" | "readiness";
+}) {
   const queryClient = useQueryClient();
+  const showGeneral = section === "all" || section === "general";
+  const showReadiness = section === "all" || section === "readiness";
   const settingsQuery = useQuery({
     queryKey: qk.projectSettings(projectSlug),
     queryFn: () => api.getProjectSettings(projectSlug),
+  });
+  const destinationsQuery = useQuery({
+    queryKey: qk.destinations(projectSlug),
+    queryFn: () => api.listDestinations(projectSlug).then((result) => result.data),
+    enabled: showGeneral,
   });
   const modelsQuery = useQuery({
     queryKey: qk.models,
@@ -56,6 +69,7 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
 
   const settings = settingsQuery.data;
   const models = modelsQuery.data ?? [];
+  const destinations = destinationsQuery.data ?? [];
   const error = settingsQuery.error ?? modelsQuery.error ?? save.error;
 
   if (!settings) {
@@ -64,6 +78,7 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
 
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+      {showGeneral && (
       <form
         className={`${card} gap-3`}
         onSubmit={(event) => {
@@ -123,9 +138,20 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
           <input
             value={approvalRecipient}
             onChange={(event) => setApprovalRecipient(event.target.value)}
-            placeholder="123456789"
+            placeholder="ID de destino o 123456789"
+            list="project-approval-destinations"
           />
         </label>
+        <datalist id="project-approval-destinations">
+          {destinations.map((destination) => (
+            <option key={destination.id} value={destination.id}>
+              {destination.label} · {destination.value}
+            </option>
+          ))}
+        </datalist>
+        <p className="text-xs text-muted">
+          Puedes usar un destino etiquetado de la sección Destinos o un valor crudo; los valores existentes siguen siendo válidos.
+        </p>
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Transcripción</h3>
         <label>
           Conexión de transcripción por defecto
@@ -155,7 +181,9 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
         {status && <p className="text-sm text-ok">{status}</p>}
         {error && <p className="text-sm text-danger">{error instanceof Error ? error.message : "Error de ajustes"}</p>}
       </form>
+      )}
 
+      {showReadiness && (
       <aside className={`${card} gap-2`}>
         <h2 className="text-base font-semibold text-slate-100">Preparación del proyecto</h2>
         <p className="text-xs text-muted">Completa estos pasos para que el caso de uso esté listo.</p>
@@ -175,6 +203,7 @@ export function ProjectSettingsPanel({ projectSlug }: { projectSlug: string }) {
           <span className={badge}>{settings.notebooks.length} notebooks</span>
         </div>
       </aside>
+      )}
     </div>
   );
 }

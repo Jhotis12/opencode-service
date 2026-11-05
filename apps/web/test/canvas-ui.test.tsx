@@ -230,6 +230,7 @@ describe("NodeInspectorModal", () => {
         agents={[]}
         models={[]}
         integrations={[]}
+        destinations={[]}
         lastStep={lastStep}
         code=""
         codeDirty={false}
@@ -458,6 +459,7 @@ describe("NodeInspectorModal", () => {
         agents={[]}
         models={[]}
         integrations={[]}
+        destinations={[]}
         code=""
         codeDirty={false}
         issues={[]}
@@ -484,6 +486,7 @@ describe("NodeInspectorModal", () => {
         agents={[]}
         models={[]}
         integrations={[]}
+        destinations={[]}
         code=""
         codeDirty={false}
         issues={[]}
@@ -594,7 +597,7 @@ describe("ProjectTopBar", () => {
         />
       </MemoryRouter>,
     );
-    for (const label of ["Canvas", "Ejecuciones (2)", "Agentes (1)", "Conocimiento", "Recursos (3)", "Ajustes"]) {
+    for (const label of ["Canvas", "Ejecuciones (2)", "Agentes (1)", "Conocimiento", "Configuración (3)"]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
     expect(screen.getByRole("button", { name: "Guardar flujo" })).toBeInTheDocument();

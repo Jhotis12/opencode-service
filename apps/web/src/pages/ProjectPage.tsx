@@ -22,8 +22,7 @@ import {
 import { RunDetailModal, previewValue } from "../components/RunDetailModal.tsx";
 import { RunLaunchModal } from "../components/RunLaunchModal.tsx";
 import { ProjectKnowledgePanel } from "../components/ProjectKnowledgePanel.tsx";
-import { ProjectResourcesPanel } from "../components/ProjectResourcesPanel.tsx";
-import { ProjectSettingsPanel } from "../components/ProjectSettingsPanel.tsx";
+import { ProjectConfigurationPanel } from "../components/ProjectConfigurationPanel.tsx";
 import { NODE_META } from "../components/nodes/node-catalog.ts";
 import { badge, buttonDanger, buttonGhost, buttonPrimary, card } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
@@ -78,6 +77,11 @@ export function ProjectPage() {
     queryFn: () => api.getProjectSettings(slug),
     enabled: Boolean(slug),
   });
+  const destinationsQuery = useQuery({
+    queryKey: qk.destinations(slug),
+    queryFn: () => api.listDestinations(slug).then((result) => result.data),
+    enabled: Boolean(slug),
+  });
   const versionsQuery = useQuery({
     queryKey: qk.workflowVersions(slug),
     queryFn: () =>
@@ -92,6 +96,7 @@ export function ProjectPage() {
   const models = modelsQuery.data ?? [];
   const chatHistory = chatQuery.data ?? [];
   const integrations = integrationsQuery.data ?? [];
+  const destinations = destinationsQuery.data ?? [];
   const projectSettings = settingsQuery.data;
   const versions = versionsQuery.data ?? [];
 
@@ -676,6 +681,7 @@ export function ProjectPage() {
               agents={agents}
               models={models}
               integrations={integrations}
+              destinations={destinations}
               lastStep={lastStep}
               scheduleNextRun={schedulesQuery.data?.find((state) => state.nodeId === selected.id)?.nextWindowAt}
               code={nodeCode}
@@ -744,8 +750,7 @@ export function ProjectPage() {
           )}
 
           {tab === "knowledge" && <ProjectKnowledgePanel projectSlug={slug} />}
-          {tab === "resources" && <ProjectResourcesPanel projectSlug={slug} />}
-          {tab === "settings" && <ProjectSettingsPanel projectSlug={slug} />}
+          {tab === "configuration" && <ProjectConfigurationPanel projectSlug={slug} />}
           </div>
         </div>
       )}

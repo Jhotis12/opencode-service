@@ -43,11 +43,11 @@
 
 ## 6. Superficie única de configuración y destinos UI
 
-- [ ] 6.1 Reemplazar las pestañas “Recursos” y “Ajustes” del proyecto por una pestaña “Configuración” con subsecciones General, Conexiones, Canales, Destinos, Secretos y Preparación; verificar con un test de navegación que todas las subsecciones son alcanzables.
-- [ ] 6.2 Reutilizar los paneles existentes como wrappers dentro de las subsecciones y eliminar la duplicación de editores; verificar que no hay dos formularios de integración montados a la vez.
-- [ ] 6.3 Implementar el gestor de destinos y el picker reutilizable en allowlist, alertas, aprobaciones y nodos `notify`; verificar con tests de componente que un destino creado aparece en los cuatro selectores.
-- [ ] 6.4 Permitir adoptar un valor crudo existente como destino etiquetado sin romper la configuración actual; verificar con un test que el valor crudo sigue funcionando antes y después de adoptarlo.
-- [ ] 6.5 Agregar pruebas de página y E2E de la nueva superficie de configuración; verificar con `bun test apps/web/test/pages.test.tsx` y el escenario Playwright de configuración de proyecto.
+- [x] 6.1 Reemplazar las pestañas “Recursos” y “Ajustes” del proyecto por una pestaña “Configuración” con subsecciones General, Conexiones, Canales, Destinos, Secretos y Preparación; verificar con un test de navegación que todas las subsecciones son alcanzables.
+- [x] 6.2 Reutilizar los paneles existentes como wrappers dentro de las subsecciones y eliminar la duplicación de editores; verificar que no hay dos formularios de integración montados a la vez.
+- [x] 6.3 Implementar el gestor de destinos y el picker reutilizable en allowlist, alertas, aprobaciones y nodos `notify`; verificar con tests de componente que un destino creado aparece en los cuatro selectores.
+- [x] 6.4 Permitir adoptar un valor crudo existente como destino etiquetado sin romper la configuración actual; verificar con un test que el valor crudo sigue funcionando antes y después de adoptarlo.
+- [x] 6.5 Agregar pruebas de página y E2E de la nueva superficie de configuración; verificar con `bun test apps/web/test/pages.test.tsx` y el escenario Playwright de configuración de proyecto.
 
 ## 7. Inspector de nodos dirigido por contrato
 

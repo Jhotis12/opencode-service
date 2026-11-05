@@ -357,7 +357,7 @@ export class SafeFsWorkspaceAdapter implements WorkspacePort {
     if (!parsed.success) {
       throw new WorkspaceError("INVALID_WORKFLOW", `workflow.json is invalid: ${parsed.error.message}`);
     }
-    validateWorkflowGraph(parsed.data);
+    validateWorkflowGraph(parsed.data, { strictEvents: false });
     return parsed.data;
   }
 

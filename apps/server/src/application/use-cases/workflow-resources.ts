@@ -1,4 +1,4 @@
-import { TranscribeNodeConfigSchema, type WorkflowGraph } from "@platform/shared";
+import { TranscribeNodeConfigSchema, integrationEvents, type WorkflowGraph } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import { WorkflowValidationError } from "../../domain/workflow/graph.ts";
@@ -13,6 +13,7 @@ export async function validateWorkflowResources(
   workspace: WorkspacePort,
   projectSlug: string,
   graph: WorkflowGraph,
+  options: { requireConnected?: boolean } = {},
 ): Promise<void> {
   const issues: string[] = [];
   for (const node of graph.nodes) {
@@ -23,6 +24,17 @@ export async function validateWorkflowResources(
         issues.push(`trigger ${node.id} references an unknown integration`);
       } else if (integration.scope !== "project" || integration.projectSlug !== projectSlug) {
         issues.push(`trigger ${node.id} references an integration from another project or the global scope`);
+      } else {
+        if (!integration.capabilities.includes("inbound_message")) {
+          issues.push(`trigger ${node.id} references a non-channel integration without inbound messages`);
+        }
+        const event = String(node.config.event ?? "message.received");
+        if (!integrationEvents(integration.kind).includes(event)) {
+          issues.push(`trigger ${node.id} uses event ${event}, which ${integration.kind} does not emit`);
+        }
+        if (options.requireConnected && integration.status !== "connected") {
+          issues.push(`trigger ${node.id} references a disconnected integration: ${integration.name}`);
+        }
       }
     }
     if (node.type === "trigger" && node.config.kind === "webhook") {

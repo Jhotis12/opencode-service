@@ -10,11 +10,11 @@
 
 ## 2. Validación de servidor y ruteo de triggers
 
-- [ ] 2.1 Migrar `validateIntegrationInput` al registro compartido, incluyendo defaults, campos secretos requeridos y rechazo de secretos en configuración no secreta; verificar con `bun test apps/server/test/integrations.test.ts`.
-- [ ] 2.2 Migrar `validateWorkflowGraph` al registro de nodos y agregar validación de trigger por `kind`, capacidad `inbound_message` y evento soportado; verificar con `bun test apps/server/test/workflow-domain.test.ts`.
-- [ ] 2.3 Corregir `RouteProjectIntegrationMessageUseCase` para exigir `trigger.kind === "integration"`, capacidad de entrada y evento soportado, con razones de drop explícitas; verificar con `bun test apps/server/test/channel-router.test.ts`.
-- [ ] 2.4 Hacer la lectura de `workflow.json` tolerante a eventos desconocidos y el guardado/run estrictos, con un test que abra el workflow viejo, falle al guardarlo y muestre el evento inválido.
-- [ ] 2.5 Normalizar el config al cambiar de kind, eliminando claves incompatibles y aplicando defaults; verificar con tests de guardado que un trigger manual no conserva `integrationId` ni `event`.
+- [x] 2.1 Migrar `validateIntegrationInput` al registro compartido, incluyendo defaults, campos secretos requeridos y rechazo de secretos en configuración no secreta; verificar con `bun test apps/server/test/integrations.test.ts`.
+- [x] 2.2 Migrar `validateWorkflowGraph` al registro de nodos y agregar validación de trigger por `kind`, capacidad `inbound_message` y evento soportado; verificar con `bun test apps/server/test/workflow-domain.test.ts`.
+- [x] 2.3 Corregir `RouteProjectIntegrationMessageUseCase` para exigir `trigger.kind === "integration"`, capacidad de entrada y evento soportado, con razones de drop explícitas; verificar con `bun test apps/server/test/channel-router.test.ts`.
+- [x] 2.4 Hacer la lectura de `workflow.json` tolerante a eventos desconocidos y el guardado/run estrictos, con un test que abra el workflow viejo, falle al guardarlo y muestre el evento inválido.
+- [x] 2.5 Normalizar el config al cambiar de kind, eliminando claves incompatibles y aplicando defaults; verificar con tests de guardado que un trigger manual no conserva `integrationId` ni `event`.
 
 ## 3. Destinos de proyecto
 

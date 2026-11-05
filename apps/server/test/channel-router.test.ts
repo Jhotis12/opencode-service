@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteStore } from "../src/infrastructure/out/persistence/sqlite-store.ts";
@@ -429,6 +429,32 @@ describe("route incoming project messages", () => {
     await router.execute({ integrationId: "i1", kind: "telegram", senderId: "999", text: "hola" });
     expect(executed).toHaveLength(1);
     expect(egress.sent[0]?.text).toBe("resultado-flujo");
+  });
+
+  it("does not route messages to a manual trigger that kept a stale integration id", async () => {
+    const { dir, router, executed, workspace } = await setup();
+    const graph = await workspace.readWorkflow("ventas");
+    graph.nodes[0] = {
+      ...graph.nodes[0]!,
+      config: { kind: "manual", integrationId: "i1", event: "message.received", accepts: ["text"] },
+    };
+    await writeFile(join(dir, "workspaces", "ventas", "workflow.json"), JSON.stringify(graph, null, 2));
+    const result = await router.execute({ integrationId: "i1", kind: "telegram", senderId: "999", text: "hola" });
+    expect(result.decision).toBe("dropped");
+    expect(executed).toHaveLength(0);
+  });
+
+  it("does not route messages to a trigger with an unsupported event", async () => {
+    const { dir, router, executed, workspace } = await setup();
+    const graph = await workspace.readWorkflow("ventas");
+    graph.nodes[0] = {
+      ...graph.nodes[0]!,
+      config: { kind: "integration", integrationId: "i1", event: "unsupported.event", accepts: ["text"] },
+    };
+    await writeFile(join(dir, "workspaces", "ventas", "workflow.json"), JSON.stringify(graph, null, 2));
+    const result = await router.execute({ integrationId: "i1", kind: "telegram", senderId: "999", text: "hola" });
+    expect(result.decision).toBe("dropped");
+    expect(executed).toHaveLength(0);
   });
 
   it("drops unknown senders when public access is disabled", async () => {

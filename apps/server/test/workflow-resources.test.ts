@@ -104,6 +104,66 @@ async function setup() {
   return { store, workspace };
 }
 
+function triggerGraph(integrationId: string, event = "message.received"): WorkflowGraph {
+  return {
+    version: 1,
+    id: "trigger-flow",
+    name: "Trigger",
+    description: "",
+    nodes: [
+      {
+        id: "start",
+        type: "trigger",
+        position: { x: 0, y: 0 },
+        config: { kind: "integration", integrationId, event },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "end",
+        type: "code",
+        codeFile: "nodes/end.ts",
+        position: { x: 1, y: 0 },
+        config: {},
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+    ],
+    edges: [{ id: "e1", source: "start", target: "end" }],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+describe("channel trigger resource validation", () => {
+  it("requires an inbound channel and a supported event", async () => {
+    const { store, workspace } = await setup();
+    await expect(
+      validateWorkflowResources(store, workspace, "ventas", triggerGraph("tg1")),
+    ).resolves.toBeUndefined();
+    await expect(
+      validateWorkflowResources(store, workspace, "ventas", triggerGraph("tg1", "unsupported.event")),
+    ).rejects.toBeInstanceOf(WorkflowValidationError);
+    await expect(
+      validateWorkflowResources(store, workspace, "ventas", triggerGraph("asr1")),
+    ).rejects.toBeInstanceOf(WorkflowValidationError);
+    store.close();
+  });
+
+  it("allows saving a disconnected integration but blocks running it", async () => {
+    const { store, workspace } = await setup();
+    store.integrations.updateStatus("tg1", "disconnected");
+    await expect(
+      validateWorkflowResources(store, workspace, "ventas", triggerGraph("tg1")),
+    ).resolves.toBeUndefined();
+    await expect(
+      validateWorkflowResources(store, workspace, "ventas", triggerGraph("tg1"), { requireConnected: true }),
+    ).rejects.toBeInstanceOf(WorkflowValidationError);
+    store.close();
+  });
+});
+
 describe("transcription workflow resource validation", () => {
   it("accepts a project transcription integration or the project default", async () => {
     const { store, workspace } = await setup();

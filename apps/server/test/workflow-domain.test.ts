@@ -67,6 +67,34 @@ describe("workflow graph validation", () => {
     expect(() => validateWorkflowGraph(unknownKind)).toThrow(/no active executor/);
   });
 
+  it("validates integration trigger events and normalizes stale trigger config", () => {
+    const unsupported = graph();
+    unsupported.nodes[0] = {
+      ...unsupported.nodes[0]!,
+      config: { kind: "integration", integrationId: "tg-1", event: "unsupported.event" },
+    };
+    expect(() => validateWorkflowGraph(unsupported)).toThrow(/unsupported event/);
+
+    const manual = graph();
+    manual.nodes[0] = {
+      ...manual.nodes[0]!,
+      config: { kind: "manual", integrationId: "tg-1", event: "message.received" },
+    };
+    expect(() => validateWorkflowGraph(manual)).not.toThrow();
+    expect(manual.nodes[0]!.config.integrationId).toBeUndefined();
+    expect(manual.nodes[0]!.config.event).toBeUndefined();
+  });
+
+  it("validates node configs through the shared registry", () => {
+    const badNotify = graph();
+    badNotify.nodes[1] = { ...badNotify.nodes[1]!, type: "notify", codeFile: undefined, config: {} };
+    expect(() => validateWorkflowGraph(badNotify)).toThrow(/config\.integrationId/);
+
+    const badDatabase = graph();
+    badDatabase.nodes[1] = { ...badDatabase.nodes[1]!, type: "database", codeFile: undefined, config: {} };
+    expect(() => validateWorkflowGraph(badDatabase)).toThrow(/config\.integrationId/);
+  });
+
   it("rejects duplicate node ids", () => {
     const bad = graph();
     bad.nodes.push({ ...bad.nodes[1]!, position: { x: 2, y: 0 } });

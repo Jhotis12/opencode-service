@@ -654,7 +654,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
       return c.json(apiError("UNAUTHORIZED", "invalid webhook secret or signature"), 401);
     }
     try {
-      await validateWorkflowResources(store, workspace, projectSlug, graph);
+      await validateWorkflowResources(store, workspace, projectSlug, graph, { requireConnected: true });
       const run = await executor.start({
         projectSlug,
         graph,
@@ -1096,7 +1096,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     const body = (await c.req.json().catch(() => ({}))) as { payload?: unknown; idempotencyKey?: string };
     try {
       const graph = await workspace.readWorkflow(c.req.param("slug"));
-      await validateWorkflowResources(store, workspace, c.req.param("slug"), graph);
+      await validateWorkflowResources(store, workspace, c.req.param("slug"), graph, { requireConnected: true });
       const run = await executor.start({
         projectSlug: c.req.param("slug"),
         graph,

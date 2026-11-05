@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import type { Edge, NodeSpec, WorkflowGraph } from "@platform/shared";
-import { DatabaseNodeConfigSchema, NotifyNodeConfigSchema, TranscribeNodeConfigSchema } from "@platform/shared";
+import { CHANNEL_EVENTS, validateNodeConfig } from "@platform/shared";
 import { isValidCronExpression } from "./cron.ts";
+
+const SUPPORTED_CHANNEL_EVENTS = new Set(Object.values(CHANNEL_EVENTS).flat());
 
 export class WorkflowValidationError extends Error {
   constructor(public readonly issues: string[]) {
@@ -10,12 +12,41 @@ export class WorkflowValidationError extends Error {
   }
 }
 
-export function validateWorkflowGraph(graph: WorkflowGraph): void {
+export function normalizeNodeConfig(node: NodeSpec): void {
+  if (node.type !== "trigger") return;
+  const kind = String(node.config.kind ?? "manual");
+  if (kind !== "integration") {
+    delete node.config.integrationId;
+    delete node.config.event;
+    delete node.config.accepts;
+  }
+  if (kind !== "webhook") delete node.config.secretAlias;
+  if (kind !== "schedule") {
+    delete node.config.cron;
+    delete node.config.mode;
+    delete node.config.runAt;
+    delete node.config.timezone;
+    delete node.config.enabled;
+    delete node.config.overlapPolicy;
+    delete node.config.catchUp;
+    delete node.config.catchUpWindowMinutes;
+  }
+}
+
+export function validateWorkflowGraph(graph: WorkflowGraph, options: { strictEvents?: boolean } = {}): void {
   const issues: string[] = [];
   const ids = new Set<string>();
   for (const node of graph.nodes) {
     if (ids.has(node.id)) issues.push(`duplicate node id: ${node.id}`);
     ids.add(node.id);
+    normalizeNodeConfig(node);
+    const parsed = validateNodeConfig(node.type, node.config);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const path = issue.path.length > 0 ? `config.${issue.path.join(".")}` : "config";
+        issues.push(`node ${node.id} has invalid ${path}: ${issue.message}`);
+      }
+    }
   }
   const triggers = graph.nodes.filter((node) => node.type === "trigger");
   if (triggers.length === 0) issues.push("workflow requires a trigger node");
@@ -42,6 +73,9 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
         issues.push(`integration trigger ${node.id} requires config.integrationId`);
       }
       const event = String(node.config.event ?? "message.received");
+      if (options.strictEvents !== false && !SUPPORTED_CHANNEL_EVENTS.has(event)) {
+        issues.push(`trigger ${node.id} uses unsupported event: ${event}`);
+      }
       const binding = `${node.config.integrationId}:${event}`;
       if (integrationTriggers.has(binding)) {
         issues.push(`duplicate trigger for integration ${node.config.integrationId} and event ${event}`);
@@ -74,27 +108,6 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
     }
     if (node.type === "code" && !node.codeFile) issues.push(`code node ${node.id} requires codeFile`);
     if (node.type === "agent" && !node.agentId) issues.push(`agent node ${node.id} requires agentId`);
-    if (node.type === "http" && typeof node.config.url !== "string") {
-      issues.push(`http node ${node.id} requires config.url`);
-    }
-    if (node.type === "database") {
-      const parsed = DatabaseNodeConfigSchema.safeParse(node.config);
-      if (!parsed.success) {
-        issues.push(`database node ${node.id} requires a valid integrationId and statements`);
-      }
-    }
-    if (node.type === "notify") {
-      const parsed = NotifyNodeConfigSchema.safeParse(node.config);
-      if (!parsed.success) {
-        issues.push(`notify node ${node.id} requires a valid integrationId and text`);
-      }
-    }
-    if (node.type === "transcribe") {
-      const parsed = TranscribeNodeConfigSchema.safeParse(node.config);
-      if (!parsed.success) {
-        issues.push(`transcribe node ${node.id} has invalid config`);
-      }
-    }
     if (node.type === "subworkflow" && typeof node.config.versionId !== "string") {
       issues.push(`subworkflow node ${node.id} requires config.versionId`);
     }

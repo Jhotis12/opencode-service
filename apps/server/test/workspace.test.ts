@@ -77,6 +77,20 @@ describe("safe filesystem workspace", () => {
     expect((await ws.readWorkflow("p1")).edges).toHaveLength(0);
   });
 
+  it("reads workflows with unsupported events but rejects saving them", async () => {
+    const { dir, ws } = await workspace();
+    await ws.createProject({ slug: "p1", name: "P1" });
+    const graph = await ws.readWorkflow("p1");
+    graph.nodes[0] = {
+      ...graph.nodes[0]!,
+      config: { kind: "integration", integrationId: "tg-1", event: "unsupported.event" },
+    };
+    await writeFile(join(dir, "p1", "workflow.json"), JSON.stringify(graph, null, 2));
+    const loaded = await ws.readWorkflow("p1");
+    expect(loaded.nodes[0]?.config.event).toBe("unsupported.event");
+    await expect(ws.writeWorkflow("p1", loaded)).rejects.toBeInstanceOf(WorkflowValidationError);
+  });
+
   it("writes and lists nested agent markdown files", async () => {
     const { ws } = await workspace();
     await ws.createProject({ slug: "p1", name: "P1" });

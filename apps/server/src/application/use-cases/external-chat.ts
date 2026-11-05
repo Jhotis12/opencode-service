@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { ChannelRoutingSchema } from "@platform/shared";
+import { ChannelRoutingSchema, integrationEvents } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { SecretVault } from "../ports/security.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
@@ -96,11 +96,16 @@ export class SendExternalChatMessageUseCase {
       const trigger = graph.nodes.find(
         (node) =>
           node.type === "trigger" &&
+          node.config.kind === "integration" &&
           node.config.integrationId === integration.id &&
+          integration.capabilities.includes("inbound_message") &&
+          integrationEvents(integration.kind).includes("message.received") &&
           String(node.config.event ?? "message.received") === "message.received",
       );
       if (trigger) {
-        await validateWorkflowResources(this.deps.store, this.deps.workspace, integration.projectSlug, graph);
+        await validateWorkflowResources(this.deps.store, this.deps.workspace, integration.projectSlug, graph, {
+          requireConnected: true,
+        });
         const run = await this.deps.executor.execute({
           projectSlug: integration.projectSlug,
           graph,

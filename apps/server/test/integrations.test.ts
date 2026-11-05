@@ -141,6 +141,31 @@ describe("integration validation", () => {
       }),
     ).toThrow(/capabilities/);
   });
+
+  it("rejects secrets in non-secret config and applies registry defaults", () => {
+    expect(() =>
+      validateIntegrationInput({
+        scope: "project",
+        projectSlug: "ventas",
+        kind: "telegram",
+        name: "Bot",
+        slug: "bot",
+        config: { token: "123:ABC" },
+        secretRefs: { token: "alias" },
+      }),
+    ).toThrow(/secret-like/);
+
+    const validated = validateIntegrationInput({
+      scope: "project",
+      projectSlug: "ventas",
+      kind: "telegram",
+      name: "Bot",
+      slug: "bot",
+      config: {},
+      secretRefs: { token: "alias" },
+    });
+    expect(validated.config.routing).toEqual({ mode: "hybrid", allowlist: [], public: false });
+  });
 });
 
 describe("project integration lifecycle", () => {

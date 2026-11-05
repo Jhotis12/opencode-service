@@ -4,15 +4,14 @@ import type { WorkflowGraph, WorkflowVersion } from "@platform/shared";
 import { Modal } from "./Modal.tsx";
 import { badge, button, buttonGhost, buttonPrimary, statusBadge } from "../ui.ts";
 
-export type ProjectTab = "canvas" | "runs" | "agents" | "knowledge" | "resources" | "settings";
+export type ProjectTab = "canvas" | "runs" | "agents" | "knowledge" | "configuration";
 
 const TABS: Array<[ProjectTab, string]> = [
   ["canvas", "Canvas"],
   ["runs", "Ejecuciones"],
   ["agents", "Agentes"],
   ["knowledge", "Conocimiento"],
-  ["resources", "Recursos"],
-  ["settings", "Ajustes"],
+  ["configuration", "Configuración"],
 ];
 
 export function ProjectTopBar({
@@ -159,7 +158,7 @@ export function ProjectTopBar({
             aria-label="Secciones del proyecto"
           >
             {TABS.map(([key, label]) => {
-              const count = key === "runs" ? counts.runs : key === "agents" ? counts.agents : key === "resources" ? counts.integrations : undefined;
+              const count = key === "runs" ? counts.runs : key === "agents" ? counts.agents : key === "configuration" ? counts.integrations : undefined;
               const showCount = count !== undefined && count > 0;
               return (
                 <button
@@ -255,7 +254,7 @@ export function ProjectTopBar({
               </div>
             )}
           </div>
-          <button type="button" className={button} onClick={onSave} disabled={saving}>
+          <button type="button" className={button} onClick={onSave} disabled={saving || issueCount > 0}>
             Guardar<span className="hidden min-[1400px]:inline"> flujo</span>
           </button>
           <button type="button" className={buttonPrimary} onClick={onRun}>

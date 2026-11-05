@@ -11,6 +11,15 @@ import type { Logger } from "../../../domain/telemetry/index.ts";
 
 export interface TelegramTransport extends IntegrationTransport {
   readonly type: "telegram";
+  verify(): Promise<{ botId: string; username: string }>;
+  clearWebhook(): Promise<void>;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_resolve, reject) => setTimeout(() => reject(new Error(message)), ms)),
+  ]);
 }
 
 type TelegramHandler = (message: {
@@ -31,6 +40,19 @@ export class GrammyTransport implements TelegramTransport {
     this.token = token;
     this.bot = new Bot(token);
     this.logger = logger;
+  }
+
+  async verify(): Promise<{ botId: string; username: string }> {
+    const me = await withTimeout(this.bot.api.getMe(), 10_000, "telegram getMe timed out");
+    return { botId: String(me.id), username: me.username ?? "" };
+  }
+
+  async clearWebhook(): Promise<void> {
+    await withTimeout(
+      this.bot.api.deleteWebhook({ drop_pending_updates: false }),
+      10_000,
+      "telegram deleteWebhook timed out",
+    );
   }
 
   async start(handler: TelegramHandler): Promise<void> {

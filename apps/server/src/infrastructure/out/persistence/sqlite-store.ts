@@ -9,6 +9,7 @@ import type {
   KbChunkRecord,
   KbSourceRecord,
   NotebookRecord,
+  ProjectDestinationRecord,
   ProjectRecord,
   StepRunRecord,
   UserRecord,
@@ -32,6 +33,7 @@ import {
   kbChunks,
   kbSources,
   notebooks,
+  projectDestinations,
   projects,
   systemErrorEvents,
   systemSettings,
@@ -346,6 +348,49 @@ export class SqliteStore implements Store {
         .where(eq(integrations.id, id))
         .run();
     },
+  };
+
+  destinations = {
+    create: (record: ProjectDestinationRecord): void => {
+      this.handle.db
+        .insert(projectDestinations)
+        .values({
+          id: record.id,
+          projectSlug: record.projectSlug,
+          kind: record.kind,
+          label: record.label,
+          value: record.value,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        })
+        .run();
+    },
+    update: (id: string, patch: Partial<Pick<ProjectDestinationRecord, "kind" | "label" | "value">>): void => {
+      this.handle.db
+        .update(projectDestinations)
+        .set({
+          ...(patch.kind !== undefined ? { kind: patch.kind } : {}),
+          ...(patch.label !== undefined ? { label: patch.label } : {}),
+          ...(patch.value !== undefined ? { value: patch.value } : {}),
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(projectDestinations.id, id))
+        .run();
+    },
+    findById: (id: string): ProjectDestinationRecord | undefined => {
+      const row = this.handle.db.select().from(projectDestinations).where(eq(projectDestinations.id, id)).get();
+      return row ? this.mapDestination(row) : undefined;
+    },
+    list: (projectSlug: string): ProjectDestinationRecord[] =>
+      this.handle.db
+        .select()
+        .from(projectDestinations)
+        .where(eq(projectDestinations.projectSlug, projectSlug))
+        .orderBy(desc(projectDestinations.createdAt))
+        .all()
+        .map((row) => this.mapDestination(row)),
+    remove: (id: string): boolean =>
+      this.handle.sqlite.query("DELETE FROM project_destinations WHERE id = ?").run(id).changes > 0,
   };
 
   runs = {
@@ -1184,6 +1229,7 @@ export class SqliteStore implements Store {
         .run(projectSlug);
       this.handle.sqlite.query("DELETE FROM workflow_runs WHERE project_slug = ?").run(projectSlug);
       this.handle.sqlite.query("DELETE FROM workflow_versions WHERE project_slug = ?").run(projectSlug);
+      this.handle.sqlite.query("DELETE FROM project_destinations WHERE project_slug = ?").run(projectSlug);
       this.handle.sqlite.query("DELETE FROM integrations WHERE scope = 'project' AND project_slug = ?").run(projectSlug);
       this.handle.sqlite.query("DELETE FROM vault_secrets WHERE scope = 'project' AND project_slug = ?").run(projectSlug);
       this.handle.sqlite.query("DELETE FROM projects WHERE slug = ?").run(projectSlug);
@@ -1423,6 +1469,18 @@ export class SqliteStore implements Store {
       ciphertext: row.ciphertext,
       metadata: row.metadata ?? undefined,
       createdAt: row.createdAt,
+    };
+  }
+
+  private mapDestination(row: typeof projectDestinations.$inferSelect): ProjectDestinationRecord {
+    return {
+      id: row.id,
+      projectSlug: row.projectSlug,
+      kind: row.kind as ProjectDestinationRecord["kind"],
+      label: row.label,
+      value: row.value,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
     };
   }
 

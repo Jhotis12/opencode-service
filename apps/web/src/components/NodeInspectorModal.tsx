@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Edge, IntegrationRecord, NodeSpec, SubagentProfile, WorkflowGraph } from "@platform/shared";
+import type { Edge, IntegrationRecord, NodeSpec, ProjectDestination, SubagentProfile, WorkflowGraph } from "@platform/shared";
 import type { ModelInfo, StepRun } from "../api.ts";
 import { Modal } from "./Modal.tsx";
 import { NodeInspector } from "./NodeInspector.tsx";
@@ -43,6 +43,7 @@ export function NodeInspectorModal({
   agents,
   models,
   integrations,
+  destinations,
   lastStep,
   scheduleNextRun,
   code,
@@ -52,6 +53,7 @@ export function NodeInspectorModal({
   onClose,
   onPatch,
   onConfig,
+  onReplaceConfig,
   onCodeChange,
   onSaveCode,
   onEnableDecisionCode,
@@ -67,6 +69,7 @@ export function NodeInspectorModal({
   agents: SubagentProfile[];
   models: ModelInfo[];
   integrations: IntegrationRecord[];
+  destinations: ProjectDestination[];
   lastStep?: StepRun;
   scheduleNextRun?: string;
   code: string;
@@ -76,6 +79,7 @@ export function NodeInspectorModal({
   onClose(): void;
   onPatch(patch: Partial<NodeSpec>): void;
   onConfig(patch: Record<string, unknown>): void;
+  onReplaceConfig(config: Record<string, unknown>): void;
   onCodeChange(value: string): void;
   onSaveCode(): void;
   onEnableDecisionCode(): void;
@@ -204,11 +208,13 @@ export function NodeInspectorModal({
             agents={agents}
             models={models}
             integrations={integrations}
+            destinations={destinations}
             scheduleNextRun={scheduleNextRun}
             code={code}
             codeDirty={codeDirty}
             onPatch={onPatch}
             onConfig={onConfig}
+            onReplaceConfig={onReplaceConfig}
             onCodeChange={onCodeChange}
             onSaveCode={onSaveCode}
             onEnableDecisionCode={onEnableDecisionCode}

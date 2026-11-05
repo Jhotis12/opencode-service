@@ -3,6 +3,7 @@ import type { IntegrationEgressPort } from "../ports/channels.ts";
 import { renderTemplate } from "../../domain/workflow/template.ts";
 import type { WorkflowDeliveryRecord } from "../../domain/entities.ts";
 import type { Logger } from "../../domain/telemetry/index.ts";
+import { resolveDestinationValue } from "./destinations.ts";
 
 export interface SendNotificationInput {
   projectSlug: string;
@@ -58,7 +59,8 @@ export class SendNotificationUseCase {
     if (!integration.capabilities.includes("outbound_message")) {
       throw new Error(`integration ${integration.id} does not support outbound messages`);
     }
-    if (["telegram", "whatsapp"].includes(integration.kind) && !input.recipient) {
+    const recipient = resolveDestinationValue(this.store, input.projectSlug, input.recipient);
+    if (["telegram", "whatsapp"].includes(integration.kind) && !recipient) {
       throw new Error(`${integration.kind} notifications require a recipient`);
     }
     if (!input.actionKey) throw new Error("notification actionKey is required");
@@ -91,20 +93,20 @@ export class SendNotificationUseCase {
       nodeId: input.nodeId,
       integrationId: input.integrationId,
       actionKey: input.actionKey,
-      recipient: input.recipient,
+      recipient,
       status: "pending",
       attempts,
       createdAt: now,
       updatedAt: now,
     };
     if (existing) {
-      this.store.deliveries.update(existing.id, { status: "pending", attempts, recipient: input.recipient });
+      this.store.deliveries.update(existing.id, { status: "pending", attempts, recipient });
     } else {
       this.store.deliveries.create({ ...delivery, attempts });
     }
 
     try {
-      const result = await this.egress.send(input.integrationId, rendered, input.recipient);
+      const result = await this.egress.send(input.integrationId, rendered, recipient);
       this.store.deliveries.update(delivery.id, {
         status: "delivered",
         providerMessageId: result.providerMessageId,
@@ -121,7 +123,7 @@ export class SendNotificationUseCase {
       return {
         delivered: true,
         integrationId: input.integrationId,
-        recipient: input.recipient,
+        recipient,
         providerMessageId: result.providerMessageId,
       };
     } catch (error) {

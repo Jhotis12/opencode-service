@@ -15,8 +15,41 @@ vi.mock("../src/api.ts", () => ({
         sentryConfigured: false,
         providerConnected: true,
         defaultModel: "opencode-go/fast",
+        orchestratorModel: "opencode-go/fast",
         dataDir: "/data",
       },
+    }),
+    getEffectiveConfig: vi.fn().mockResolvedValue({
+      platform: [
+        {
+          key: "defaultModel",
+          label: "Modelo por defecto",
+          value: "opencode-go/fast",
+          source: "plataforma",
+          secret: false,
+          editable: true,
+          restartRequired: false,
+        },
+        {
+          key: "sentryDsn",
+          label: "Sentry DSN",
+          value: "configured",
+          source: "plataforma",
+          secret: true,
+          masked: "http…/1",
+          editable: true,
+          restartRequired: true,
+        },
+        {
+          key: "opencodeMode",
+          label: "Modo OpenCode",
+          value: "fake",
+          source: "entorno",
+          secret: false,
+          editable: false,
+          restartRequired: false,
+        },
+      ],
     }),
     listSecrets: vi.fn().mockResolvedValue({ data: [{ alias: "setting:sentry_dsn", kind: "sentry_dsn", createdAt: new Date().toISOString() }] }),
     listModels: vi.fn().mockResolvedValue({
@@ -48,6 +81,7 @@ vi.mock("../src/api.ts", () => ({
     testControlIntegration: vi.fn().mockResolvedValue({ ok: true }),
     connectControlIntegration: vi.fn(),
     disconnectControlIntegration: vi.fn(),
+    clearControlIntegrationWebhook: vi.fn(),
     controlIntegrationQr: vi.fn(),
     saveSettings: vi.fn(),
     saveSecret: vi.fn(),
@@ -143,6 +177,8 @@ vi.mock("../src/api.ts", () => ({
     createIntegration: vi.fn().mockResolvedValue({ integration: { id: "asr2", name: "ASR" } }),
     updateIntegration: vi.fn(),
     deleteIntegration: vi.fn(),
+    clearIntegrationWebhook: vi.fn(),
+    listDestinations: vi.fn().mockResolvedValue({ data: [] }),
     testIntegration: vi.fn().mockResolvedValue({ ok: true, detail: "2 modelos", models: ["small", "base"] }),
     connectIntegration: vi.fn(),
     disconnectIntegration: vi.fn(),
@@ -171,8 +207,11 @@ describe("SettingsPage", () => {
     expect(screen.getByRole("heading", { name: "Canales del orquestador global" })).toBeInTheDocument();
     expect(await screen.findByText("Alertas admin")).toBeInTheDocument();
     expect(screen.getByText(/Datos persistentes/)).toBeInTheDocument();
+    expect(await screen.findByText("Configuración efectiva")).toBeInTheDocument();
+    expect(screen.getByText("http…/1")).toBeInTheDocument();
+    expect(screen.getByText("solo lectura")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Elegir modelo" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Elegir modelo" })[0]!);
     expect(await screen.findByRole("dialog", { name: "Modelo por defecto" })).toBeInTheDocument();
     expect(screen.getByLabelText("Modelo")).toHaveValue("opencode-go/fast");
   });

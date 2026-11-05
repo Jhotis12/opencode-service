@@ -136,6 +136,68 @@ export const ForeachNodeConfigSchema = z.object({
 });
 export type ForeachNodeConfig = z.infer<typeof ForeachNodeConfigSchema>;
 
+export const CodeNodeConfigSchema = z.object({}).passthrough();
+export type CodeNodeConfig = z.infer<typeof CodeNodeConfigSchema>;
+
+export const HttpNodeConfigSchema = z
+  .object({
+    method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
+    url: z.string().min(1),
+    integrationId: z.string().min(1).optional(),
+    headers: z.union([z.string(), z.record(z.unknown())]).optional(),
+    body: z.unknown().optional(),
+  })
+  .passthrough();
+export type HttpNodeConfig = z.infer<typeof HttpNodeConfigSchema>;
+
+export const DelayNodeConfigSchema = z
+  .object({
+    ms: z.number().positive().optional(),
+    waitUntil: z.string().optional(),
+  })
+  .passthrough();
+export type DelayNodeConfig = z.infer<typeof DelayNodeConfigSchema>;
+
+export const TransformNodeConfigSchema = z
+  .object({
+    template: z.string().optional(),
+    mapping: z.record(z.string()).optional(),
+  })
+  .passthrough();
+export type TransformNodeConfig = z.infer<typeof TransformNodeConfigSchema>;
+
+export const DecisionOperatorSchema = z.enum([
+  "equals",
+  "not_equals",
+  "contains",
+  "greater_than",
+  "less_than",
+  "exists",
+  "truthy",
+]);
+
+export const DecisionNodeConfigSchema = z
+  .object({
+    mode: z.enum(["condition", "code"]).default("condition"),
+    condition: z
+      .object({
+        field: z.string().optional(),
+        operator: DecisionOperatorSchema.optional(),
+        value: z.unknown().optional(),
+      })
+      .optional(),
+  })
+  .passthrough();
+export type DecisionNodeConfig = z.infer<typeof DecisionNodeConfigSchema>;
+
+export const ApprovalNodeConfigSchema = z
+  .object({
+    message: z.string().optional(),
+    autoApprove: z.boolean().optional(),
+  })
+  .passthrough();
+export type ApprovalNodeConfig = z.infer<typeof ApprovalNodeConfigSchema>;
+
 export const ProjectTemplateSchema = z.enum(["blank", "triaje-operativo"]);
 export type ProjectTemplate = z.infer<typeof ProjectTemplateSchema>;
 

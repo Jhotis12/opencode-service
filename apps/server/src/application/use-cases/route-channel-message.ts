@@ -1,4 +1,4 @@
-import { ChannelRoutingSchema, type MediaRef } from "@platform/shared";
+import { ChannelRoutingSchema, integrationEvents, type MediaRef } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
@@ -13,6 +13,7 @@ import { routeGlobalMessage, routeProjectMessage } from "../../domain/channels/r
 import type { ExecuteWorkflowRunUseCase } from "./execute-workflow.ts";
 import type { IntegrationRecord } from "../../domain/entities.ts";
 import { validateWorkflowResources } from "./workflow-resources.ts";
+import { resolveDestinationList } from "./destinations.ts";
 import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
 import type { ChatTarget, ChatTurnService } from "./chat-turns.ts";
 
@@ -220,11 +221,14 @@ export class RouteProjectIntegrationMessageUseCase {
     const kinds = new Set<string>();
     if (message.text.trim()) kinds.add("text");
     for (const attachment of message.attachments ?? []) kinds.add(attachment.kind);
+    const event = message.event ?? "message.received";
     const triggers = graph
       ? graph.nodes
-          .filter((node) => node.type === "trigger")
+          .filter((node) => node.type === "trigger" && node.config.kind === "integration")
           .filter((node) => node.config.integrationId === integration.id)
-          .filter((node) => String(node.config.event ?? "message.received") === (message.event ?? "message.received"))
+          .filter(() => integration.capabilities.includes("inbound_message"))
+          .filter(() => integrationEvents(integration.kind).includes(event))
+          .filter((node) => String(node.config.event ?? "message.received") === event)
           .filter((node) => {
             const accepts = Array.isArray(node.config.accepts) ? node.config.accepts : ["text"];
             return accepts.some((kind) => kinds.has(String(kind)));
@@ -238,11 +242,18 @@ export class RouteProjectIntegrationMessageUseCase {
           }))
       : [];
     const routing = ChannelRoutingSchema.parse(integration.config.routing ?? {});
+    let allowlist: string[];
+    try {
+      allowlist = resolveDestinationList(this.deps.store, integration.projectSlug, routing.allowlist);
+    } catch {
+      this.logDrop(message, "invalid_destination_reference");
+      return { decision: "dropped" };
+    }
     const decision = routeProjectMessage({
       senderId: message.senderId,
       text: message.text,
       mode: routing.mode,
-      allowlist: routing.allowlist,
+      allowlist,
       publicTriggers: routing.public,
       triggers,
     });
@@ -439,7 +450,9 @@ export class RouteProjectIntegrationMessageUseCase {
     attachments: MediaRef[],
   ): Promise<void> {
     const graph = await this.deps.workspace.readWorkflow(trigger.projectSlug);
-    await validateWorkflowResources(this.deps.store, this.deps.workspace, trigger.projectSlug, graph);
+    await validateWorkflowResources(this.deps.store, this.deps.workspace, trigger.projectSlug, graph, {
+      requireConnected: true,
+    });
     const run = await this.deps.executor.execute({
       projectSlug: trigger.projectSlug,
       graph,

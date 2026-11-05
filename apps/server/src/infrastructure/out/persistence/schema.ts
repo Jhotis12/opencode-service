@@ -79,6 +79,22 @@ export const integrations = sqliteTable(
   }),
 );
 
+export const projectDestinations = sqliteTable(
+  "project_destinations",
+  {
+    id: text("id").primaryKey(),
+    projectSlug: text("project_slug").notNull(),
+    kind: text("kind").notNull(),
+    label: text("label").notNull(),
+    value: text("value").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => ({
+    project: index("project_destinations_project").on(table.projectSlug),
+  }),
+);
+
 export const workflowRuns = sqliteTable(
   "workflow_runs",
   {
@@ -352,6 +368,7 @@ export const schema = {
   systemErrorEvents,
   projects,
   integrations,
+  projectDestinations,
   workflowRuns,
   workflowVersions,
   workflowStepRuns,

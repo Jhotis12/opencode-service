@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { Store } from "../../../application/ports/store.ts";
 import type { SecretVault } from "../../../application/ports/security.ts";
@@ -5,15 +6,21 @@ import type { EventBus } from "../../../application/ports/events.ts";
 import type { IntegrationManagerPort } from "../../../application/ports/integrations.ts";
 import type { EgressSendResult } from "../../../application/ports/channels.ts";
 import type { IntegrationEgressRouter } from "./egress-router.ts";
-import type { Logger } from "../../../domain/telemetry/index.ts";
+import type { ErrorTracker, Logger } from "../../../domain/telemetry/index.ts";
 import type { IntegrationRecord } from "../../../domain/entities.ts";
 import type { RouteGlobalIntegrationMessageUseCase, RouteProjectIntegrationMessageUseCase } from "../../../application/use-cases/route-channel-message.ts";
 import { deliverWebhook } from "../../../application/use-cases/external-chat.ts";
-import { TelegramChannelAdapter, GrammyTransport } from "./telegram-adapter.ts";
+import { TelegramChannelAdapter, GrammyTransport, type TelegramTransport } from "./telegram-adapter.ts";
 import { BaileysTransport, WhatsAppChannelAdapter, WhatsAppCloudTransport } from "./whatsapp-adapter.ts";
 
 interface ManagedIntegration {
   stop(): Promise<void>;
+}
+
+function sanitizeTelegramError(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error))
+    .replace(/\d{6,}:[A-Za-z0-9_-]{20,}/g, "[REDACTED_TOKEN]")
+    .slice(0, 300);
 }
 
 export class IntegrationManager implements IntegrationManagerPort {
@@ -27,10 +34,12 @@ export class IntegrationManager implements IntegrationManagerPort {
       egress: IntegrationEgressRouter;
       events: EventBus;
       logger: Logger;
+      errorTracker?: ErrorTracker;
       projectRouter: RouteProjectIntegrationMessageUseCase;
       globalRouter: RouteGlobalIntegrationMessageUseCase;
       dataDir: string;
       fetchImpl?: typeof fetch;
+      createTelegramTransport?: (token: string) => TelegramTransport;
     },
   ) {}
 
@@ -39,7 +48,7 @@ export class IntegrationManager implements IntegrationManagerPort {
       if (!["telegram", "whatsapp", "external_chat"].includes(integration.kind)) continue;
       // Only integrations the user explicitly connected are restarted. New or
       // disconnected integrations wait for an explicit connect action.
-      if (!["connected", "qr_pending"].includes(integration.status)) continue;
+      if (!["connecting", "connected", "qr_pending"].includes(integration.status)) continue;
       await this.start(integration).catch((error) =>
         this.deps.logger.error({
           event: "integration_start_failed",
@@ -71,19 +80,63 @@ export class IntegrationManager implements IntegrationManagerPort {
         this.deps.store.integrations.updateStatus(integration.id, "needs_config", "missing token");
         return;
       }
-      const adapter = new TelegramChannelAdapter({
-        integrationId: integration.id,
-        scope: integration.scope,
-        projectSlug: integration.projectSlug,
-        transport: new GrammyTransport(token, this.deps.logger),
-        router: integration.scope === "global" ? this.deps.globalRouter : this.deps.projectRouter,
-        events: this.deps.events,
-        logger: this.deps.logger,
-      });
-      this.deps.egress.register(integration.id, (text, recipient) => adapter.send(text, recipient));
-      await adapter.start();
-      this.managed.set(integration.id, adapter);
-      this.deps.store.integrations.updateStatus(integration.id, "connected");
+      try {
+        this.assertTelegramTokenUnique(integration, token);
+      } catch (error) {
+        const message = sanitizeTelegramError(error);
+        this.deps.store.integrations.updateStatus(integration.id, "error", message);
+        this.deps.errorTracker?.captureException(error, {
+          entryPoint: "telegram",
+          integrationId: integration.id,
+          projectSlug: integration.projectSlug,
+          kind: integration.kind,
+        });
+        this.deps.logger.error({
+          event: "telegram_token_duplicate",
+          entryPoint: "telegram",
+          integrationId: integration.id,
+          error: message,
+        });
+        return;
+      }
+      this.deps.store.integrations.updateStatus(integration.id, "connecting");
+      const transport = this.deps.createTelegramTransport?.(token) ?? new GrammyTransport(token, this.deps.logger);
+      try {
+        const identity = await transport.verify();
+        const current = this.deps.store.integrations.findById(integration.id) ?? integration;
+        this.deps.store.integrations.update(integration.id, {
+          config: { ...current.config, botId: identity.botId, botUsername: identity.username },
+        });
+        const adapter = new TelegramChannelAdapter({
+          integrationId: integration.id,
+          scope: integration.scope,
+          projectSlug: integration.projectSlug,
+          transport,
+          router: integration.scope === "global" ? this.deps.globalRouter : this.deps.projectRouter,
+          events: this.deps.events,
+          logger: this.deps.logger,
+        });
+        this.deps.egress.register(integration.id, (text, recipient) => adapter.send(text, recipient));
+        await adapter.start();
+        this.managed.set(integration.id, adapter);
+        this.deps.store.integrations.updateStatus(integration.id, "connected");
+      } catch (error) {
+        this.deps.egress.unregister(integration.id);
+        const message = sanitizeTelegramError(error);
+        this.deps.store.integrations.updateStatus(integration.id, "error", message);
+        this.deps.errorTracker?.captureException(error, {
+          entryPoint: "telegram",
+          integrationId: integration.id,
+          projectSlug: integration.projectSlug,
+          kind: integration.kind,
+        });
+        this.deps.logger.error({
+          event: "telegram_connection_failed",
+          entryPoint: "telegram",
+          integrationId: integration.id,
+          error: message,
+        });
+      }
       return;
     }
     if (integration.kind === "whatsapp") {
@@ -132,10 +185,33 @@ export class IntegrationManager implements IntegrationManagerPort {
     for (const id of [...this.managed.keys()]) await this.stop(id);
   }
 
-  async test(integration: IntegrationRecord): Promise<{ ok: boolean; detail?: string; latencyMs?: number }> {
+  async test(
+    integration: IntegrationRecord,
+    options: { recipient?: string } = {},
+  ): Promise<{ ok: boolean; detail?: string; latencyMs?: number }> {
     if (integration.kind === "telegram") {
-      const ok = Boolean(this.resolveSecret(integration, "token"));
-      return { ok, detail: ok ? "token available" : "missing token" };
+      const token = this.resolveSecret(integration, "token");
+      if (!token) return { ok: false, detail: "missing token" };
+      const started = Date.now();
+      try {
+        const transport = this.deps.createTelegramTransport?.(token) ?? new GrammyTransport(token, this.deps.logger);
+        const identity = await transport.verify();
+        if (options.recipient) {
+          await transport.send(options.recipient, "Prueba de conexión de la plataforma");
+          return {
+            ok: true,
+            detail: `bot @${identity.username || identity.botId} · mensaje de prueba enviado`,
+            latencyMs: Date.now() - started,
+          };
+        }
+        return {
+          ok: true,
+          detail: `bot @${identity.username || identity.botId}`,
+          latencyMs: Date.now() - started,
+        };
+      } catch (error) {
+        return { ok: false, detail: sanitizeTelegramError(error), latencyMs: Date.now() - started };
+      }
     }
     if (integration.kind === "whatsapp") {
       const ok = String(integration.config.mode ?? "baileys") !== "cloud" || Boolean(this.resolveSecret(integration, "token"));
@@ -157,6 +233,29 @@ export class IntegrationManager implements IntegrationManagerPort {
 
   async send(integrationId: string, text: string, recipient?: string): Promise<EgressSendResult> {
     return this.deps.egress.send(integrationId, text, recipient);
+  }
+
+  async clearTelegramWebhook(integration: IntegrationRecord): Promise<void> {
+    if (integration.kind !== "telegram") throw new Error("integration is not a Telegram channel");
+    const token = this.resolveSecret(integration, "token");
+    if (!token) throw new Error("missing token");
+    const transport = this.deps.createTelegramTransport?.(token) ?? new GrammyTransport(token, this.deps.logger);
+    await transport.clearWebhook();
+    this.deps.store.integrations.updateStatus(integration.id, "disconnected", "webhook cleared; reconnect to start polling");
+  }
+
+  private assertTelegramTokenUnique(integration: IntegrationRecord, token: string): void {
+    const fingerprint = createHash("sha256").update(token).digest("hex");
+    for (const other of this.deps.store.integrations.listAll()) {
+      if (other.id === integration.id || other.kind !== "telegram") continue;
+      // Only a bot that is actually running can conflict with another poller.
+      if (!this.managed.has(other.id)) continue;
+      const otherToken = this.resolveSecret(other, "token");
+      if (!otherToken) continue;
+      if (createHash("sha256").update(otherToken).digest("hex") !== fingerprint) continue;
+      const owner = other.projectSlug ? `${other.projectSlug}/${other.slug}` : `global/${other.slug}`;
+      throw new Error(`telegram bot token already used by ${owner}`);
+    }
   }
 
   private resolveSecret(integration: IntegrationRecord, field: string): string | undefined {

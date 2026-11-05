@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createApplication, type Application } from "../src/app.ts";
+import type { TelegramTransport } from "../src/infrastructure/in/channels/telegram-adapter.ts";
 import type { Logger, LogBindings } from "../src/domain/telemetry/index.ts";
 import type { WorkflowGraph } from "@platform/shared";
 
@@ -33,6 +34,24 @@ const testLogger: Logger = {
   },
 };
 
+function fakeTelegramTransport(): TelegramTransport {
+  return {
+    type: "telegram",
+    async verify() {
+      return { botId: "test-bot", username: "test_bot" };
+    },
+    async clearWebhook() {},
+    async start() {},
+    async send() {
+      return { providerMessageId: "fake-1" };
+    },
+    async stop() {},
+    status() {
+      return "connected";
+    },
+  };
+}
+
 async function json(path: string, init: RequestInit = {}, useCookie = true) {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (useCookie && cookie) headers.cookie = cookie;
@@ -43,10 +62,11 @@ beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "platform-http-"));
   application = await createApplication({
     dataDir: dir,
-    env: { ...process.env, OPENCODE_MODE: "fake", ORCHESTRATOR_MODEL: "opencode-go/fast" },
+    env: { ...process.env, OPENCODE_MODE: "fake", ORCHESTRATOR_MODEL: "opencode-go/fast", SENTRY_DSN: "" },
     serviceToken,
     globalServiceToken,
     logger: testLogger,
+    telegramTransportFactory: () => fakeTelegramTransport(),
   });
   app = application.app;
   const login = await app.request("/api/auth/login", {
@@ -110,6 +130,71 @@ describe("application HTTP surface", () => {
     expect(workflow.status).toBe(200);
     const graph = (await workflow.json()) as WorkflowGraph;
     expect(graph.nodes[0]?.type).toBe("trigger");
+  });
+
+  it("manages project destinations and keeps them scoped", async () => {
+    const project = await json("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ slug: "destinos-bot", name: "Destinos Bot" }),
+    });
+    expect(project.status).toBe(201);
+    const created = await json("/api/projects/destinos-bot/destinations", {
+      method: "POST",
+      body: JSON.stringify({ kind: "telegram_chat", label: "Admin", value: "123456" }),
+    });
+    expect(created.status).toBe(201);
+    const destination = (await created.json()) as { id: string };
+    const list = await json("/api/projects/destinos-bot/destinations");
+    expect(((await list.json()) as { data: unknown[] }).data).toHaveLength(1);
+    const updated = await json(`/api/projects/destinos-bot/destinations/${destination.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ label: "Supervisor" }),
+    });
+    expect(updated.status).toBe(200);
+    const forbidden = await json(`/api/projects/ventas-bot/destinations/${destination.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ label: "Nope" }),
+    });
+    expect(forbidden.status).toBe(403);
+    const removed = await json(`/api/projects/destinos-bot/destinations/${destination.id}`, { method: "DELETE" });
+    expect(removed.status).toBe(200);
+  });
+
+  it("exposes effective configuration with source and masked secrets", async () => {
+    await json("/api/projects/ventas-bot/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ defaultModel: "opencode-go/vision" }),
+    });
+    const response = await json("/api/config/effective?project=ventas-bot");
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      platform: Array<{ key: string; source: string; editable: boolean; masked?: string }>;
+      project: Array<{ key: string; source: string; value: unknown }>;
+    };
+    expect(body.platform.find((item) => item.key === "orchestratorModel")?.source).toBe("environment");
+    expect(body.platform.find((item) => item.key === "opencodeMode")?.editable).toBe(false);
+    expect(body.project.find((item) => item.key === "defaultModel")?.source).toBe("project");
+    expect(body.project.find((item) => item.key === "defaultModel")?.value).toBe("opencode-go/vision");
+  });
+
+  it("persists a UI Sentry DSN and exposes it masked", async () => {
+    const saved = await json("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ sentryDsn: "https://public@example.com/1" }),
+    });
+    expect(saved.status).toBe(200);
+    const effective = await json("/api/config/effective");
+    const body = (await effective.json()) as { platform: Array<{ key: string; source: string; masked?: string; value: unknown }> };
+    const sentry = body.platform.find((item) => item.key === "sentryDsn");
+    expect(sentry?.source).toBe("platform");
+    expect(sentry?.masked).toContain("…");
+    expect(JSON.stringify(sentry)).not.toContain("public@example.com");
+
+    const invalid = await json("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify({ sentryDsn: "not-a-url" }),
+    });
+    expect(invalid.status).toBe(422);
   });
 
   it("creates project-owned integrations and keeps them scoped", async () => {
@@ -813,5 +898,30 @@ describe("application HTTP surface", () => {
       true,
     );
     expect(history.data.some((message) => message.role === "agent" && message.content.trim() === "")).toBe(false);
+  });
+
+  it("shows integration lastError in health", async () => {
+    const now = new Date().toISOString();
+    application.store.integrations.create({
+      id: "health-error",
+      scope: "project",
+      projectSlug: "ventas-bot",
+      kind: "telegram",
+      name: "Health Error",
+      slug: "health-error",
+      config: {},
+      secretRefs: {},
+      capabilities: ["inbound_message", "outbound_message"],
+      status: "error",
+      lastError: "invalid token",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const response = await json("/api/system/health");
+    const body = (await response.json()) as { services: Array<{ name: string; detail?: string }> };
+    expect(body.services.find((service) => service.name === "Integration Health Error")?.detail).toContain(
+      "invalid token",
+    );
+    application.store.integrations.remove("health-error");
   });
 });

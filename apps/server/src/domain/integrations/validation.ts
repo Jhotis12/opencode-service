@@ -1,7 +1,8 @@
 import {
   CreateIntegrationInputSchema,
-  defaultCapabilities,
-  parseIntegrationConfig,
+  findSecretLikeFields,
+  integrationConfigDefinition,
+  validateIntegrationConfig,
   type IntegrationCapability,
   type IntegrationKind,
   type IntegrationScope,
@@ -29,27 +30,7 @@ export function withDatabaseDefaults<T extends { kind: IntegrationKind; config: 
 }
 
 export function requiredSecretRefs(kind: IntegrationKind, config: Record<string, unknown>): string[] {
-  switch (kind) {
-    case "telegram":
-      return ["token"];
-    case "whatsapp":
-      return config.mode === "cloud" ? ["token"] : [];
-    case "external_chat":
-      return [];
-    case "email": {
-      const refs = ["smtpPassword"];
-      if (config.imap) refs.push("imapPassword");
-      return refs;
-    }
-    case "postgres":
-    case "mysql":
-    case "mssql":
-      return ["password"];
-    case "sqlite":
-    case "http":
-    case "transcription":
-      return [];
-  }
+  return integrationConfigDefinition(kind).requiredSecrets?.(config) ?? [];
 }
 
 export interface ValidatedIntegrationInput {
@@ -88,7 +69,8 @@ export function validateIntegrationInput(
     throw new IntegrationValidationError("VALIDATION_ERROR", "invalid integration slug");
   }
 
-  const config = parseIntegrationConfig(value.kind, value.config);
+  const definition = integrationConfigDefinition(value.kind);
+  const config = validateIntegrationConfig(value.kind, value.config);
   if (!config.success) {
     throw new IntegrationValidationError(
       "VALIDATION_ERROR",
@@ -96,6 +78,13 @@ export function validateIntegrationInput(
     );
   }
   const normalizedConfig = config.data as Record<string, unknown>;
+  const secretLike = findSecretLikeFields(normalizedConfig);
+  if (secretLike.length > 0) {
+    throw new IntegrationValidationError(
+      "VALIDATION_ERROR",
+      `secret-like fields must use the secret store, not config: ${secretLike.join(", ")}`,
+    );
+  }
   if (DATABASE_KINDS.has(value.kind) && normalizedConfig.access !== undefined) {
     if (normalizedConfig.access !== "read" && normalizedConfig.access !== "write") {
       throw new IntegrationValidationError("VALIDATION_ERROR", "database access must be read or write");
@@ -118,8 +107,8 @@ export function validateIntegrationInput(
     );
   }
 
-  const capabilities = value.capabilities ?? defaultCapabilities(value.kind);
-  const allowed = new Set(defaultCapabilities(value.kind));
+  const capabilities = value.capabilities ?? definition.capabilities;
+  const allowed = new Set(definition.capabilities);
   const invalid = capabilities.filter((capability) => !allowed.has(capability));
   if (invalid.length > 0) {
     throw new IntegrationValidationError(

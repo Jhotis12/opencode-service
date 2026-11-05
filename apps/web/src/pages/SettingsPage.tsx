@@ -8,12 +8,24 @@ import { ControlChannelsPanel } from "../components/ControlChannelsPanel.tsx";
 import { badge, button, buttonPrimary, card, pageTitle, statusBadge } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
 
-type ModalKey = "model" | "provider" | "vault" | "telemetry";
+type ModalKey = "model" | "orchestrator" | "provider" | "vault" | "telemetry";
+
+function sourceLabel(source: string): string {
+  if (source === "environment") return "entorno";
+  if (source === "platform") return "plataforma";
+  if (source === "project") return "proyecto";
+  if (source === "entity") return "entidad";
+  return "default";
+}
 
 export function SettingsPage() {
   useDocumentTitle("Ajustes");
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({ queryKey: qk.settings, queryFn: () => api.getSettings().then((result) => result.data) });
+  const effectiveQuery = useQuery({
+    queryKey: qk.effectiveConfig(),
+    queryFn: () => api.getEffectiveConfig(),
+  });
   const secretsQuery = useQuery({ queryKey: qk.secrets, queryFn: () => api.listSecrets().then((result) => result.data) });
   const modelsQuery = useQuery({
     queryKey: qk.models,
@@ -30,6 +42,7 @@ export function SettingsPage() {
   const [error, setError] = useState<string>();
   const [apiKey, setApiKey] = useState("");
   const [defaultModelDraft, setDefaultModelDraft] = useState("");
+  const [orchestratorModelDraft, setOrchestratorModelDraft] = useState("");
   const [secretAlias, setSecretAlias] = useState("");
   const [secretValue, setSecretValue] = useState("");
   const [sentryDsn, setSentryDsn] = useState("");
@@ -37,6 +50,10 @@ export function SettingsPage() {
   useEffect(() => {
     if (settings?.defaultModel) setDefaultModelDraft(settings.defaultModel);
   }, [settings?.defaultModel]);
+
+  useEffect(() => {
+    if (settings?.orchestratorModel) setOrchestratorModelDraft(settings.orchestratorModel);
+  }, [settings?.orchestratorModel]);
 
   const connectProvider = useMutation({
     mutationFn: () => api.connectProvider(apiKey),
@@ -57,8 +74,24 @@ export function SettingsPage() {
       setStatus(defaultModelDraft ? `Modelo por defecto: ${defaultModelDraft}` : "Modelo por defecto eliminado");
       setModal(undefined);
       await queryClient.invalidateQueries({ queryKey: qk.settings });
+      await queryClient.invalidateQueries({ queryKey: qk.effectiveConfig() });
     },
     onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo guardar el modelo"),
+  });
+
+  const saveOrchestratorModel = useMutation({
+    mutationFn: () => api.saveSettings({ orchestratorModel: orchestratorModelDraft || null }),
+    onSuccess: async () => {
+      setStatus(
+        orchestratorModelDraft
+          ? `Modelo del orquestador: ${orchestratorModelDraft}`
+          : "Modelo del orquestador eliminado; usará el modelo por defecto",
+      );
+      setModal(undefined);
+      await queryClient.invalidateQueries({ queryKey: qk.settings });
+      await queryClient.invalidateQueries({ queryKey: qk.effectiveConfig() });
+    },
+    onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo guardar el modelo del orquestador"),
   });
 
   const saveSecret = useMutation({
@@ -78,6 +111,7 @@ export function SettingsPage() {
       setSentryDsn("");
       setStatus("DSN guardado. Reinicia para activar Sentry.");
       await queryClient.invalidateQueries({ queryKey: qk.settings });
+      await queryClient.invalidateQueries({ queryKey: qk.effectiveConfig() });
     },
     onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo guardar el DSN"),
   });
@@ -141,6 +175,19 @@ export function SettingsPage() {
         </article>
 
         <article className={card}>
+          <h2 className="text-base font-semibold text-slate-100">Modelo del orquestador</h2>
+          <p className="text-xs text-muted">Se usa en el plano de control global; si está vacío hereda el modelo por defecto.</p>
+          <div className="flex items-center justify-between gap-2">
+            <code className="block min-w-0 flex-1 truncate" title={settings?.orchestratorModel ?? "heredado"}>
+              {settings?.orchestratorModel ?? "heredado del modelo por defecto"}
+            </code>
+            <button className={`${button} shrink-0`} onClick={() => setModal("orchestrator")}>
+              Elegir modelo
+            </button>
+          </div>
+        </article>
+
+        <article className={card}>
           <h2 className="text-base font-semibold text-slate-100">OpenCode Go</h2>
           <p className="text-xs text-muted">Conecta la API key del proveedor y revisa los modelos disponibles.</p>
           <div className="flex items-center justify-between gap-2">
@@ -194,6 +241,30 @@ export function SettingsPage() {
         <ControlChannelsPanel />
       </section>
 
+      <section className={card}>
+        <h2 className="text-base font-semibold text-slate-100">Configuración efectiva</h2>
+        <p className="text-xs text-muted">
+          Valores resueltos por precedencia entidad → proyecto → plataforma → entorno → default. Los secretos se muestran
+          enmascarados y los campos de solo lectura no se pueden editar desde la UI.
+        </p>
+        <ul className="flex flex-col gap-2">
+          {effectiveQuery.data?.platform.map((item) => (
+            <li key={item.key} className="flex flex-wrap items-center gap-2 border-b border-line/50 pb-2 last:border-0">
+              <strong className="text-sm text-slate-200">{item.label}</strong>
+              <code className="break-all text-xs">{item.secret ? item.masked ?? "configurado" : String(item.value ?? "sin definir")}</code>
+              <span className={badge}>{sourceLabel(item.source)}</span>
+              {!item.editable && <span className="text-[11px] text-muted">solo lectura</span>}
+              {item.restartRequired && <span className="text-[11px] text-warn">requiere reinicio</span>}
+            </li>
+          ))}
+        </ul>
+        {effectiveQuery.error && (
+          <p className="text-sm text-danger">
+            {effectiveQuery.error instanceof Error ? effectiveQuery.error.message : "No se pudo cargar la configuración efectiva"}
+          </p>
+        )}
+      </section>
+
       {settings && (
         <p className="text-xs text-muted">
           Datos persistentes: <code>{settings.dataDir}</code>
@@ -219,6 +290,32 @@ export function SettingsPage() {
           </label>
           <button className={buttonPrimary} disabled={saveDefaultModel.isPending} onClick={() => saveDefaultModel.mutate()}>
             Guardar modelo
+          </button>
+        </Modal>
+      )}
+
+      {modal === "orchestrator" && (
+        <Modal title="Modelo del orquestador" onClose={() => setModal(undefined)} size="sm">
+          <p className="text-xs text-muted">Se usa en el plano de control global; si está vacío hereda el modelo por defecto.</p>
+          <label>
+            Modelo
+            <select
+              value={orchestratorModelDraft}
+              onChange={(event) => setOrchestratorModelDraft(event.target.value)}
+            >
+              <option value="">Heredar el modelo por defecto</option>
+              {models.map((model) => {
+                const value = `${model.providerID}/${model.modelID}`;
+                return (
+                  <option key={value} value={value}>
+                    {model.name} · {value}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+          <button className={buttonPrimary} disabled={saveOrchestratorModel.isPending} onClick={() => saveOrchestratorModel.mutate()}>
+            Guardar modelo del orquestador
           </button>
         </Modal>
       )}

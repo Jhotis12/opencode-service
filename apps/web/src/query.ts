@@ -22,6 +22,7 @@ export const qk = {
   chat: (slug: string) => ["chat", slug] as const,
   projectSettings: (slug: string) => ["project-settings", slug] as const,
   integrations: (slug: string) => ["integrations", slug] as const,
+  destinations: (slug: string) => ["destinations", slug] as const,
   notebooks: (slug: string) => ["notebooks", slug] as const,
   sources: (slug: string, notebookSlug: string) => ["sources", slug, notebookSlug] as const,
   secrets: ["secrets"] as const,
@@ -30,5 +31,6 @@ export const qk = {
   controlOverview: ["control-overview"] as const,
   controlChat: ["control-chat"] as const,
   settings: ["settings"] as const,
+  effectiveConfig: (project?: string) => ["effective-config", project ?? "platform"] as const,
   health: ["health"] as const,
 };

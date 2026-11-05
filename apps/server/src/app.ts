@@ -8,6 +8,7 @@ import {
   apiError,
   evaluateToolPermission,
   type AgentExecutionContext,
+  type EffectiveSetting,
   type WorkflowGraph,
 } from "@platform/shared";
 import type { IntegrationRecord, UserRecord } from "./domain/entities.ts";
@@ -61,6 +62,7 @@ import {
 import { IntegrationEgressRouter } from "./infrastructure/in/channels/egress-router.ts";
 import { createExternalChatRoutes } from "./infrastructure/in/http/external-chat-routes.ts";
 import { IntegrationManager } from "./infrastructure/in/channels/channel-manager.ts";
+import type { TelegramTransport } from "./infrastructure/in/channels/telegram-adapter.ts";
 import { WorkspaceError } from "./infrastructure/out/workspace-fs/safe-workspace.ts";
 import { FsMediaStore } from "./infrastructure/out/media/fs-media-store.ts";
 import { OpenAiCompatibleTranscriptionService } from "./infrastructure/out/transcription/openai-compatible-transcription-service.ts";
@@ -74,6 +76,7 @@ import { WorkflowInputValidationError } from "./domain/workflow/input.ts";
 import { ManageIntegrationsUseCase, type IntegrationCommand, type IntegrationUpdateCommand } from "./application/use-cases/manage-integrations.ts";
 import { IntegrationValidationError } from "./domain/integrations/validation.ts";
 import { GetProjectSettingsUseCase, UpdateProjectSettingsUseCase } from "./application/use-cases/project-settings.ts";
+import { DestinationError, ManageDestinationsUseCase } from "./application/use-cases/destinations.ts";
 import { ChatWithOrchestratorUseCase, resolveOrchestratorModel } from "./application/use-cases/orchestrator.ts";
 import { ChatTurnService, TurnInProgressError } from "./application/use-cases/chat-turns.ts";
 import { assertChatTimeoutsCoverOpenCode, resolveChatTurnPolicy } from "./application/use-cases/chat-turn-policy.ts";
@@ -92,6 +95,7 @@ export interface AppConfig {
   secureCookies?: boolean;
   env?: Record<string, string | undefined>;
   logger?: Logger;
+  telegramTransportFactory?: (token: string) => TelegramTransport;
 }
 
 export interface Application {
@@ -134,10 +138,24 @@ function resolveProjectRouteTool(method: string, path: string): string | undefin
   return undefined;
 }
 
+function maskSecret(value: string): string {
+  if (value.length <= 8) return "••••";
+  return `${value.slice(0, 4)}…${value.slice(-4)}`;
+}
+
 function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function destinationError(c: { json(body: unknown, status?: number): Response }, error: unknown): Response {
+  if (error instanceof DestinationError) {
+    const status =
+      error.code === "FORBIDDEN" ? 403 : error.code === "NOT_FOUND" ? 404 : error.code === "CONFLICT" ? 409 : 422;
+    return c.json(apiError(error.code, error.message), status);
+  }
+  throw error;
 }
 
 function integrationError(c: { json(body: unknown, status?: number): Response }, error: unknown): Response {
@@ -204,8 +222,11 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const worker = new BunWorkerPoolAdapter();
   const events = new SseHub();
   const metrics = new InMemoryMetrics();
-  const errorTracker = config.sentryDsn
-    ? new SentryErrorTracker(config.sentryDsn, env.SENTRY_ENVIRONMENT ?? "production")
+  const sentrySecret = store.vault.findByAlias({ scope: "global", alias: "setting:sentry_dsn" });
+  const sentryDsn =
+    config.sentryDsn || env.SENTRY_DSN || (sentrySecret ? vault.decrypt(sentrySecret.ciphertext) : undefined);
+  const errorTracker = sentryDsn
+    ? new SentryErrorTracker(sentryDsn, env.SENTRY_ENVIRONMENT ?? "production")
     : new NoopErrorTracker();
   const chatTurnPolicy = resolveChatTurnPolicy(env);
   const chatTurns = new ChatTurnService({
@@ -229,7 +250,10 @@ export async function createApplication(config: AppConfig): Promise<Application>
     });
   }
   const useTurnEngine = (env.CHAT_TURN_ENGINE ?? "v2").toLowerCase() !== "legacy";
-  const codec = new SessionCodec(masterKey.toString("base64"));
+  const sessionTtlHours = Number(env.SESSION_TTL_HOURS ?? 168);
+  const sessionTtlSeconds =
+    Number.isFinite(sessionTtlHours) && sessionTtlHours > 0 ? sessionTtlHours * 3600 : 7 * 24 * 60 * 60;
+  const codec = new SessionCodec(masterKey.toString("base64"), sessionTtlSeconds);
   const egress = new IntegrationEgressRouter();
   const externalDb = new DynamicDatabaseClientAdapter();
   const transcription = new OpenAiCompatibleTranscriptionService({ store, vault, fetchImpl: fetch });
@@ -325,10 +349,12 @@ export async function createApplication(config: AppConfig): Promise<Application>
     egress,
     events,
     logger,
+    errorTracker,
     projectRouter,
     globalRouter,
     dataDir: config.dataDir,
     fetchImpl: fetch,
+    createTelegramTransport: config.telegramTransportFactory,
   });
   const integrations = new ManageIntegrationsUseCase({
     store,
@@ -338,6 +364,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     databaseAdapter: externalDb,
     transcription,
   });
+  const destinations = new ManageDestinationsUseCase({ store, workspace });
 
   const createProject = new CreateProjectUseCase(store, workspace, events);
   const deleteProject = new DeleteProjectUseCase(store, workspace, events);
@@ -367,7 +394,11 @@ export async function createApplication(config: AppConfig): Promise<Application>
     controlDirectory,
     orchestratorAgent: "orchestrator/agente",
     timeoutMs: Number(env.AGENT_TURN_MAX_MS ?? env.AGENT_CHAT_TIMEOUT_MS ?? 1_800_000),
-    model: () => resolveOrchestratorModel(env.ORCHESTRATOR_MODEL, store.settings.get("default_model")),
+    model: () =>
+      resolveOrchestratorModel(
+        store.settings.get("orchestrator_model") || env.ORCHESTRATOR_MODEL,
+        store.settings.get("default_model"),
+      ),
     logger,
   });
   const agents = new ManageSubagentsUseCase(workspace, new MarkdownAgentAdapter(workspace), agent, events);
@@ -654,7 +685,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
       return c.json(apiError("UNAUTHORIZED", "invalid webhook secret or signature"), 401);
     }
     try {
-      await validateWorkflowResources(store, workspace, projectSlug, graph);
+      await validateWorkflowResources(store, workspace, projectSlug, graph, { requireConnected: true });
       const run = await executor.start({
         projectSlug,
         graph,
@@ -722,8 +753,15 @@ export async function createApplication(config: AppConfig): Promise<Application>
     }
   });
   app.post("/api/projects/:slug/integrations/:id/test", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { recipient?: string };
     try {
-      return c.json(await integrations.test(c.req.param("id"), { scope: "project", projectSlug: c.req.param("slug") }));
+      return c.json(
+        await integrations.test(
+          c.req.param("id"),
+          { scope: "project", projectSlug: c.req.param("slug") },
+          { recipient: body.recipient },
+        ),
+      );
     } catch (error) {
       return integrationError(c, error);
     }
@@ -746,6 +784,49 @@ export async function createApplication(config: AppConfig): Promise<Application>
   app.get("/api/projects/:slug/integrations/:id/qr", (c) => {
     const qr = integrationManager.qr(c.req.param("id"));
     return qr ? c.json({ qr }) : c.json(apiError("NOT_FOUND", "no QR available"), 404);
+  });
+  app.post("/api/projects/:slug/integrations/:id/telegram/clear-webhook", async (c) => {
+    try {
+      await integrations.clearTelegramWebhook(c.req.param("id"), {
+        scope: "project",
+        projectSlug: c.req.param("slug"),
+      });
+      return c.json({ ok: true });
+    } catch (error) {
+      return integrationError(c, error);
+    }
+  });
+
+  // Project destinations
+  app.get("/api/projects/:slug/destinations", (c) => {
+    try {
+      return c.json({ data: destinations.list(c.req.param("slug")) });
+    } catch (error) {
+      return destinationError(c, error);
+    }
+  });
+  app.post("/api/projects/:slug/destinations", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      return c.json(destinations.create(c.req.param("slug"), body), 201);
+    } catch (error) {
+      return destinationError(c, error);
+    }
+  });
+  app.patch("/api/projects/:slug/destinations/:id", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    try {
+      return c.json(destinations.update(c.req.param("slug"), c.req.param("id"), body));
+    } catch (error) {
+      return destinationError(c, error);
+    }
+  });
+  app.delete("/api/projects/:slug/destinations/:id", async (c) => {
+    try {
+      return c.json({ ok: await destinations.remove(c.req.param("slug"), c.req.param("id")) });
+    } catch (error) {
+      return destinationError(c, error);
+    }
   });
 
   // Global control integrations and orchestrator
@@ -781,8 +862,9 @@ export async function createApplication(config: AppConfig): Promise<Application>
     }
   });
   app.post("/api/control/integrations/:id/test", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { recipient?: string };
     try {
-      return c.json(await integrations.test(c.req.param("id"), { scope: "global" }));
+      return c.json(await integrations.test(c.req.param("id"), { scope: "global" }, { recipient: body.recipient }));
     } catch (error) {
       return integrationError(c, error);
     }
@@ -805,6 +887,14 @@ export async function createApplication(config: AppConfig): Promise<Application>
   app.get("/api/control/integrations/:id/qr", (c) => {
     const qr = integrationManager.qr(c.req.param("id"));
     return qr ? c.json({ qr }) : c.json(apiError("NOT_FOUND", "no QR available"), 404);
+  });
+  app.post("/api/control/integrations/:id/telegram/clear-webhook", async (c) => {
+    try {
+      await integrations.clearTelegramWebhook(c.req.param("id"), { scope: "global" });
+      return c.json({ ok: true });
+    } catch (error) {
+      return integrationError(c, error);
+    }
   });
 
   app.get("/api/control/overview", (c) => c.json(orchestrator.overview()));
@@ -1096,7 +1186,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     const body = (await c.req.json().catch(() => ({}))) as { payload?: unknown; idempotencyKey?: string };
     try {
       const graph = await workspace.readWorkflow(c.req.param("slug"));
-      await validateWorkflowResources(store, workspace, c.req.param("slug"), graph);
+      await validateWorkflowResources(store, workspace, c.req.param("slug"), graph, { requireConnected: true });
       const run = await executor.start({
         projectSlug: c.req.param("slug"),
         graph,
@@ -1544,6 +1634,137 @@ export async function createApplication(config: AppConfig): Promise<Application>
     return c.json({ data: store.errors.recent(limit) });
   });
 
+  app.get("/api/config/effective", (c) => {
+    const defaultModel = store.settings.get("default_model");
+    const orchestratorDb = store.settings.get("orchestrator_model");
+    const orchestratorEnv = env.ORCHESTRATOR_MODEL;
+    const sentryEnv = config.sentryDsn || env.SENTRY_DSN;
+    const sentrySecret = store.vault.findByAlias({ scope: "global", alias: "setting:sentry_dsn" });
+    const sentryValue = sentryEnv || (sentrySecret ? vault.decrypt(sentrySecret.ciphertext) : undefined);
+    const platform: EffectiveSetting[] = [
+      {
+        key: "defaultModel",
+        label: "Modelo por defecto",
+        value: defaultModel || null,
+        source: defaultModel ? "platform" : "default",
+        secret: false,
+        editable: true,
+        restartRequired: false,
+      },
+      {
+        key: "orchestratorModel",
+        label: "Modelo del orquestador",
+        value: orchestratorDb || orchestratorEnv || null,
+        source: orchestratorDb ? "platform" : orchestratorEnv ? "environment" : "default",
+        secret: false,
+        editable: true,
+        restartRequired: false,
+      },
+      {
+        key: "sentryDsn",
+        label: "Sentry DSN",
+        value: sentryValue ? "configured" : null,
+        source: sentryEnv ? "environment" : sentrySecret ? "platform" : "default",
+        secret: true,
+        masked: sentryValue ? maskSecret(sentryValue) : undefined,
+        editable: true,
+        restartRequired: true,
+      },
+      {
+        key: "opencodeMode",
+        label: "Modo OpenCode",
+        value: env.OPENCODE_MODE ?? "auto",
+        source: "environment",
+        secret: false,
+        editable: false,
+        restartRequired: false,
+      },
+      {
+        key: "sessionTtlHours",
+        label: "TTL de sesión (horas)",
+        value: Number(env.SESSION_TTL_HOURS ?? 168),
+        source: env.SESSION_TTL_HOURS ? "environment" : "default",
+        secret: false,
+        editable: false,
+        restartRequired: false,
+      },
+      {
+        key: "agentTurnMaxMs",
+        label: "Máximo de turno (ms)",
+        value: Number(env.AGENT_TURN_MAX_MS ?? 1_800_000),
+        source: env.AGENT_TURN_MAX_MS ? "environment" : "default",
+        secret: false,
+        editable: false,
+        restartRequired: false,
+      },
+      {
+        key: "agentTurnIdleMs",
+        label: "Inactividad máxima del turno (ms)",
+        value: Number(env.AGENT_TURN_IDLE_MS ?? 600_000),
+        source: env.AGENT_TURN_IDLE_MS ? "environment" : "default",
+        secret: false,
+        editable: false,
+        restartRequired: false,
+      },
+    ];
+
+    const projectSlug = c.req.query("project");
+    let project: EffectiveSetting[] | undefined;
+    if (projectSlug) {
+      const record = store.projects.findBySlug(projectSlug);
+      if (!record) return c.json(apiError("NOT_FOUND", "project not found"), 404);
+      project = [
+        {
+          key: "defaultModel",
+          label: "Modelo del proyecto",
+          value: record.defaultModel || defaultModel || null,
+          source: record.defaultModel ? "project" : defaultModel ? "platform" : "default",
+          secret: false,
+          editable: true,
+          restartRequired: false,
+        },
+        {
+          key: "primaryAgent",
+          label: "Agente principal",
+          value: record.primaryAgent || null,
+          source: record.primaryAgent ? "project" : "default",
+          secret: false,
+          editable: true,
+          restartRequired: false,
+        },
+        {
+          key: "approvalIntegrationId",
+          label: "Canal de aprobación",
+          value: record.approvalIntegrationId || null,
+          source: record.approvalIntegrationId ? "project" : "default",
+          secret: false,
+          editable: true,
+          restartRequired: false,
+        },
+        {
+          key: "approvalRecipient",
+          label: "Destinatario de aprobación",
+          value: record.approvalRecipient || null,
+          source: record.approvalRecipient ? "project" : "default",
+          secret: false,
+          editable: true,
+          restartRequired: false,
+        },
+        {
+          key: "transcriptionIntegrationId",
+          label: "Conexión de transcripción",
+          value: record.transcriptionIntegrationId || null,
+          source: record.transcriptionIntegrationId ? "project" : "default",
+          secret: false,
+          editable: true,
+          restartRequired: false,
+        },
+      ];
+    }
+
+    return c.json({ platform, project });
+  });
+
   app.get("/api/settings", (c) =>
     c.json({
       data: {
@@ -1551,6 +1772,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
         sentryConfigured: Boolean(store.vault.findByAlias({ scope: "global", alias: "setting:sentry_dsn" }) || config.sentryDsn),
         providerConnected: Boolean(store.vault.findByAlias({ scope: "global", alias: "provider:opencode-go" })),
         defaultModel: store.settings.get("default_model") || undefined,
+        orchestratorModel: store.settings.get("orchestrator_model") || env.ORCHESTRATOR_MODEL || undefined,
         dataDir: config.dataDir,
       },
     }),
@@ -1559,8 +1781,15 @@ export async function createApplication(config: AppConfig): Promise<Application>
     const body = (await c.req.json().catch(() => ({}))) as {
       sentryDsn?: string;
       defaultModel?: string | null;
+      orchestratorModel?: string | null;
     };
+    const modelPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]*\/[a-zA-Z0-9][a-zA-Z0-9._-]*(#[a-zA-Z0-9._-]+)?$/;
     if (body.sentryDsn) {
+      try {
+        new URL(body.sentryDsn);
+      } catch {
+        return c.json(apiError("VALIDATION_ERROR", "sentryDsn must be a valid URL"), 422);
+      }
       store.vault.upsert({
         id: crypto.randomUUID(),
         scope: "global",
@@ -1574,10 +1803,20 @@ export async function createApplication(config: AppConfig): Promise<Application>
       if (body.defaultModel === null || body.defaultModel.trim() === "") {
         store.settings.set("default_model", "");
       } else {
-        if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*\/[a-zA-Z0-9][a-zA-Z0-9._-]*(#[a-zA-Z0-9._-]+)?$/.test(body.defaultModel)) {
+        if (!modelPattern.test(body.defaultModel)) {
           return c.json(apiError("VALIDATION_ERROR", "defaultModel must use provider/model#variant format"), 422);
         }
         store.settings.set("default_model", body.defaultModel);
+      }
+    }
+    if (body.orchestratorModel !== undefined) {
+      if (body.orchestratorModel === null || body.orchestratorModel.trim() === "") {
+        store.settings.set("orchestrator_model", "");
+      } else {
+        if (!modelPattern.test(body.orchestratorModel)) {
+          return c.json(apiError("VALIDATION_ERROR", "orchestratorModel must use provider/model#variant format"), 422);
+        }
+        store.settings.set("orchestrator_model", body.orchestratorModel);
       }
     }
     return c.json({ ok: true, requiresRestart: Boolean(body.sentryDsn) });

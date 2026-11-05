@@ -4,10 +4,12 @@ import type {
   ChatTurn,
   ChatTurnEvent,
   ChatTurnStatus,
+  EffectiveConfig,
   HealthSnapshot,
   IntegrationRecord,
   NodeSpec,
   PermissionRule,
+  ProjectDestination,
   ProjectTemplate,
   SubagentProfile,
   User,
@@ -476,15 +478,33 @@ export const api = {
     }),
   deleteIntegration: (slug: string, id: string) =>
     request<{ ok: boolean }>(`/api/projects/${slug}/integrations/${id}`, { method: "DELETE" }),
-  testIntegration: (slug: string, id: string) =>
+  testIntegration: (slug: string, id: string, recipient?: string) =>
     request<{ ok: boolean; detail?: string; latencyMs?: number; models?: string[] }>(`/api/projects/${slug}/integrations/${id}/test`, {
       method: "POST",
+      body: JSON.stringify({ recipient }),
     }),
   connectIntegration: (slug: string, id: string) =>
     request<IntegrationRecord>(`/api/projects/${slug}/integrations/${id}/connect`, { method: "POST" }),
   disconnectIntegration: (slug: string, id: string) =>
     request<{ ok: boolean }>(`/api/projects/${slug}/integrations/${id}/disconnect`, { method: "POST" }),
+  clearIntegrationWebhook: (slug: string, id: string) =>
+    request<{ ok: boolean }>(`/api/projects/${slug}/integrations/${id}/telegram/clear-webhook`, { method: "POST" }),
   integrationQr: (slug: string, id: string) => request<{ qr: string }>(`/api/projects/${slug}/integrations/${id}/qr`),
+  listDestinations: (slug: string) =>
+    request<{ data: ProjectDestination[] }>(`/api/projects/${slug}/destinations`),
+  createDestination: (slug: string, input: { kind: ProjectDestination["kind"]; label: string; value: string }) =>
+    request<ProjectDestination>(`/api/projects/${slug}/destinations`, { method: "POST", body: JSON.stringify(input) }),
+  updateDestination: (
+    slug: string,
+    id: string,
+    input: Partial<Pick<ProjectDestination, "kind" | "label" | "value">>,
+  ) =>
+    request<ProjectDestination>(`/api/projects/${slug}/destinations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteDestination: (slug: string, id: string) =>
+    request<{ ok: boolean }>(`/api/projects/${slug}/destinations/${id}`, { method: "DELETE" }),
 
   listProjectSecrets: (slug: string) =>
     request<{ data: Array<{ alias: string; kind: string; metadata?: string; createdAt: string }> }>(
@@ -556,12 +576,17 @@ export const api = {
     request<IntegrationRecord>(`/api/control/integrations/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
   deleteControlIntegration: (id: string) =>
     request<{ ok: boolean }>(`/api/control/integrations/${id}`, { method: "DELETE" }),
-  testControlIntegration: (id: string) =>
-    request<{ ok: boolean; detail?: string; latencyMs?: number }>(`/api/control/integrations/${id}/test`, { method: "POST" }),
+  testControlIntegration: (id: string, recipient?: string) =>
+    request<{ ok: boolean; detail?: string; latencyMs?: number }>(`/api/control/integrations/${id}/test`, {
+      method: "POST",
+      body: JSON.stringify({ recipient }),
+    }),
   connectControlIntegration: (id: string) =>
     request<IntegrationRecord>(`/api/control/integrations/${id}/connect`, { method: "POST" }),
   disconnectControlIntegration: (id: string) =>
     request<{ ok: boolean }>(`/api/control/integrations/${id}/disconnect`, { method: "POST" }),
+  clearControlIntegrationWebhook: (id: string) =>
+    request<{ ok: boolean }>(`/api/control/integrations/${id}/telegram/clear-webhook`, { method: "POST" }),
   controlIntegrationQr: (id: string) => request<{ qr: string }>(`/api/control/integrations/${id}/qr`),
   controlOverview: () => request<OrchestratorOverview>("/api/control/overview"),
   controlChat: (message: string, onEvent?: (event: ChatTurnEvent) => void, clientMessageId?: string) =>
@@ -588,11 +613,14 @@ export const api = {
         sentryConfigured: boolean;
         providerConnected: boolean;
         defaultModel?: string;
+        orchestratorModel?: string;
         dataDir: string;
       };
     }>("/api/settings"),
-  saveSettings: (input: { sentryDsn?: string; defaultModel?: string | null }) =>
+  saveSettings: (input: { sentryDsn?: string; defaultModel?: string | null; orchestratorModel?: string | null }) =>
     request<{ ok: boolean; requiresRestart: boolean }>("/api/settings", { method: "PUT", body: JSON.stringify(input) }),
+  getEffectiveConfig: (project?: string) =>
+    request<EffectiveConfig>(`/api/config/effective${project ? `?project=${encodeURIComponent(project)}` : ""}`),
 
   health: () => request<HealthPayload>("/api/system/health"),
   errors: () => request<{ data: HealthPayload["recentErrors"] }>("/api/system/errors"),

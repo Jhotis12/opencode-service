@@ -35,11 +35,11 @@
 
 ## 5. Editor compartido de integraciones
 
-- [ ] 5.1 Crear `IntegrationEditor` con secciones de conexión, comportamiento, alertas y avanzado, renderizando los campos del registro; verificar con un test de componente que los campos guiados aparecen y que el JSON avanzado es opcional.
-- [ ] 5.2 Implementar crear/editar con el mismo formulario y rotación de token que solo envía el secreto cuando cambia; verificar con un test que un guardado sin token conserva el `secretRef` y el `integrationId`.
-- [ ] 5.3 Mostrar estado, `lastError`, resultado de prueba y resultado de conexión en la tarjeta de la integración; verificar con tests de componente para `connected`, `needs_config` y `error`.
-- [ ] 5.4 Reemplazar los formularios de `ProjectResourcesPanel` y `ControlChannelsPanel` por wrappers del editor compartido; verificar que ambas superficies usan el mismo componente y que no quedan defaults duplicados.
-- [ ] 5.5 Agregar tests de componente para crear, editar, rotar token y mostrar error; verificar con `bun test apps/web/test/integration-editor.test.tsx`.
+- [x] 5.1 Crear `IntegrationEditor` con secciones de conexión, comportamiento, alertas y avanzado, renderizando los campos del registro; verificar con un test de componente que los campos guiados aparecen y que el JSON avanzado es opcional.
+- [x] 5.2 Implementar crear/editar con el mismo formulario y rotación de token que solo envía el secreto cuando cambia; verificar con un test que un guardado sin token conserva el `secretRef` y el `integrationId`.
+- [x] 5.3 Mostrar estado, `lastError`, resultado de prueba y resultado de conexión en la tarjeta de la integración; verificar con tests de componente para `connected`, `needs_config` y `error`.
+- [x] 5.4 Reemplazar los formularios de `ProjectResourcesPanel` y `ControlChannelsPanel` por wrappers del editor compartido; verificar que ambas superficies usan el mismo componente y que no quedan defaults duplicados.
+- [x] 5.5 Agregar tests de componente para crear, editar, rotar token y mostrar error; verificar con `bun test apps/web/test/integration-editor.test.tsx`.
 
 ## 6. Superficie única de configuración y destinos UI
 

@@ -17,6 +17,8 @@ const apiMock = vi.hoisted(() => ({
   connectIntegration: vi.fn(),
   disconnectIntegration: vi.fn(),
   deleteIntegration: vi.fn(),
+  clearIntegrationWebhook: vi.fn(),
+  listDestinations: vi.fn().mockResolvedValue({ data: [] }),
   saveProjectSecret: vi.fn(),
   deleteProjectSecret: vi.fn(),
 }));

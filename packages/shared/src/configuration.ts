@@ -84,6 +84,19 @@ export interface NodeConfigDefinition extends ConfigDefinition {
   category: string;
 }
 
+export const INTEGRATION_KIND_LABELS: Record<IntegrationKind, string> = {
+  telegram: "Telegram",
+  whatsapp: "WhatsApp",
+  external_chat: "Chat externo / API",
+  email: "Email (contrato futuro)",
+  postgres: "PostgreSQL",
+  mysql: "MySQL",
+  mssql: "SQL Server",
+  sqlite: "SQLite",
+  http: "HTTP API",
+  transcription: "Transcripción (ASR)",
+};
+
 export const CHANNEL_EVENTS: Record<IntegrationKind, string[]> = {
   telegram: ["message.received"],
   whatsapp: ["message.received"],
@@ -385,13 +398,14 @@ export const INTEGRATION_CONFIG_REGISTRY: Record<IntegrationKind, IntegrationCon
       language: "es",
     },
     fields: [
-      { key: "baseUrl", label: "URL base del ASR", type: "url", group: "Conexión", required: true },
+      { key: "baseUrl", label: "URL base del proveedor", type: "url", group: "Conexión", required: true },
+      { key: "apiKey", label: "API key del ASR", type: "password", group: "Conexión", secret: true },
       { key: "model", label: "Modelo por defecto", type: "text", group: "Transcripción", required: true },
       { key: "language", label: "Idioma", type: "text", group: "Transcripción", placeholder: "es" },
       { key: "models", label: "Modelos disponibles", type: "json", group: "Transcripción" },
     ],
     capabilities: defaultCapabilities("transcription"),
-    secretFields: [],
+    secretFields: ["apiKey"],
     events: [],
     requiredSecrets: () => [],
   },

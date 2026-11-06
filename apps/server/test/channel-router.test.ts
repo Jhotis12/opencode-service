@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteStore } from "../src/infrastructure/out/persistence/sqlite-store.ts";
@@ -185,6 +185,7 @@ async function setup(
     voiceReplies?: "auto" | "never";
     metrics?: Metrics;
     logger?: Logger;
+    workflowOutput?: unknown;
   } = {},
 ) {
   const dir = await mkdtemp(join(tmpdir(), "platform-channels-"));
@@ -262,7 +263,7 @@ async function setup(
   const executor = {
     execute: async (input: unknown) => {
       executed.push(input);
-      return { id: "run-12345678", status: "succeeded", output: "resultado-flujo" };
+      return { id: "run-12345678", status: "succeeded", output: options.workflowOutput ?? "resultado-flujo" };
     },
     resumeWithApproval: async (runId: string, nodeId: string, approved: boolean, by: string) => {
       approvals.push({ runId, nodeId, approved, by });
@@ -644,6 +645,52 @@ describe("route incoming project messages", () => {
     await router.execute({ integrationId: "i1", kind: "telegram", senderId: "999", text: "hola" });
     expect(executed).toHaveLength(1);
     expect(egress.sent[0]?.text).toBe("resultado-flujo");
+  });
+
+  it("delivers generated workflow audio as media and records the delivery", async () => {
+    const { router, egress, executed, dir, store } = await setup(false, {
+      workflowOutput: {
+        text: "Hola desde el flujo",
+        audio: {
+          kind: "audio",
+          path: ".opencode/media/reply.mp3",
+          mime: "audio/mpeg",
+          filename: "reply.mp3",
+        },
+      },
+    });
+    await mkdir(join(dir, "workspaces", "ventas", ".opencode", "media"), { recursive: true });
+    await writeFile(
+      join(dir, "workspaces", "ventas", ".opencode", "media", "reply.mp3"),
+      new Uint8Array([0xff, 0xfb, 0x90, 0x64]),
+    );
+    await router.execute({ integrationId: "i1", kind: "telegram", senderId: "999", text: "hola" });
+    expect(executed).toHaveLength(1);
+    expect(egress.sent).toHaveLength(0);
+    expect(egress.sentMedia).toHaveLength(1);
+    expect(egress.sentMedia[0]?.media).toMatchObject({ caption: "Hola desde el flujo", mime: "audio/mpeg" });
+    expect(
+      store.deliveries.findByActionKey({ actionKey: "run:run-12345678:output", integrationId: "i1" })?.status,
+    ).toBe("delivered");
+  });
+
+  it("records a failed workflow audio delivery when the file is missing", async () => {
+    const { router, store } = await setup(false, {
+      workflowOutput: {
+        audio: {
+          kind: "audio",
+          path: ".opencode/media/missing.mp3",
+          mime: "audio/mpeg",
+          filename: "missing.mp3",
+        },
+      },
+    });
+    await expect(
+      router.execute({ integrationId: "i1", kind: "telegram", senderId: "999", text: "hola" }),
+    ).rejects.toThrow(/media file not found/);
+    expect(
+      store.deliveries.findByActionKey({ actionKey: "run:run-12345678:output", integrationId: "i1" })?.status,
+    ).toBe("failed");
   });
 
   it("does not route messages to a manual trigger that kept a stale integration id", async () => {

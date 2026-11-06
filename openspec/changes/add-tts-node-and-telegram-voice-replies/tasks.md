@@ -33,8 +33,8 @@
 
 ## 6. Entrega de audio en workflows
 
-- [ ] 6.1 En `handleWorkflow`, detectar un `MediaRef` de audio en la salida final, resolverlo con `readMedia`, usar `output.text` como caption y entregarlo con `sendMedia`; conservar el envío de texto cuando no hay audio. Verificar con tests del router que un run con `speak` entrega audio y que uno sin audio mantiene el comportamiento actual.
-- [ ] 6.2 Registrar la entrega final en `deliveries` con una action key por run para que los reintentos no dupliquen el audio, y cubrir archivo faltante, ruta fuera del proyecto, canal sin soporte y salida con audio sin texto; verificar que cada fallo queda registrado y no se descarta en silencio.
+- [x] 6.1 En `handleWorkflow`, detectar un `MediaRef` de audio en la salida final, resolverlo con `readMedia`, usar `output.text` como caption y entregarlo con `sendMedia`; conservar el envío de texto cuando no hay audio. Verificar con tests del router que un run con `speak` entrega audio y que uno sin audio mantiene el comportamiento actual.
+- [x] 6.2 Registrar la entrega final en `deliveries` con una action key por run para que los reintentos no dupliquen el audio, y cubrir archivo faltante, ruta fuera del proyecto, canal sin soporte y salida con audio sin texto; verificar que cada fallo queda registrado y no se descarta en silencio.
 
 ## 7. UI y configuración
 

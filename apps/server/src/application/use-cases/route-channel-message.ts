@@ -1,4 +1,4 @@
-import { ChannelRoutingSchema, integrationEvents, type MediaRef } from "@platform/shared";
+import { ChannelRoutingSchema, MediaRefSchema, integrationEvents, type MediaRef } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
@@ -18,8 +18,7 @@ import type { Logger, Metrics } from "../../domain/telemetry/index.ts";
 import { readMedia, toAttachmentFiles } from "../../domain/media.ts";
 import { routeGlobalMessage, routeProjectMessage } from "../../domain/channels/router.ts";
 import type { ExecuteWorkflowRunUseCase } from "./execute-workflow.ts";
-import type { IntegrationRecord } from "../../domain/entities.ts";
-import { validateWorkflowResources } from "./workflow-resources.ts";
+import type { IntegrationRecord, WorkflowDeliveryRecord } from "../../domain/entities.ts";import { validateWorkflowResources } from "./workflow-resources.ts";
 import { resolveDestinationList } from "./destinations.ts";
 import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
 import type { ChatTarget, ChatTurnService } from "./chat-turns.ts";
@@ -625,6 +624,59 @@ export class RouteProjectIntegrationMessageUseCase {
         message.senderId,
       );
       return;
+    }
+    const audioCandidate =
+      run.output && typeof run.output === "object" && !Array.isArray(run.output)
+        ? MediaRefSchema.safeParse((run.output as { audio?: unknown }).audio)
+        : undefined;
+    const audio = audioCandidate?.success && audioCandidate.data.kind === "audio" ? audioCandidate.data : undefined;
+    if (audio) {
+      const actionKey = `run:${run.id}:output`;
+      const existing = this.deps.store.deliveries.findByActionKey({ actionKey, integrationId: integration.id });
+      if (existing?.status === "delivered") return;
+      const now = new Date().toISOString();
+      const delivery: WorkflowDeliveryRecord = existing ?? {
+        id: crypto.randomUUID(),
+        projectSlug: trigger.projectSlug,
+        runId: run.id,
+        integrationId: integration.id,
+        actionKey,
+        recipient: message.senderId,
+        status: "pending",
+        attempts: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      if (!existing) this.deps.store.deliveries.create(delivery);
+      try {
+        if (!this.deps.egress.sendMedia) throw new Error("integration does not support audio delivery");
+        const directory = await this.deps.workspace.projectDirectory(trigger.projectSlug);
+        const media = await readMedia(directory, audio);
+        const caption =
+          typeof (run.output as { text?: unknown }).text === "string" ? (run.output as { text: string }).text : undefined;
+        const result = await this.deps.egress.sendMedia(
+          integration.id,
+          { bytes: media.bytes, filename: media.filename, mime: audio.mime, caption },
+          message.senderId,
+        );
+        this.deps.store.deliveries.update(delivery.id, {
+          status: "delivered",
+          providerMessageId: result.providerMessageId,
+          attempts: 1,
+        });
+        return;
+      } catch (error) {
+        const lastError = error instanceof Error ? error.message : String(error);
+        this.deps.store.deliveries.update(delivery.id, { status: "failed", lastError, attempts: 1 });
+        this.deps.logger.error({
+          event: "workflow_audio_delivery_failed",
+          projectSlug: trigger.projectSlug,
+          runId: run.id,
+          integrationId: integration.id,
+          error: lastError,
+        });
+        throw error;
+      }
     }
     const output = typeof run.output === "string" ? run.output : JSON.stringify(run.output ?? run.status);
     await this.deps.egress.send(integration.id, output, message.senderId);

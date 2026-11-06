@@ -230,7 +230,7 @@ export class ManageIntegrationsUseCase {
     id: string,
     scope: { scope: IntegrationScope; projectSlug?: string },
     options: { recipient?: string } = {},
-  ): Promise<{ ok: boolean; detail?: string; latencyMs?: number; models?: string[] }> {
+  ): Promise<{ ok: boolean; detail?: string; latencyMs?: number; models?: string[]; voices?: string[] }> {
     const integration = this.get(id, scope);
     if (["postgres", "mysql", "mssql", "sqlite"].includes(integration.kind)) {
       const tester = new TestDatabaseIntegrationUseCase(this.deps.store, this.deps.vault, this.deps.databaseAdapter);
@@ -265,9 +265,9 @@ export class ManageIntegrationsUseCase {
         result.ok ? "connected" : "error",
         result.ok ? undefined : result.detail,
       );
-      if (result.ok && result.models) {
+      if (result.ok) {
         this.deps.store.integrations.update(id, {
-          config: { ...integration.config, models: result.models },
+          config: { ...integration.config, models: result.models ?? [], voices: result.voices ?? [] },
         });
       }
       return result;

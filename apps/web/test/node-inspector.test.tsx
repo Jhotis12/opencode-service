@@ -21,6 +21,21 @@ const telegram: IntegrationRecord = {
   updatedAt: now,
 };
 
+const speech: IntegrationRecord = {
+  id: "tts1",
+  scope: "project",
+  projectSlug: "p1",
+  kind: "speech",
+  name: "Voz local",
+  slug: "voz-local",
+  config: { voice: "ef_dora", voices: ["ef_dora", "em_alex", "em_santa"], models: ["kokoro", "piper"] },
+  secretRefs: {},
+  capabilities: ["synthesize_speech"],
+  status: "connected",
+  createdAt: now,
+  updatedAt: now,
+};
+
 function node(config: Record<string, unknown>, type: NodeSpec["type"] = "trigger"): NodeSpec {
   return {
     id: "start",
@@ -66,6 +81,30 @@ describe("NodeConfigFields", () => {
     expect(onReplaceConfig).toHaveBeenCalledWith(expect.objectContaining({ kind: "manual" }));
     expect(onReplaceConfig.mock.calls[0]?.[0]).not.toHaveProperty("integrationId");
     confirm.mockRestore();
+  });
+
+  it("selects a discovered voice for a speak node", async () => {
+    const onConfig = vi.fn();
+    renderWithProviders(
+      <NodeConfigFields
+        node={node({ integrationId: "tts1" }, "speak")}
+        integrations={[speech]}
+        destinations={[]}
+        onConfig={onConfig}
+        onReplaceConfig={vi.fn()}
+        onEnableDecisionCode={vi.fn()}
+      />,
+    );
+    const select = screen.getByLabelText("Voz (override)");
+    expect(select.tagName).toBe("SELECT");
+    expect((select as HTMLSelectElement).options[0]?.textContent).toBe("Heredar de la conexión");
+    const model = screen.getByLabelText("Modelo (override)");
+    expect(model.tagName).toBe("SELECT");
+    expect((model as HTMLSelectElement).options[0]?.textContent).toBe("Heredar de la conexión");
+    await userEvent.selectOptions(model, "piper");
+    expect(onConfig).toHaveBeenCalledWith({ model: "piper" });
+    await userEvent.selectOptions(select, "em_alex");
+    expect(onConfig).toHaveBeenCalledWith({ voice: "em_alex" });
   });
 
   it("shows inline validation for incomplete configurations", () => {

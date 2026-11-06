@@ -25,6 +25,7 @@ export interface SpeechTestResult {
   detail?: string;
   latencyMs?: number;
   models?: string[];
+  voices?: string[];
 }
 
 export class SpeechError extends Error {

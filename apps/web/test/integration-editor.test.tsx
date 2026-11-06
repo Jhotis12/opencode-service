@@ -131,6 +131,43 @@ describe("IntegrationEditor", () => {
     expect(saved).toHaveBeenCalled();
   });
 
+  it("selects a discovered voice when the connection exposes them", async () => {
+    const speechIntegration: IntegrationRecord = {
+      ...baseIntegration,
+      id: "tts1",
+      kind: "speech",
+      name: "Voz",
+      slug: "voz",
+      config: {
+        baseUrl: "http://transcription:8000/v1",
+        model: "speaches-ai/Kokoro-82M-v1.0-ONNX",
+        models: ["speaches-ai/Kokoro-82M-v1.0-ONNX", "rhasspy/piper-voices"],
+        voice: "ef_dora",
+        voices: ["ef_dora", "em_alex", "em_santa"],
+      },
+      capabilities: ["synthesize_speech"],
+    };
+    apiMock.updateIntegration.mockResolvedValueOnce(speechIntegration);
+    renderWithProviders(
+      <IntegrationEditor scope="project" projectSlug="ventas" integration={speechIntegration} onSaved={vi.fn()} />,
+    );
+    const select = screen.getByLabelText("Voz por defecto");
+    expect(select.tagName).toBe("SELECT");
+    expect(screen.getByRole("option", { name: "em_alex" })).toBeInTheDocument();
+    const model = screen.getByLabelText("Modelo por defecto");
+    expect(model.tagName).toBe("SELECT");
+    expect(screen.getByRole("option", { name: "rhasspy/piper-voices" })).toBeInTheDocument();
+    await userEvent.selectOptions(select, "em_alex");
+    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() =>
+      expect(apiMock.updateIntegration).toHaveBeenCalledWith(
+        "ventas",
+        "tts1",
+        expect.objectContaining({ config: expect.objectContaining({ voice: "em_alex" }) }),
+      ),
+    );
+  });
+
   it("shows an actionable error when the transport fails", async () => {
     apiMock.createIntegration.mockRejectedValueOnce(new Error("failed to fetch"));
     renderWithProviders(<IntegrationEditor scope="project" projectSlug="ventas" onSaved={vi.fn()} />);

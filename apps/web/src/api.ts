@@ -481,7 +481,7 @@ export const api = {
   deleteIntegration: (slug: string, id: string) =>
     request<{ ok: boolean }>(`/api/projects/${slug}/integrations/${id}`, { method: "DELETE" }),
   testIntegration: (slug: string, id: string, recipient?: string) =>
-    request<{ ok: boolean; detail?: string; latencyMs?: number; models?: string[] }>(`/api/projects/${slug}/integrations/${id}/test`, {
+    request<{ ok: boolean; detail?: string; latencyMs?: number; models?: string[]; voices?: string[] }>(`/api/projects/${slug}/integrations/${id}/test`, {
       method: "POST",
       body: JSON.stringify({ recipient }),
     }),

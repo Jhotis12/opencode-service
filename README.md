@@ -111,6 +111,7 @@ Fuera de alcance en esta versión: ASR para el orquestador global, media en What
 La plataforma puede convertir texto en voz y responder con una nota de voz nativa cuando el mensaje entrante traía audio.
 
 - **Conexiones:** se crean en **Recursos > Voz (TTS)** y se prueban desde la tarjeta. Cualquier endpoint OpenAI-compatible (`/audio/speech`) sirve; la API key es opcional y se guarda en la bóveda.
+- **Voces:** al probar la conexión, la plataforma lee `/v1/models`, descubre las voces del proveedor (por ejemplo las de Kokoro local) y las muestra como selector en la conexión y en el nodo **Generar voz**. Si el proveedor no publica voces, queda el campo de texto con sugerencias.
 - **Local:** el mismo `speaches` de `docker-compose.yml` descarga `speaches-ai/Kokoro-82M-v1.0-ONNX` en el init. La conexión local usa `http://transcription:8000/v1`, modelo Kokoro y voz `ef_dora`; `em_alex` y `em_santa` son alternativas en español.
 - **Ajustes:** el proyecto elige su conexión de voz por defecto en **Ajustes > Voz**.
 - **Canal Telegram:** en la configuración del canal, activa **Responder con audio cuando llegue audio**. El default sigue siendo solo texto y los mensajes de texto nunca llaman al TTS.

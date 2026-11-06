@@ -269,6 +269,70 @@ export function IntegrationEditor({
     }
 
     if (field.type === "custom") {
+      if (field.widget === "speech-model-picker") {
+        const models = toList(config.models);
+        const current = String(value ?? "");
+        if (models.length === 0) {
+          return (
+            <label key={field.key}>
+              {label}
+              <input {...common} value={current} onChange={(event) => setField(field, event.target.value)} />
+            </label>
+          );
+        }
+        const options = current && !models.includes(current) ? [current, ...models] : models;
+        return (
+          <label key={field.key}>
+            {label}
+            <select aria-label={label} value={current} onChange={(event) => setField(field, event.target.value)}>
+              {options.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+            <small className="text-xs text-muted">{models.length} modelos disponibles en la conexión.</small>
+          </label>
+        );
+      }
+      if (field.widget === "voice-picker") {
+        const voices = toList(config.voices);
+        const current = String(value ?? "");
+        if (voices.length === 0) {
+          return (
+            <label key={field.key}>
+              {label}
+              <input
+                {...common}
+                value={current}
+                onChange={(event) => setField(field, event.target.value)}
+                {...(field.suggestions ? { list: `integration-suggestions-${field.key}` } : {})}
+              />
+              {field.suggestions && (
+                <datalist id={`integration-suggestions-${field.key}`}>
+                  {field.suggestions.map((suggestion) => (
+                    <option key={suggestion} value={suggestion} />
+                  ))}
+                </datalist>
+              )}
+            </label>
+          );
+        }
+        const options = current && !voices.includes(current) ? [current, ...voices] : voices;
+        return (
+          <label key={field.key}>
+            {label}
+            <select aria-label={label} value={current} onChange={(event) => setField(field, event.target.value)}>
+              {options.map((voice) => (
+                <option key={voice} value={voice}>
+                  {voice}
+                </option>
+              ))}
+            </select>
+            <small className="text-xs text-muted">{voices.length} voces disponibles en la conexión.</small>
+          </label>
+        );
+      }
       if (field.widget === "destination-list") {
         const list = toList(value);
         return (

@@ -329,6 +329,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     egress,
     media,
     transcription,
+    speech,
     metrics,
     events,
     logger,

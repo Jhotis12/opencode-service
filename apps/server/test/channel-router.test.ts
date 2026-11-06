@@ -15,6 +15,8 @@ import { SseHub } from "../src/infrastructure/in/sse/sse-hub.ts";
 import { FsMediaStore } from "../src/infrastructure/out/media/fs-media-store.ts";
 import type { IntegrationEgressPort, TriggerRef } from "../src/application/ports/channels.ts";
 import type { TranscriptionPort } from "../src/application/ports/transcription.ts";
+import type { SpeechPort } from "../src/application/ports/speech.ts";
+import type { OutgoingMedia } from "../src/application/ports/channels.ts";
 import { InMemoryMetrics } from "../src/domain/telemetry/metrics.ts";
 import type { Metrics } from "../src/domain/telemetry/index.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
@@ -35,11 +37,38 @@ const silentLogger: Logger = {
   },
 };
 
+function captureLogger() {
+  const entries: Array<{ level: string; bindings: Record<string, unknown> }> = [];
+  const logger: Logger = {
+    debug(bindings) {
+      entries.push({ level: "debug", bindings });
+    },
+    info(bindings) {
+      entries.push({ level: "info", bindings });
+    },
+    warn(bindings) {
+      entries.push({ level: "warn", bindings });
+    },
+    error(bindings) {
+      entries.push({ level: "error", bindings });
+    },
+    child() {
+      return logger;
+    },
+  };
+  return { entries, logger };
+}
+
 class FakeEgress implements IntegrationEgressPort {
   sent: Array<{ integrationId: string; text: string }> = [];
+  sentMedia: Array<{ integrationId: string; media: OutgoingMedia; recipient?: string }> = [];
   async send(integrationId: string, text: string) {
     this.sent.push({ integrationId, text });
     return {};
+  }
+  async sendMedia(integrationId: string, media: OutgoingMedia, recipient?: string) {
+    this.sentMedia.push({ integrationId, media, recipient });
+    return { providerMessageId: "media-1" };
   }
 }
 
@@ -54,6 +83,26 @@ function fakeTranscription(text = "hola transcript", fail = false): Transcriptio
     },
     async test() {
       return { ok: !fail, models: ["small"] };
+    },
+  };
+}
+
+function fakeSpeech(fail = false): { port: SpeechPort; calls: Array<{ integrationId: string; text: string }> } {
+  const calls: Array<{ integrationId: string; text: string }> = [];
+  return {
+    calls,
+    port: {
+      async synthesize(input) {
+        calls.push({ integrationId: input.integrationId, text: input.text });
+        if (fail) throw new Error("speech provider down");
+        return { bytes: new Uint8Array([0xff, 0xfb, 0x90, 0x64]), mime: "audio/mpeg" };
+      },
+      async listModels() {
+        return ["kokoro"];
+      },
+      async test() {
+        return { ok: !fail };
+      },
     },
   };
 }
@@ -131,7 +180,11 @@ async function setup(
   options: {
     transcription?: TranscriptionPort;
     transcriptionIntegrationId?: string;
+    speech?: SpeechPort;
+    speechIntegrationId?: string;
+    voiceReplies?: "auto" | "never";
     metrics?: Metrics;
+    logger?: Logger;
   } = {},
 ) {
   const dir = await mkdtemp(join(tmpdir(), "platform-channels-"));
@@ -166,7 +219,14 @@ async function setup(
     kind: "telegram",
     name: "Telegram",
     slug: "telegram",
-    config: { routing: { mode: "hybrid", allowlist: ["+573001112233"], public: true } },
+    config: {
+      routing: {
+        mode: "hybrid",
+        allowlist: ["+573001112233"],
+        public: true,
+        voiceReplies: options.voiceReplies ?? "never",
+      },
+    },
     secretRefs: {},
     capabilities: ["inbound_message", "outbound_message"],
     status: "connected",
@@ -183,6 +243,7 @@ async function setup(
     ...(options.transcriptionIntegrationId
       ? { transcriptionIntegrationId: options.transcriptionIntegrationId }
       : {}),
+    ...(options.speechIntegrationId ? { speechIntegrationId: options.speechIntegrationId } : {}),
     createdAt: now,
     updatedAt: now,
   });
@@ -217,9 +278,10 @@ async function setup(
     egress,
     media: new FsMediaStore({ workspacesDir: join(dir, "workspaces"), controlDirectory: join(dir, "control") }),
     transcription: options.transcription,
+    speech: options.speech,
     metrics: options.metrics,
     events: { publish() {} },
-    logger: silentLogger,
+    logger: options.logger ?? silentLogger,
   });
   return { dir, workspace, router, store, agent, egress, executed, approvals };
 }
@@ -404,8 +466,161 @@ describe("route incoming project messages", () => {
     expect(metrics.counter("transcription_succeeded")).toBe(1);
   });
 
-  it("deduplicates a repeated channel message and delivers once", async () => {
-    const { router, egress } = await setup(true);
+  it("keeps text replies for audio messages when voice replies are disabled", async () => {
+    const speech = fakeSpeech();
+    const { router, egress } = await setup(true, {
+      transcription: fakeTranscription(),
+      transcriptionIntegrationId: "asr1",
+      speech: speech.port,
+      speechIntegrationId: "tts1",
+    });
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "",
+      attachments: [
+        {
+          kind: "audio",
+          filename: "voice.ogg",
+          mime: "audio/ogg",
+          bytes: new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02]),
+        },
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(speech.calls).toHaveLength(0);
+    expect(egress.sentMedia).toHaveLength(0);
+    expect(egress.sent).toHaveLength(1);
+  });
+
+  it("synthesizes a voice reply only for audio-originated turns", async () => {
+    const { entries, logger } = captureLogger();
+    const speech = fakeSpeech();
+    const { router, egress, agent } = await setup(true, {
+      transcription: fakeTranscription(),
+      transcriptionIntegrationId: "asr1",
+      speech: speech.port,
+      speechIntegrationId: "tts1",
+      voiceReplies: "auto",
+      logger,
+    });
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "",
+      attachments: [
+        {
+          kind: "audio",
+          filename: "voice.ogg",
+          mime: "audio/ogg",
+          bytes: new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02]),
+        },
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(speech.calls).toHaveLength(1);
+    expect(speech.calls[0]?.integrationId).toBe("tts1");
+    expect(egress.sentMedia).toHaveLength(1);
+    expect(egress.sentMedia[0]?.media.caption).toContain("Transcripción de audio");
+    expect(egress.sent).toHaveLength(0);
+    expect(entries.some((entry) => entry.bindings.event === "voice_reply_sent")).toBe(true);
+
+    await router.execute({ integrationId: "i1", kind: "telegram", senderId: "+573001112233", text: "hola" });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(speech.calls).toHaveLength(1);
+    expect(egress.sent.at(-1)?.text).toContain("hola");
+    expect(agent.prompts).toHaveLength(2);
+  });
+
+  it("falls back to text when voice is enabled without a connection or on failure", async () => {
+    const { entries, logger } = captureLogger();
+    const metrics = new InMemoryMetrics();
+    const audio = {
+      kind: "audio" as const,
+      filename: "voice.ogg",
+      mime: "audio/ogg",
+      bytes: new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02]),
+    };
+    const missing = await setup(true, {
+      transcription: fakeTranscription(),
+      transcriptionIntegrationId: "asr1",
+      voiceReplies: "auto",
+      metrics,
+      logger,
+    });
+    await missing.router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "",
+      attachments: [audio],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(missing.egress.sentMedia).toHaveLength(0);
+    expect(missing.egress.sent).toHaveLength(1);
+
+    const failingSpeech = fakeSpeech(true);
+    const failing = await setup(true, {
+      transcription: fakeTranscription(),
+      transcriptionIntegrationId: "asr1",
+      speech: failingSpeech.port,
+      speechIntegrationId: "tts1",
+      voiceReplies: "auto",
+      metrics,
+      logger,
+    });
+    await failing.router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "",
+      attachments: [audio],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(failing.egress.sentMedia).toHaveLength(0);
+    expect(failing.egress.sent).toHaveLength(1);
+    expect(metrics.counter("voice_reply_fallback")).toBeGreaterThanOrEqual(2);
+    const reasons = entries.filter((entry) => entry.bindings.event === "voice_reply_fallback").map((entry) => entry.bindings.reason);
+    expect(reasons).toContain("missing_speech");
+    expect(reasons).toContain("synthesis_failed");
+  });
+
+  it("skips voice synthesis when the reply exceeds the character limit", async () => {
+    const { entries, logger } = captureLogger();
+    const speech = fakeSpeech();
+    const { router, egress, agent } = await setup(true, {
+      transcription: fakeTranscription(),
+      transcriptionIntegrationId: "asr1",
+      speech: speech.port,
+      speechIntegrationId: "tts1",
+      voiceReplies: "auto",
+      logger,
+    });
+    agent.scriptedReplies.push("x".repeat(4_001));
+    await router.execute({
+      integrationId: "i1",
+      kind: "telegram",
+      senderId: "+573001112233",
+      text: "",
+      attachments: [
+        {
+          kind: "audio",
+          filename: "voice.ogg",
+          mime: "audio/ogg",
+          bytes: new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0x00, 0x02]),
+        },
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(speech.calls).toHaveLength(0);
+    expect(egress.sentMedia).toHaveLength(0);
+    expect(egress.sent[0]?.text).toHaveLength(4_001);
+    expect(entries.some((entry) => entry.bindings.reason === "text_too_long")).toBe(true);
+  });
+
+  it("deduplicates a repeated channel message and delivers once", async () => {    const { router, egress } = await setup(true);
     await router.execute({
       integrationId: "i1",
       kind: "telegram",

@@ -27,9 +27,9 @@
 
 ## 5. Respuesta automática por voz en Telegram
 
-- [ ] 5.1 Propagar desde el router si el mensaje traía audio y si `routing.voiceReplies` es `auto`; en `deliverChatTurn`, tras el turno exitoso, resolver `project.speechIntegrationId`, sintetizar una vez y enviar con `sendMedia`; si falta conexión, falla la síntesis o el texto supera el límite, enviar el texto y registrar el fallback sin marcar el turno como fallido. Verificar con tests de `channel-router` que cubren `never`, `auto` con audio, `auto` con texto, sin conexión y fallo del proveedor.
-- [ ] 5.2 Cubrir los bordes de entrega: caption de 1 024 caracteres, texto largo sin audio, reintento de entrega que reutiliza los bytes ya sintetizados, audio de más de 60 s y conversión no disponible; verificar que no se duplican mensajes y que el texto nunca se pierde.
-- [ ] 5.3 Emitir métricas/logs `voice_reply_sent` y `voice_reply_fallback` con motivo, proyecto, integración y turno, sin texto; verificar con un test que el fallback registra `missing_speech`, `synthesis_failed` o `text_too_long` según corresponda.
+- [x] 5.1 Propagar desde el router si el mensaje traía audio y si `routing.voiceReplies` es `auto`; en `deliverChatTurn`, tras el turno exitoso, resolver `project.speechIntegrationId`, sintetizar una vez y enviar con `sendMedia`; si falta conexión, falla la síntesis o el texto supera el límite, enviar el texto y registrar el fallback sin marcar el turno como fallido. Verificar con tests de `channel-router` que cubren `never`, `auto` con audio, `auto` con texto, sin conexión y fallo del proveedor.
+- [x] 5.2 Cubrir los bordes de entrega: caption de 1 024 caracteres, texto largo sin audio, reintento de entrega que reutiliza los bytes ya sintetizados, audio de más de 60 s y conversión no disponible; verificar que no se duplican mensajes y que el texto nunca se pierde.
+- [x] 5.3 Emitir métricas/logs `voice_reply_sent` y `voice_reply_fallback` con motivo, proyecto, integración y turno, sin texto; verificar con un test que el fallback registra `missing_speech`, `synthesis_failed` o `text_too_long` según corresponda.
 
 ## 6. Entrega de audio en workflows
 

@@ -92,7 +92,9 @@ function extractTurnReply(messages: Array<{ id: string; type: string; text?: str
   const started = Date.parse(startedAt);
   const assistants = messages.filter((message) => message.type === "assistant");
   const inTurn = assistants.filter((message) => !message.created || message.created >= started);
-  const candidate = [...inTurn].reverse().find((message) => Boolean(message.text?.trim()));
+  const candidate = inTurn
+    .filter((message) => Boolean(message.text?.trim()))
+    .sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0];
   return { reply: candidate?.text?.trim() ?? "", assistantMessageId: candidate?.id };
 }
 
@@ -397,7 +399,11 @@ export class ChatTurnService {
         lastActivityAt: nowIso(this.now()),
       });
 
-      const progress = createChatProgressHandler((event) => this.publishProgress(turn.id, event));
+      let streamedReply = "";
+      const progress = createChatProgressHandler((event) => {
+        if (event.type === "text") streamedReply += event.text;
+        this.publishProgress(turn.id, event);
+      });
       unsubscribe = await this.deps.agent.subscribe((event) => {
         const data = event && typeof event === "object" ? (event as { data?: Record<string, unknown>; sessionID?: string; durable?: { seq?: number } }) : {};
         const session = data.data?.sessionID ?? data.sessionID;
@@ -434,11 +440,14 @@ export class ChatTurnService {
         status: "running",
         lastActivityAt: nowIso(this.now()),
       });
-      const result = await this.pollTurn(turn.id, sessionId, {
+      let result = await this.pollTurn(turn.id, sessionId, {
         maxMs: target.timeoutMs,
         idleMs: target.idleMs,
       });
       if (!result) return;
+      if (result.type === "failed" && result.code === "empty_reply" && streamedReply.trim()) {
+        result = { type: "done", reply: streamedReply.trim() };
+      }
       if (result.type === "cancelled") return;
       if (result.type === "failed") {
         this.failTurn(turn, result.code, result.message, result.status);
@@ -613,7 +622,7 @@ export class ChatTurnService {
       return;
     }
     if (session.outcome === "succeeded") {
-      const messages = await this.deps.agent.getMessages(turn.sessionId!, { order: "asc", limit: 200 });
+      const messages = await this.deps.agent.getMessages(turn.sessionId!, { order: "desc", limit: 200 });
       const extracted = extractTurnReply(messages, turn.startedAt);
       if (!extracted.reply) {
         this.failTurn(turn, "empty_reply", "the agent completed without a textual reply", "failed");
@@ -715,7 +724,7 @@ export class ChatTurnService {
             this.updateTurn(current, { lastActivityAt: nowIso(now) });
           }
         } else if (session.outcome === "succeeded" && this.isCurrentExecution(session, started)) {
-          const messages = await this.deps.agent.getMessages(sessionId, { order: "asc", limit: 200 });
+          const messages = await this.deps.agent.getMessages(sessionId, { order: "desc", limit: 200 });
           const extracted = extractTurnReply(messages, current.startedAt);
           if (!extracted.reply) {
             return { type: "failed", code: "empty_reply", message: "the agent completed without a textual reply", status: "failed" };

@@ -213,6 +213,67 @@ describe("ChatTurnService", () => {
     expect(store.chatTurns.findById(turnId)?.status).toBe("unknown");
   });
 
+  it("reconciles the latest reply when the session outstrips one message page", async () => {
+    const { store, agent, service, thread } = setup();
+    const session = await agent.createSession({ directory: "/tmp" });
+    const state = (
+      agent as unknown as {
+        sessions: Map<
+          string,
+          {
+            active: boolean;
+            outcome?: "succeeded" | "failed" | "interrupted";
+            messages: Array<{ id: string; type: string; text?: string; created?: number }>;
+          }
+        >;
+      }
+    ).sessions.get(session.id)!;
+    const started = Date.now() - 10_000;
+    for (let index = 0; index < 205; index += 1) {
+      state.messages.push({ id: `old-${index}`, type: "assistant", text: `old-${index}`, created: started - 60_000 });
+    }
+    state.messages.push({ id: "assistant-draft", type: "assistant", text: "borrador", created: started + 1_000 });
+    state.messages.push({ id: "assistant-final", type: "assistant", text: "respuesta final", created: started + 2_000 });
+    state.active = false;
+    state.outcome = "succeeded";
+
+    const turnId = "turn-long-session";
+    const startedAt = new Date(started).toISOString();
+    store.chatTurns.createWithMessage(
+      {
+        id: turnId,
+        threadId: thread.id,
+        scope: "project",
+        projectSlug: "p1",
+        sessionId: session.id,
+        status: "running",
+        deliveryState: "enqueued",
+        attempt: 0,
+        startedAt,
+        lastActivityAt: startedAt,
+        entryPoint: "web_ui",
+        createdAt: startedAt,
+        updatedAt: startedAt,
+      },
+      { id: "user-long", threadId: thread.id, turnId, role: "user", content: "hola", createdAt: startedAt },
+    );
+
+    await service.recover();
+
+    expect(store.chatTurns.findById(turnId)?.status).toBe("succeeded");
+    expect(service.replyForTurn(turnId)).toBe("respuesta final");
+  });
+
+  it("keeps the streamed reply when the final message cannot be read", async () => {
+    const { agent, service, thread } = setup();
+    agent.scriptedReplies.push("respuesta visible");
+    agent.getMessages = async () => [];
+    const turn = await service.start({ thread, target: target(), message: "hola" });
+    const final = await service.waitForTerminal(turn.id, 2_000);
+    expect(final.status).toBe("succeeded");
+    expect(service.replyForTurn(turn.id)).toBe("respuesta visible");
+  });
+
   it("keeps a turn alive past the former five-minute transport limit", async () => {
     const { store, agent, thread } = setup();
     let clock = Date.now();

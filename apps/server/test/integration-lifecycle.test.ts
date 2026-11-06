@@ -51,6 +51,12 @@ class FakeTelegram implements TelegramTransport {
     this.sent.push({ to, text });
     return { providerMessageId: `fake-${this.sent.length}` };
   }
+  async sendVoice() {
+    return { providerMessageId: "fake-voice" };
+  }
+  async sendAudio() {
+    return { providerMessageId: "fake-audio" };
+  }
   async stop() {
     this.running = false;
   }

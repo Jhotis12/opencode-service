@@ -6,6 +6,7 @@ import type { EventBus } from "../../../application/ports/events.ts";
 import type { IntegrationManagerPort } from "../../../application/ports/integrations.ts";
 import type { EgressSendResult } from "../../../application/ports/channels.ts";
 import type { IntegrationEgressRouter } from "./egress-router.ts";
+import type { AudioConverterPort } from "../../../application/ports/audio.ts";
 import type { ErrorTracker, Logger } from "../../../domain/telemetry/index.ts";
 import type { IntegrationRecord } from "../../../domain/entities.ts";
 import type { RouteGlobalIntegrationMessageUseCase, RouteProjectIntegrationMessageUseCase } from "../../../application/use-cases/route-channel-message.ts";
@@ -40,6 +41,7 @@ export class IntegrationManager implements IntegrationManagerPort {
       dataDir: string;
       fetchImpl?: typeof fetch;
       createTelegramTransport?: (token: string) => TelegramTransport;
+      audioConverter?: AudioConverterPort;
     },
   ) {}
 
@@ -120,8 +122,12 @@ export class IntegrationManager implements IntegrationManagerPort {
           router: integration.scope === "global" ? this.deps.globalRouter : this.deps.projectRouter,
           events: this.deps.events,
           logger: this.deps.logger,
+          converter: this.deps.audioConverter,
         });
         this.deps.egress.register(integration.id, (text, recipient) => adapter.send(text, recipient));
+        this.deps.egress.registerMedia(integration.id, (media, recipient) =>
+          adapter.sendMedia(integration.id, media, recipient),
+        );
         await adapter.start();
         this.managed.set(integration.id, adapter);
         this.deps.store.integrations.updateStatus(integration.id, "connected");

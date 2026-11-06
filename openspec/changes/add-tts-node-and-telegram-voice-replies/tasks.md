@@ -21,9 +21,9 @@
 
 ## 4. Egress de audio y conversión
 
-- [ ] 4.1 Extender `IntegrationEgressPort` con `sendMedia`, agregar el registro de handlers de media en `IntegrationEgressRouter` y hacer que el adaptador de Telegram lo implemente; los canales sin handler deben fallar con un error explícito. Verificar con tests de `channel-adapters` que Telegram recibe los bytes y que WhatsApp falla sin fingir entrega.
-- [ ] 4.2 Implementar `AudioConverterPort` y `FfmpegAudioConverter` con ffmpeg/ffprobe, archivo temporal 0600, borrado en `finally` y duración; agregar `sendVoice`/`sendAudio` al transporte de Telegram con caption y reglas de duración. Verificar con tests que 1–60 s usan `sendVoice`, más de 60 s usa `sendAudio`, el fallo del converter usa MP3, el caption se omite si supera 1 024 caracteres y el texto completo se envía aparte.
-- [ ] 4.3 Agregar `ffmpeg` a la etapa runtime del `Dockerfile`; verificar que la imagen construye y que `ffmpeg -version` y `ffprobe -version` funcionan dentro del contenedor.
+- [x] 4.1 Extender `IntegrationEgressPort` con `sendMedia`, agregar el registro de handlers de media en `IntegrationEgressRouter` y hacer que el adaptador de Telegram lo implemente; los canales sin handler deben fallar con un error explícito. Verificar con tests de `channel-adapters` que Telegram recibe los bytes y que WhatsApp falla sin fingir entrega.
+- [x] 4.2 Implementar `AudioConverterPort` y `FfmpegAudioConverter` con ffmpeg/ffprobe, archivo temporal 0600, borrado en `finally` y duración; agregar `sendVoice`/`sendAudio` al transporte de Telegram con caption y reglas de duración. Verificar con tests que 1–60 s usan `sendVoice`, más de 60 s usa `sendAudio`, el fallo del converter usa MP3, el caption se omite si supera 1 024 caracteres y el texto completo se envía aparte.
+- [x] 4.3 Agregar `ffmpeg` a la etapa runtime del `Dockerfile`; verificar que la imagen construye y que `ffmpeg -version` y `ffprobe -version` funcionan dentro del contenedor.
 
 ## 5. Respuesta automática por voz en Telegram
 

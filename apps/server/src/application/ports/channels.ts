@@ -2,8 +2,17 @@ export interface EgressSendResult {
   providerMessageId?: string;
 }
 
+export interface OutgoingMedia {
+  bytes: Uint8Array;
+  filename: string;
+  mime: string;
+  caption?: string;
+  durationSeconds?: number;
+}
+
 export interface IntegrationEgressPort {
   send(integrationId: string, text: string, recipient?: string): Promise<EgressSendResult>;
+  sendMedia?(integrationId: string, media: OutgoingMedia, recipient?: string): Promise<EgressSendResult>;
 }
 
 export interface IncomingAttachment {

@@ -9,6 +9,7 @@ import {
   type WhatsAppTransport,
 } from "../src/infrastructure/in/channels/whatsapp-adapter.ts";
 import type { IncomingAttachment } from "../src/application/ports/channels.ts";
+import type { AudioConverterPort } from "../src/application/ports/audio.ts";
 import type { Logger } from "../src/domain/telemetry/index.ts";
 
 const silentLogger: Logger = {
@@ -30,6 +31,8 @@ class FakeTelegram implements TelegramTransport {
     attachments?: IncomingAttachment[];
   }) => void | Promise<void>;
   sent: Array<{ to: string; text: string }> = [];
+  sentVoice: Array<{ to: string; bytes: Uint8Array; filename: string; caption?: string }> = [];
+  sentAudio: Array<{ to: string; bytes: Uint8Array; filename: string; mime: string; caption?: string }> = [];
   running = false;
   verified = false;
   webhookCleared = false;
@@ -52,6 +55,14 @@ class FakeTelegram implements TelegramTransport {
   async send(to: string, text: string) {
     this.sent.push({ to, text });
     return { providerMessageId: `${this.type}-${this.sent.length}` };
+  }
+  async sendVoice(to: string, bytes: Uint8Array, filename: string, caption?: string) {
+    this.sentVoice.push({ to, bytes, filename, caption });
+    return { providerMessageId: `${this.type}-voice-${this.sentVoice.length}` };
+  }
+  async sendAudio(to: string, bytes: Uint8Array, filename: string, mime: string, caption?: string) {
+    this.sentAudio.push({ to, bytes, filename, mime, caption });
+    return { providerMessageId: `${this.type}-audio-${this.sentAudio.length}` };
   }
   async stop() {
     this.running = false;
@@ -123,8 +134,7 @@ describe("channel adapters", () => {
     expect(events.some((event) => event.type === "integration.status" && event.status === "disconnected")).toBe(true);
   });
 
-  it("forwards telegram media attachments to the router", async () => {
-    const transport = new FakeTelegram();
+  it("forwards telegram media attachments to the router", async () => {    const transport = new FakeTelegram();
     const { router, calls } = routerRecorder();
     const adapter = new TelegramChannelAdapter({
       integrationId: "telegram",
@@ -220,6 +230,75 @@ describe("channel adapters", () => {
     await transport.send("57300", "respuesta");
     expect(requests[0]?.url).toContain("phone-1/messages");
     expect((requests[0]?.body as { to: string }).to).toBe("57300");
+  });
+});
+
+describe("telegram media egress", () => {
+  const media = {
+    bytes: new Uint8Array([0xff, 0xfb, 0x90, 0x64]),
+    filename: "reply.mp3",
+    mime: "audio/mpeg",
+    caption: "Hola",
+  };
+
+  function adapter(
+    transport: FakeTelegram,
+    converter?: AudioConverterPort,
+  ) {
+    return new TelegramChannelAdapter({
+      integrationId: "telegram",
+      scope: "project",
+      projectSlug: "ventas",
+      transport,
+      router: { execute: async () => ({ decision: "agent" }) },
+      events: { publish() {} },
+      logger: silentLogger,
+      converter,
+    });
+  }
+
+  it("converts short audio to a native voice note", async () => {
+    const transport = new FakeTelegram();
+    const converter: AudioConverterPort = {
+      async toOpus() {
+        return { bytes: new Uint8Array([0x4f, 0x67, 0x67, 0x53]), durationSeconds: 12 };
+      },
+    };
+    await adapter(transport, converter).sendMedia("telegram", media, "123");
+    expect(transport.sentVoice).toHaveLength(1);
+    expect(transport.sentVoice[0]).toMatchObject({ to: "123", caption: "Hola" });
+    expect(transport.sentAudio).toHaveLength(0);
+  });
+
+  it("sends long audio as a file and splits an oversized caption", async () => {
+    const transport = new FakeTelegram();
+    const converter: AudioConverterPort = {
+      async toOpus() {
+        return { bytes: new Uint8Array([0x4f, 0x67, 0x67, 0x53]), durationSeconds: 90 };
+      },
+    };
+    await adapter(transport, converter).sendMedia("telegram", { ...media, caption: "x".repeat(1_025) }, "123");
+    expect(transport.sentAudio).toHaveLength(1);
+    expect(transport.sentAudio[0]?.caption).toBeUndefined();
+    expect(transport.sent.at(-1)).toEqual({ to: "123", text: "x".repeat(1_025) });
+  });
+
+  it("falls back to the original audio file when conversion fails", async () => {
+    const transport = new FakeTelegram();
+    const converter: AudioConverterPort = {
+      async toOpus() {
+        throw new Error("ffmpeg missing");
+      },
+    };
+    await adapter(transport, converter).sendMedia("telegram", media, "123");
+    expect(transport.sentVoice).toHaveLength(0);
+    expect(transport.sentAudio).toHaveLength(1);
+    expect(transport.sentAudio[0]).toMatchObject({ to: "123", mime: "audio/mpeg", caption: "Hola" });
+  });
+
+  it("fails explicitly when a channel has no media transport", async () => {
+    const router = new IntegrationEgressRouter();
+    await expect(router.sendMedia("whatsapp", media, "123")).rejects.toThrow(/no media transport/);
   });
 });
 

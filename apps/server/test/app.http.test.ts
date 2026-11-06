@@ -45,6 +45,12 @@ function fakeTelegramTransport(): TelegramTransport {
     async send() {
       return { providerMessageId: "fake-1" };
     },
+    async sendVoice() {
+      return { providerMessageId: "fake-voice-1" };
+    },
+    async sendAudio() {
+      return { providerMessageId: "fake-audio-1" };
+    },
     async stop() {},
     status() {
       return "connected";

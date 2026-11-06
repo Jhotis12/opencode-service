@@ -65,6 +65,7 @@ import { IntegrationManager } from "./infrastructure/in/channels/channel-manager
 import type { TelegramTransport } from "./infrastructure/in/channels/telegram-adapter.ts";
 import { WorkspaceError } from "./infrastructure/out/workspace-fs/safe-workspace.ts";
 import { FsMediaStore } from "./infrastructure/out/media/fs-media-store.ts";
+import { FfmpegAudioConverter } from "./infrastructure/out/audio/ffmpeg-audio-converter.ts";
 import { OpenAiCompatibleTranscriptionService } from "./infrastructure/out/transcription/openai-compatible-transcription-service.ts";
 import { OpenAiCompatibleSpeechService } from "./infrastructure/out/speech/openai-compatible-speech-service.ts";
 import {
@@ -359,6 +360,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     dataDir: config.dataDir,
     fetchImpl: fetch,
     createTelegramTransport: config.telegramTransportFactory,
+    audioConverter: new FfmpegAudioConverter(),
   });
   const integrations = new ManageIntegrationsUseCase({
     store,

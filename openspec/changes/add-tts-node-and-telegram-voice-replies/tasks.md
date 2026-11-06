@@ -15,9 +15,9 @@
 
 ## 3. Nodo `speak`
 
-- [ ] 3.1 Implementar la rama `speak` del ejecutor: resolver texto desde string o `textPath`, fallar si está vacío o supera `maxChars`, resolver la integración del nodo o el default del proyecto, llamar a `SpeechPort` y guardar el audio en `MediaStore`; devolver `{ text, audio }`. Verificar con tests de `execute-workflow` que cubren string plano, objeto con `text`, overrides y salida con `MediaRef` bajo `.opencode/media/`.
-- [ ] 3.2 Extender `workflow-resources.ts` para validar que la conexión `speak` exista, sea del proyecto, sea kind `speech`, tenga `synthesize_speech` o exista un default; agregar el ítem de readiness del nodo. Verificar con tests de `workflow-resources` para conexión válida, faltante, de otro proyecto, de otro kind y eliminada antes del run.
-- [ ] 3.3 Cubrir los bordes del nodo: texto vacío, texto largo, proveedor que falla o devuelve audio vacío, lectura de un archivo generado desde otro proyecto y reintento según la política del nodo; verificar que cada caso falla o reintenta con un error accionable y sanitizado.
+- [x] 3.1 Implementar la rama `speak` del ejecutor: resolver texto desde string o `textPath`, fallar si está vacío o supera `maxChars`, resolver la integración del nodo o el default del proyecto, llamar a `SpeechPort` y guardar el audio en `MediaStore`; devolver `{ text, audio }`. Verificar con tests de `execute-workflow` que cubren string plano, objeto con `text`, overrides y salida con `MediaRef` bajo `.opencode/media/`.
+- [x] 3.2 Extender `workflow-resources.ts` para validar que la conexión `speak` exista, sea del proyecto, sea kind `speech`, tenga `synthesize_speech` o exista un default; agregar el ítem de readiness del nodo. Verificar con tests de `workflow-resources` para conexión válida, faltante, de otro proyecto, de otro kind y eliminada antes del run.
+- [x] 3.3 Cubrir los bordes del nodo: texto vacío, texto largo, proveedor que falla o devuelve audio vacío, lectura de un archivo generado desde otro proyecto y reintento según la política del nodo; verificar que cada caso falla o reintenta con un error accionable y sanitizado.
 
 ## 4. Egress de audio y conversión
 

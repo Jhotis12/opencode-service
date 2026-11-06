@@ -101,6 +101,34 @@ async function setup() {
     createdAt: now,
     updatedAt: now,
   });
+  store.integrations.create({
+    id: "tts1",
+    scope: "project",
+    projectSlug: "ventas",
+    kind: "speech",
+    name: "Voz",
+    slug: "voz",
+    config: { baseUrl: "http://tts.local/v1", model: "kokoro", voice: "ef_dora" },
+    secretRefs: {},
+    capabilities: ["synthesize_speech"],
+    status: "connected",
+    createdAt: now,
+    updatedAt: now,
+  });
+  store.integrations.create({
+    id: "tts-other",
+    scope: "project",
+    projectSlug: "soporte",
+    kind: "speech",
+    name: "Voz otro",
+    slug: "voz-otro",
+    config: { baseUrl: "http://tts.local/v1", model: "kokoro", voice: "ef_dora" },
+    secretRefs: {},
+    capabilities: ["synthesize_speech"],
+    status: "connected",
+    createdAt: now,
+    updatedAt: now,
+  });
   return { store, workspace };
 }
 
@@ -182,6 +210,61 @@ describe("transcription workflow resource validation", () => {
       validateWorkflowResources(store, workspace, "ventas", graph("asr-other")),
     ).rejects.toBeInstanceOf(WorkflowValidationError);
     await expect(validateWorkflowResources(store, workspace, "ventas", graph("tg1"))).rejects.toBeInstanceOf(
+      WorkflowValidationError,
+    );
+    store.close();
+  });
+});
+
+function speakGraph(integrationId?: string): WorkflowGraph {
+  return {
+    version: 1,
+    id: "speak-flow",
+    name: "Speak",
+    description: "",
+    nodes: [
+      {
+        id: "start",
+        type: "trigger",
+        position: { x: 0, y: 0 },
+        config: { kind: "manual" },
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+      {
+        id: "hablar",
+        type: "speak",
+        position: { x: 1, y: 0 },
+        config: integrationId ? { integrationId } : {},
+        notebookIds: [],
+        timeoutMs: 120_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+    ],
+    edges: [{ id: "e1", source: "start", target: "hablar" }],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+describe("speech workflow resource validation", () => {
+  it("accepts a project speech integration or the project default", async () => {
+    const { store, workspace } = await setup();
+    await expect(validateWorkflowResources(store, workspace, "ventas", speakGraph("tts1"))).resolves.toBeUndefined();
+    store.projects.update("ventas", { speechIntegrationId: "tts1" });
+    await expect(validateWorkflowResources(store, workspace, "ventas", speakGraph())).resolves.toBeUndefined();
+    store.close();
+  });
+
+  it("rejects missing, cross-project, and non-speech connections", async () => {
+    const { store, workspace } = await setup();
+    await expect(validateWorkflowResources(store, workspace, "ventas", speakGraph())).rejects.toBeInstanceOf(
+      WorkflowValidationError,
+    );
+    await expect(
+      validateWorkflowResources(store, workspace, "ventas", speakGraph("tts-other")),
+    ).rejects.toBeInstanceOf(WorkflowValidationError);
+    await expect(validateWorkflowResources(store, workspace, "ventas", speakGraph("tg1"))).rejects.toBeInstanceOf(
       WorkflowValidationError,
     );
     store.close();

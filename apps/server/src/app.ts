@@ -287,6 +287,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
     databaseAction,
     notification,
     transcription,
+    speech,
+    media,
     notifyApproval: (run, nodeId) => notifyApproval.execute(run, nodeId),
     workerHandlers: {
       db: ({ projectSlug, integrationId, sql, params }) =>

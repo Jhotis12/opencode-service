@@ -44,9 +44,9 @@
 
 ## 8. Despliegue, salud y verificación integral
 
-- [ ] 8.1 Agregar la descarga de `speaches-ai/Kokoro-82M-v1.0-ONNX` al init de speaches en `docker-compose.yml` y documentar en README la conexión local (`http://transcription:8000/v1`), la voz `ef_dora`, la necesidad de ffmpeg para la nota de voz y el fallback MP3; verificar con `docker compose config` y una consulta real a `/v1/models` con el servicio levantado.
-- [ ] 8.2 Exponer las conexiones `speech` en el health con su último test y error sanitizado, sin secretos; verificar con el test del health use case y una respuesta del panel que incluye la conexión local.
-- [ ] 8.3 Ejecutar la verificación integral: `bun run typecheck`, `bun run test`, una prueba local de síntesis con speaches que llegue a un nodo `speak` y a una entrega Telegram simulada, y `graphify update .`; confirmar que los escenarios de las cuatro deltas quedan cubiertos y que el grafo queda actualizado.
+- [x] 8.1 Agregar la descarga de `speaches-ai/Kokoro-82M-v1.0-ONNX` al init de speaches en `docker-compose.yml` y documentar en README la conexión local (`http://transcription:8000/v1`), la voz `ef_dora`, la necesidad de ffmpeg para la nota de voz y el fallback MP3; verificar con `docker compose config` y una consulta real a `/v1/models` con el servicio levantado.
+- [x] 8.2 Exponer las conexiones `speech` en el health con su último test y error sanitizado, sin secretos; verificar con el test del health use case y una respuesta del panel que incluye la conexión local.
+- [x] 8.3 Ejecutar la verificación integral: `bun run typecheck`, `bun run test`, una prueba local de síntesis con speaches que llegue a un nodo `speak` y a una entrega Telegram simulada, y `graphify update .`; confirmar que los escenarios de las cuatro deltas quedan cubiertos y que el grafo queda actualizado.
 
 ## Workflow follow-up
 

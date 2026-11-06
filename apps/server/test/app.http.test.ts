@@ -397,6 +397,27 @@ describe("application HTTP surface", () => {
     };
     const transcription = health.services.find((service) => service.name.includes("Transcription ASR salud"));
     expect(transcription?.detail).toContain("Systran/faster-whisper-small");
+    const speechCreated = await json("/api/projects/ventas-bot/integrations", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "speech",
+        name: "Voz salud",
+        slug: "voz-salud",
+        config: {
+          baseUrl: "http://transcription:8000/v1",
+          model: "speaches-ai/Kokoro-82M-v1.0-ONNX",
+          voice: "ef_dora",
+        },
+      }),
+    });
+    expect(speechCreated.status).toBe(201);
+    const speechBody = (await speechCreated.json()) as { integration: { id: string } };
+    const speechHealth = (await (await json("/api/system/health")).json()) as {
+      services: Array<{ name: string; detail?: string }>;
+    };
+    const speech = speechHealth.services.find((service) => service.name.includes("Speech Voz salud"));
+    expect(speech?.detail).toContain("ef_dora");
+    await json(`/api/projects/ventas-bot/integrations/${speechBody.integration.id}`, { method: "DELETE" });
     await json(`/api/projects/ventas-bot/integrations/${body.integration.id}`, { method: "DELETE" });
   });
 

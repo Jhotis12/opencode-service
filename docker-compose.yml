@@ -59,7 +59,8 @@ services:
       - -c
       - |
         curl -fsS -X POST http://transcription:8000/v1/models/Systran/faster-whisper-base &&
-        curl -fsS -X POST http://transcription:8000/v1/models/Systran/faster-whisper-small
+        curl -fsS -X POST http://transcription:8000/v1/models/Systran/faster-whisper-small &&
+        curl -fsS -X POST http://transcription:8000/v1/models/speaches-ai/Kokoro-82M-v1.0-ONNX
     restart: "no"
 
 volumes:

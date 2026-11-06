@@ -52,6 +52,7 @@ export const projects = sqliteTable("projects", {
   approvalIntegrationId: text("approval_integration_id"),
   approvalRecipient: text("approval_recipient"),
   transcriptionIntegrationId: text("transcription_integration_id"),
+  speechIntegrationId: text("speech_integration_id"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at"),
 });

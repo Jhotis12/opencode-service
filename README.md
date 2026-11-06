@@ -106,6 +106,20 @@ Telegram puede capturar fotos, notas de voz, audio y documentos de imagen. El ar
 
 Fuera de alcance en esta versión: ASR para el orquestador global, media en WhatsApp, subida desde el chat web y retención automática de archivos.
 
+### Voz (TTS) y respuestas de audio en Telegram
+
+La plataforma puede convertir texto en voz y responder con una nota de voz nativa cuando el mensaje entrante traía audio.
+
+- **Conexiones:** se crean en **Recursos > Voz (TTS)** y se prueban desde la tarjeta. Cualquier endpoint OpenAI-compatible (`/audio/speech`) sirve; la API key es opcional y se guarda en la bóveda.
+- **Local:** el mismo `speaches` de `docker-compose.yml` descarga `speaches-ai/Kokoro-82M-v1.0-ONNX` en el init. La conexión local usa `http://transcription:8000/v1`, modelo Kokoro y voz `ef_dora`; `em_alex` y `em_santa` son alternativas en español.
+- **Ajustes:** el proyecto elige su conexión de voz por defecto en **Ajustes > Voz**.
+- **Canal Telegram:** en la configuración del canal, activa **Responder con audio cuando llegue audio**. El default sigue siendo solo texto y los mensajes de texto nunca llaman al TTS.
+- **Nodo Generar voz:** convierte el texto de su input, guarda el audio en `.opencode/media/` y devuelve el `MediaRef`; el flujo puede terminar ahí para entregar la nota de voz.
+- **ffmpeg:** la imagen de ejecución lo incluye para convertir a OGG/Opus, el formato de las notas de voz de Telegram. Si no está disponible o falla, el audio se envía como archivo MP3 en lugar de perderse. Las notas de voz de Telegram duran entre 1 y 60 segundos; audios más largos se envían como archivo.
+- **Límites:** hasta 4 000 caracteres por síntesis. Si la respuesta es más larga o falta la conexión, se envía el texto completo.
+
+Fuera de alcance en esta versión: audio saliente por WhatsApp y chat web, voz para el orquestador global, clonación de voz y streaming TTS.
+
 ### Chat externo (API)
 
 ```bash

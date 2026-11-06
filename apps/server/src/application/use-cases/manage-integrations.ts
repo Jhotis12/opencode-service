@@ -14,6 +14,7 @@ import {
 import { TestDatabaseIntegrationUseCase } from "./connections.ts";
 import type { ExternalDatabaseAdapter } from "../ports/runtime.ts";
 import type { TranscriptionPort } from "../ports/transcription.ts";
+import type { SpeechPort } from "../ports/speech.ts";
 
 export interface IntegrationCommand {
   scope: IntegrationScope;
@@ -54,6 +55,7 @@ export class ManageIntegrationsUseCase {
       manager: IntegrationManagerPort;
       databaseAdapter: ExternalDatabaseAdapter;
       transcription: TranscriptionPort;
+      speech: SpeechPort;
     },
   ) {}
 
@@ -236,6 +238,24 @@ export class ManageIntegrationsUseCase {
     }
     if (integration.kind === "transcription") {
       const result = await this.deps.transcription.test({
+        integrationId: id,
+        scope: integration.scope,
+        projectSlug: integration.projectSlug,
+      });
+      this.deps.store.integrations.updateStatus(
+        id,
+        result.ok ? "connected" : "error",
+        result.ok ? undefined : result.detail,
+      );
+      if (result.ok && result.models) {
+        this.deps.store.integrations.update(id, {
+          config: { ...integration.config, models: result.models },
+        });
+      }
+      return result;
+    }
+    if (integration.kind === "speech") {
+      const result = await this.deps.speech.test({
         integrationId: id,
         scope: integration.scope,
         projectSlug: integration.projectSlug,

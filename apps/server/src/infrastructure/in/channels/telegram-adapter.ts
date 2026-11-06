@@ -1,11 +1,13 @@
-import { Bot, type Context } from "grammy";
+import { Bot, InputFile, type Context } from "grammy";
 import type {
   EgressSendResult,
   IncomingAttachment,
   IncomingIntegrationMessage,
   IntegrationEgressPort,
   IntegrationTransport,
+  OutgoingMedia,
 } from "../../../application/ports/channels.ts";
+import type { AudioConverterPort } from "../../../application/ports/audio.ts";
 import type { EventBus } from "../../../application/ports/events.ts";
 import type { Logger } from "../../../domain/telemetry/index.ts";
 
@@ -13,6 +15,19 @@ export interface TelegramTransport extends IntegrationTransport {
   readonly type: "telegram";
   verify(): Promise<{ botId: string; username: string }>;
   clearWebhook(): Promise<void>;
+  sendVoice(
+    senderId: string,
+    bytes: Uint8Array,
+    filename: string,
+    caption?: string,
+  ): Promise<EgressSendResult | void>;
+  sendAudio(
+    senderId: string,
+    bytes: Uint8Array,
+    filename: string,
+    mime: string,
+    caption?: string,
+  ): Promise<EgressSendResult | void>;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -209,6 +224,35 @@ export class GrammyTransport implements TelegramTransport {
     return { providerMessageId: String(message.message_id) };
   }
 
+  async sendVoice(
+    senderId: string,
+    bytes: Uint8Array,
+    filename: string,
+    caption?: string,
+  ): Promise<EgressSendResult> {
+    const message = await this.bot.api.sendVoice(
+      senderId,
+      new InputFile(bytes, filename),
+      caption ? { caption } : {},
+    );
+    return { providerMessageId: String(message.message_id) };
+  }
+
+  async sendAudio(
+    senderId: string,
+    bytes: Uint8Array,
+    filename: string,
+    _mime: string,
+    caption?: string,
+  ): Promise<EgressSendResult> {
+    const message = await this.bot.api.sendAudio(
+      senderId,
+      new InputFile(bytes, filename),
+      { ...(caption ? { caption } : {}), title: "Respuesta de voz" },
+    );
+    return { providerMessageId: String(message.message_id) };
+  }
+
   async stop(): Promise<void> {
     await this.bot.stop();
     this.started = false;
@@ -229,6 +273,7 @@ export class TelegramChannelAdapter implements IntegrationEgressPort {
       router: { execute(message: IncomingIntegrationMessage): Promise<{ decision: string }> };
       events: EventBus;
       logger: Logger;
+      converter?: AudioConverterPort;
     },
   ) {}
 
@@ -264,6 +309,34 @@ export class TelegramChannelAdapter implements IntegrationEgressPort {
   async send(_text: string, _recipient?: string): Promise<EgressSendResult> {
     if (!_recipient) throw new Error("telegram replies require a recipient");
     return (await this.options.transport.send(_recipient, _text)) ?? {};
+  }
+
+  async sendMedia(_integrationId: string, media: OutgoingMedia, recipient?: string): Promise<EgressSendResult> {
+    if (!recipient) throw new Error("telegram media replies require a recipient");
+    const caption = media.caption?.trim() || undefined;
+    const inlineCaption = caption && caption.length <= 1024 ? caption : undefined;
+    let result: EgressSendResult;
+    try {
+      if (!this.options.converter) throw new Error("audio converter is not configured");
+      const converted = await this.options.converter.toOpus({ bytes: media.bytes, mime: media.mime });
+      if (converted.durationSeconds !== undefined && converted.durationSeconds >= 1 && converted.durationSeconds <= 60) {
+        result = (await this.options.transport.sendVoice(recipient, converted.bytes, "voice.ogg", inlineCaption)) ?? {};
+      } else {
+        result =
+          (await this.options.transport.sendAudio(recipient, media.bytes, media.filename, media.mime, inlineCaption)) ??
+          {};
+      }
+    } catch (error) {
+      this.options.logger.warn({
+        event: "audio_conversion_fallback",
+        integrationId: this.options.integrationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      result =
+        (await this.options.transport.sendAudio(recipient, media.bytes, media.filename, media.mime, inlineCaption)) ?? {};
+    }
+    if (caption && !inlineCaption) await this.options.transport.send(recipient, caption);
+    return result;
   }
 
   async stop(): Promise<void> {

@@ -23,6 +23,7 @@ export function getConfigValue(config: Record<string, unknown>, key: string): un
   if (key === "routing") return (config.routing as { mode?: unknown } | undefined)?.mode ?? "hybrid";
   if (key === "allowlist") return (config.routing as { allowlist?: unknown } | undefined)?.allowlist ?? [];
   if (key === "public") return Boolean((config.routing as { public?: unknown } | undefined)?.public);
+  if (key === "voiceReplies") return (config.routing as { voiceReplies?: unknown } | undefined)?.voiceReplies ?? "never";
   return getPath(config, key);
 }
 
@@ -31,6 +32,7 @@ export function setConfigValue(config: Record<string, unknown>, key: string, val
   if (key === "routing") return { ...config, routing: { ...routing, mode: value } };
   if (key === "allowlist") return { ...config, routing: { ...routing, allowlist: value } };
   if (key === "public") return { ...config, routing: { ...routing, public: value } };
+  if (key === "voiceReplies") return { ...config, routing: { ...routing, voiceReplies: value } };
   return setPath(config, key, value);
 }
 

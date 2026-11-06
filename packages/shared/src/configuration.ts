@@ -9,6 +9,7 @@ import {
   ForeachNodeConfigSchema,
   HttpNodeConfigSchema,
   NotifyNodeConfigSchema,
+  SpeakNodeConfigSchema,
   SubworkflowNodeConfigSchema,
   TranscribeNodeConfigSchema,
   TransformNodeConfigSchema,
@@ -26,6 +27,7 @@ import {
   SqliteIntegrationConfigSchema,
   TelegramIntegrationConfigSchema,
   TranscriptionIntegrationConfigSchema,
+  SpeechIntegrationConfigSchema,
   WhatsAppIntegrationConfigSchema,
   defaultCapabilities,
   type IntegrationCapability,
@@ -56,6 +58,7 @@ export interface ConfigField {
   options?: Array<{ value: string; label: string }>;
   placeholder?: string;
   help?: string;
+  suggestions?: string[];
   widget?: string;
   resource?: "integration" | "agent" | "notebook" | "workflow-version" | "destination";
   integrationKinds?: IntegrationKind[];
@@ -95,6 +98,7 @@ export const INTEGRATION_KIND_LABELS: Record<IntegrationKind, string> = {
   sqlite: "SQLite",
   http: "HTTP API",
   transcription: "Transcripción (ASR)",
+  speech: "Voz (TTS)",
 };
 
 export const CHANNEL_EVENTS: Record<IntegrationKind, string[]> = {
@@ -108,6 +112,7 @@ export const CHANNEL_EVENTS: Record<IntegrationKind, string[]> = {
   sqlite: [],
   http: [],
   transcription: [],
+  speech: [],
 };
 
 const routingFields: ConfigField[] = [
@@ -137,6 +142,17 @@ const routingFields: ConfigField[] = [
     type: "boolean",
     group: "Comportamiento",
     help: "Se guarda dentro de routing.public.",
+  },
+  {
+    key: "voiceReplies",
+    label: "Responder con audio cuando llegue audio",
+    type: "select",
+    group: "Comportamiento",
+    options: [
+      { value: "never", label: "Solo texto" },
+      { value: "auto", label: "Nota de voz si el mensaje trae audio" },
+    ],
+    help: "Se guarda dentro de routing.voiceReplies. Solo aplica a Telegram en este cambio.",
   },
 ];
 
@@ -190,7 +206,7 @@ const databaseFields: ConfigField[] = [
   ...databasePolicyFields,
 ];
 
-const defaultRouting = { mode: "hybrid", allowlist: [], public: false };
+const defaultRouting = { mode: "hybrid", allowlist: [], public: false, voiceReplies: "never" };
 
 export const INTEGRATION_CONFIG_REGISTRY: Record<IntegrationKind, IntegrationConfigDefinition> = {
   telegram: {
@@ -409,6 +425,49 @@ export const INTEGRATION_CONFIG_REGISTRY: Record<IntegrationKind, IntegrationCon
     events: [],
     requiredSecrets: () => [],
   },
+  speech: {
+    kind: "speech",
+    schema: SpeechIntegrationConfigSchema,
+    defaults: {
+      baseUrl: "http://transcription:8000/v1",
+      model: "speaches-ai/Kokoro-82M-v1.0-ONNX",
+      voice: "ef_dora",
+      speed: 1,
+      responseFormat: "mp3",
+    },
+    fields: [
+      { key: "baseUrl", label: "URL base del proveedor", type: "url", group: "Conexión", required: true },
+      { key: "apiKey", label: "API key del TTS", type: "password", group: "Conexión", secret: true },
+      { key: "model", label: "Modelo por defecto", type: "text", group: "Voz", required: true },
+      {
+        key: "voice",
+        label: "Voz por defecto",
+        type: "text",
+        group: "Voz",
+        required: true,
+        placeholder: "ef_dora",
+        suggestions: ["ef_dora", "em_alex", "em_santa"],
+        help: "Kokoro local: ef_dora (español), em_alex, em_santa. Otros proveedores usan sus propias voces.",
+      },
+      { key: "speed", label: "Velocidad (0.5–2.0)", type: "number", group: "Voz" },
+      {
+        key: "responseFormat",
+        label: "Formato de salida",
+        type: "select",
+        group: "Voz",
+        options: [
+          { value: "mp3", label: "MP3" },
+          { value: "wav", label: "WAV" },
+          { value: "flac", label: "FLAC" },
+        ],
+      },
+      { key: "models", label: "Modelos disponibles", type: "json", group: "Voz" },
+    ],
+    capabilities: defaultCapabilities("speech"),
+    secretFields: ["apiKey"],
+    events: [],
+    requiredSecrets: () => [],
+  },
 };
 
 const DATABASE_KINDS: IntegrationKind[] = ["postgres", "mysql", "mssql", "sqlite"];
@@ -544,6 +603,22 @@ export const NODE_CONFIG_REGISTRY: Record<NodeType, NodeConfigDefinition> = {
       { key: "language", label: "Idioma (override)", type: "text" },
       { key: "prompt", label: "Prompt de contexto", type: "textarea" },
       { key: "mediaPath", label: "Ruta de los audios en el input", type: "text", placeholder: "attachments" },
+    ],
+  },
+  speak: {
+    type: "speak",
+    label: "Generar voz",
+    description: "Convierte texto en audio con una conexión TTS",
+    category: "IA",
+    schema: SpeakNodeConfigSchema,
+    defaults: { textPath: "text", maxChars: 4_000 },
+    fields: [
+      integrationField("integrationId", "Conexión de voz", ["speech"]),
+      { key: "model", label: "Modelo (override)", type: "text" },
+      { key: "voice", label: "Voz (override)", type: "text", placeholder: "ef_dora" },
+      { key: "speed", label: "Velocidad (0.5–2.0)", type: "number" },
+      { key: "textPath", label: "Ruta del texto en el input", type: "text", placeholder: "text" },
+      { key: "maxChars", label: "Máximo de caracteres", type: "number" },
     ],
   },
   decision: {

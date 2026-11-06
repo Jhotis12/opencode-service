@@ -46,6 +46,10 @@ export const NODE_SHAPES: Record<NodeType, NodeShape> = {
     name: "waveform",
     style: { borderRadius: "18px 18px 6px 18px" },
   },
+  speak: {
+    name: "speaker",
+    style: { borderRadius: "6px 18px 18px 18px" },
+  },
   decision: {
     name: "flattened-diamond",
     style: { clipPath: "polygon(50% 0, 100% 30%, 100% 70%, 50% 100%, 0 70%, 0 30%)" },

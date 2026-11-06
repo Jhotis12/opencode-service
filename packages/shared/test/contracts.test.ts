@@ -6,6 +6,9 @@ import {
   ChatMessageRequestSchema,
   ChatMessageSchema,
   MediaRefSchema,
+  SpeakNodeConfigSchema,
+  SpeechIntegrationConfigSchema,
+  ChannelRoutingSchema,
   TranscribeNodeConfigSchema,
   TranscriptionIntegrationConfigSchema,
   CreateProjectRequestSchema,
@@ -139,6 +142,38 @@ describe("media and transcription contracts", () => {
       ChatMessageSchema.parse({ id: "m1", threadId: "t1", role: "user", content: "hola", createdAt: new Date().toISOString() })
         .attachments,
     ).toBeUndefined();
+  });
+
+  it("validates an OpenAI-compatible speech integration", () => {
+    const parsed = SpeechIntegrationConfigSchema.parse({
+      kind: "speech",
+      baseUrl: "http://transcription:8000/v1",
+      model: "speaches-ai/Kokoro-82M-v1.0-ONNX",
+      voice: "ef_dora",
+    });
+    expect(parsed.speed).toBe(1);
+    expect(parsed.responseFormat).toBe("mp3");
+    expect(SpeechIntegrationConfigSchema.safeParse({ kind: "speech", baseUrl: "nope", voice: "x" }).success).toBe(false);
+    expect(
+      SpeechIntegrationConfigSchema.safeParse({
+        kind: "speech",
+        baseUrl: "http://transcription:8000/v1",
+        model: "m",
+        voice: "v",
+        speed: 3,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("parses the speak node contract with conservative defaults", () => {
+    expect(SpeakNodeConfigSchema.parse({}).textPath).toBe("text");
+    expect(SpeakNodeConfigSchema.parse({}).maxChars).toBe(4_000);
+    expect(SpeakNodeConfigSchema.safeParse({ voice: "" }).success).toBe(false);
+  });
+
+  it("defaults voice replies to never", () => {
+    expect(ChannelRoutingSchema.parse({}).voiceReplies).toBe("never");
+    expect(ChannelRoutingSchema.parse({ voiceReplies: "auto" }).voiceReplies).toBe("auto");
   });
 });
 

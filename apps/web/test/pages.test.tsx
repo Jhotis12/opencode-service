@@ -134,6 +134,7 @@ vi.mock("../src/api.ts", () => ({
         description: "",
         primaryAgent: "principal/agente",
         transcriptionIntegrationId: "asr1",
+        speechIntegrationId: "tts1",
         createdAt: new Date().toISOString(),
       },
       integrations: [
@@ -147,6 +148,24 @@ vi.mock("../src/api.ts", () => ({
           config: { baseUrl: "http://transcription:8000/v1", model: "Systran/faster-whisper-small" },
           secretRefs: {},
           capabilities: ["transcribe_audio"],
+          status: "connected",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "tts1",
+          scope: "project",
+          projectSlug: "ventas",
+          kind: "speech",
+          name: "Voz local",
+          slug: "voz-local",
+          config: {
+            baseUrl: "http://transcription:8000/v1",
+            model: "speaches-ai/Kokoro-82M-v1.0-ONNX",
+            voice: "ef_dora",
+          },
+          secretRefs: {},
+          capabilities: ["synthesize_speech"],
           status: "connected",
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -168,6 +187,24 @@ vi.mock("../src/api.ts", () => ({
           config: { baseUrl: "http://transcription:8000/v1", model: "Systran/faster-whisper-small" },
           secretRefs: {},
           capabilities: ["transcribe_audio"],
+          status: "connected",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "tts1",
+          scope: "project",
+          projectSlug: "ventas",
+          kind: "speech",
+          name: "Voz local",
+          slug: "voz-local",
+          config: {
+            baseUrl: "http://transcription:8000/v1",
+            model: "speaches-ai/Kokoro-82M-v1.0-ONNX",
+            voice: "ef_dora",
+          },
+          secretRefs: {},
+          capabilities: ["synthesize_speech"],
           status: "connected",
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -231,6 +268,18 @@ describe("ProjectSettingsPanel", () => {
     expect(vi.mocked(api.updateProjectSettings)).toHaveBeenCalledWith(
       "ventas",
       expect.objectContaining({ transcriptionIntegrationId: null }),
+    );
+  });
+
+  it("configures the default speech connection", async () => {
+    renderWithProviders(<ProjectSettingsPanel projectSlug="ventas" />);
+    const select = await screen.findByLabelText("Conexión de voz por defecto");
+    expect(select).toHaveValue("tts1");
+    await userEvent.selectOptions(select, "");
+    await userEvent.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+    expect(vi.mocked(api.updateProjectSettings)).toHaveBeenCalledWith(
+      "ventas",
+      expect.objectContaining({ speechIntegrationId: null }),
     );
   });
 });

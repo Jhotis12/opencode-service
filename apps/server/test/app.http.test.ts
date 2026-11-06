@@ -45,6 +45,12 @@ function fakeTelegramTransport(): TelegramTransport {
     async send() {
       return { providerMessageId: "fake-1" };
     },
+    async sendVoice() {
+      return { providerMessageId: "fake-voice-1" };
+    },
+    async sendAudio() {
+      return { providerMessageId: "fake-audio-1" };
+    },
     async stop() {},
     status() {
       return "connected";
@@ -332,6 +338,48 @@ describe("application HTTP surface", () => {
     expect(messages.data[1]?.content).toContain("[simulado");
   });
 
+  it("tests a speech connection through the integration route", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname.endsWith("/models")) {
+          return Response.json({ data: [{ id: "kokoro" }] });
+        }
+        return new Response(new Uint8Array([0xff, 0xfb, 0x90, 0x64]), {
+          headers: { "content-type": "audio/mpeg" },
+        });
+      },
+    });
+    try {
+      const created = await json("/api/projects/ventas-bot/integrations", {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "speech",
+          name: "Voz salud",
+          slug: "voz-salud",
+          config: {
+            baseUrl: `http://127.0.0.1:${server.port}/v1`,
+            model: "kokoro",
+            voice: "ef_dora",
+          },
+        }),
+      });
+      expect(created.status).toBe(201);
+      const body = (await created.json()) as { integration: { id: string } };
+      const tested = await json(`/api/projects/ventas-bot/integrations/${body.integration.id}/test`, {
+        method: "POST",
+      });
+      expect(tested.status).toBe(200);
+      const result = (await tested.json()) as { ok: boolean; models?: string[] };
+      expect(result.ok).toBe(true);
+      expect(result.models).toEqual(["kokoro"]);
+      await json(`/api/projects/ventas-bot/integrations/${body.integration.id}`, { method: "DELETE" });
+    } finally {
+      server.stop(true);
+    }
+  });
+
   it("shows transcription connections in the health snapshot", async () => {
     const created = await json("/api/projects/ventas-bot/integrations", {
       method: "POST",
@@ -349,6 +397,27 @@ describe("application HTTP surface", () => {
     };
     const transcription = health.services.find((service) => service.name.includes("Transcription ASR salud"));
     expect(transcription?.detail).toContain("Systran/faster-whisper-small");
+    const speechCreated = await json("/api/projects/ventas-bot/integrations", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "speech",
+        name: "Voz salud",
+        slug: "voz-salud",
+        config: {
+          baseUrl: "http://transcription:8000/v1",
+          model: "speaches-ai/Kokoro-82M-v1.0-ONNX",
+          voice: "ef_dora",
+        },
+      }),
+    });
+    expect(speechCreated.status).toBe(201);
+    const speechBody = (await speechCreated.json()) as { integration: { id: string } };
+    const speechHealth = (await (await json("/api/system/health")).json()) as {
+      services: Array<{ name: string; detail?: string }>;
+    };
+    const speech = speechHealth.services.find((service) => service.name.includes("Speech Voz salud"));
+    expect(speech?.detail).toContain("ef_dora");
+    await json(`/api/projects/ventas-bot/integrations/${speechBody.integration.id}`, { method: "DELETE" });
     await json(`/api/projects/ventas-bot/integrations/${body.integration.id}`, { method: "DELETE" });
   });
 

@@ -14,6 +14,7 @@ export const IntegrationKindSchema = z.enum([
   "sqlite",
   "http",
   "transcription",
+  "speech",
 ]);
 export type IntegrationKind = z.infer<typeof IntegrationKindSchema>;
 
@@ -24,6 +25,7 @@ export const IntegrationCapabilitySchema = z.enum([
   "read_email",
   "query",
   "transcribe_audio",
+  "synthesize_speech",
 ]);
 export type IntegrationCapability = z.infer<typeof IntegrationCapabilitySchema>;
 
@@ -40,14 +42,18 @@ export type IntegrationStatus = z.infer<typeof IntegrationStatusSchema>;
 export const ChannelModeSchema = z.enum(["agent", "workflow", "hybrid"]);
 export type ChannelMode = z.infer<typeof ChannelModeSchema>;
 
+export const VoiceRepliesSchema = z.enum(["never", "auto"]);
+export type VoiceReplies = z.infer<typeof VoiceRepliesSchema>;
+
 export const ChannelRoutingSchema = z.object({
   mode: ChannelModeSchema.default("hybrid"),
   allowlist: z.array(z.string()).default([]),
   public: z.boolean().default(false),
+  voiceReplies: VoiceRepliesSchema.default("never"),
 });
 export type ChannelRouting = z.infer<typeof ChannelRoutingSchema>;
 
-const defaultRouting: ChannelRouting = { mode: "hybrid", allowlist: [], public: false };
+const defaultRouting: ChannelRouting = { mode: "hybrid", allowlist: [], public: false, voiceReplies: "never" };
 
 export const TelegramIntegrationConfigSchema = z.object({
   kind: z.literal("telegram"),
@@ -124,6 +130,16 @@ export const TranscriptionIntegrationConfigSchema = z.object({
   models: z.array(z.string().min(1)).optional(),
 }).passthrough();
 
+export const SpeechIntegrationConfigSchema = z.object({
+  kind: z.literal("speech"),
+  baseUrl: z.string().url(),
+  model: z.string().min(1),
+  voice: z.string().min(1),
+  speed: z.number().min(0.5).max(2).default(1),
+  responseFormat: z.enum(["mp3", "wav", "flac"]).default("mp3"),
+  models: z.array(z.string().min(1)).optional(),
+}).passthrough();
+
 export const IntegrationConfigSchema = z.discriminatedUnion("kind", [
   TelegramIntegrationConfigSchema,
   WhatsAppIntegrationConfigSchema,
@@ -135,6 +151,7 @@ export const IntegrationConfigSchema = z.discriminatedUnion("kind", [
   SqliteIntegrationConfigSchema,
   HttpIntegrationConfigSchema,
   TranscriptionIntegrationConfigSchema,
+  SpeechIntegrationConfigSchema,
 ]);
 export type IntegrationConfig = z.infer<typeof IntegrationConfigSchema>;
 
@@ -159,6 +176,8 @@ export function defaultCapabilities(kind: IntegrationKind): IntegrationCapabilit
       return [];
     case "transcription":
       return ["transcribe_audio"];
+    case "speech":
+      return ["synthesize_speech"];
   }
 }
 

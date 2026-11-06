@@ -19,6 +19,8 @@ import type { AgentFileAttachment, AgentModelInfo, AgentRuntimePort } from "../s
 import { AgentPromptTimeoutError } from "../src/application/ports/runtime.ts";
 import type { EventBus } from "../src/application/ports/events.ts";
 import type { TranscriptionPort } from "../src/application/ports/transcription.ts";
+import type { SpeechPort } from "../src/application/ports/speech.ts";
+import { FsMediaStore } from "../src/infrastructure/out/media/fs-media-store.ts";
 import {
   ExecuteWorkflowRunUseCase,
   executeHttpNode,
@@ -105,6 +107,7 @@ async function setup(graph: WorkflowGraph, nodes: Record<string, string>, extraD
   const agent = new FakeAgent();
   const events = new FakeEvents();
   const metrics = new InMemoryMetrics();
+  const media = new FsMediaStore({ workspacesDir: dir, controlDirectory: join(dir, "control") });
   const deps: ExecutorDeps = {
     store,
     workspace,
@@ -114,6 +117,7 @@ async function setup(graph: WorkflowGraph, nodes: Record<string, string>, extraD
     metrics,
     errors: new NoopErrorTracker(),
     logger: silentLogger,
+    media,
     ...extraDeps,
   };
   return { dir, workspace, store, agent, events, metrics, executor: new ExecuteWorkflowRunUseCase(deps), deps };
@@ -1411,6 +1415,268 @@ describe("workflow execution", () => {
     const run = await executor.execute({ projectSlug: "p1", graph, payload: {}, entryPoint: "web_ui" });
     expect(run.status).toBe("failed");
     expect(run.error).toContain("found no audio attachment");
+    store.close();
+  });
+
+  it("synthesizes text with the project default speech connection", async () => {
+    const now = new Date().toISOString();
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "speak-flow",
+      name: "Speak flow",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "hablar",
+          type: "speak",
+          position: { x: 1, y: 0 },
+          config: { voice: "em_alex", speed: 1.2 },
+          notebookIds: [],
+          timeoutMs: 120_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "hablar" }],
+      updatedAt: now,
+    };
+    const calls: Array<{ integrationId: string; text: string; voice?: string; speed?: number }> = [];
+    const speech: SpeechPort = {
+      async synthesize(input) {
+        calls.push({ integrationId: input.integrationId, text: input.text, voice: input.voice, speed: input.speed });
+        return { bytes: new Uint8Array([0xff, 0xfb, 0x90, 0x64]), mime: "audio/mpeg" };
+      },
+      async listModels() {
+        return ["kokoro"];
+      },
+      async test() {
+        return { ok: true };
+      },
+    };
+    const { executor, store, dir } = await setup(graph, {}, { speech });
+    store.projects.create({
+      id: "p1",
+      slug: "p1",
+      name: "P1",
+      description: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.integrations.create({
+      id: "tts1",
+      scope: "project",
+      projectSlug: "p1",
+      kind: "speech",
+      name: "Voz",
+      slug: "voz",
+      config: { baseUrl: "http://tts.local/v1", model: "kokoro", voice: "ef_dora" },
+      secretRefs: {},
+      capabilities: ["synthesize_speech"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.projects.update("p1", { speechIntegrationId: "tts1" });
+    const run = await executor.execute({
+      projectSlug: "p1",
+      graph,
+      payload: { text: "Hola mundo" },
+      entryPoint: "web_ui",
+    });
+    expect(run.status).toBe("succeeded");
+    const output = run.output as { text: string; audio: { kind: string; path: string; mime: string } };
+    expect(output.text).toBe("Hola mundo");
+    expect(output.audio.kind).toBe("audio");
+    expect(output.audio.path.startsWith(".opencode/media/")).toBe(true);
+    expect(calls[0]).toMatchObject({ integrationId: "tts1", text: "Hola mundo", voice: "em_alex", speed: 1.2 });
+    expect([...(await readFile(join(dir, "p1", output.audio.path)))]).toEqual([0xff, 0xfb, 0x90, 0x64]);
+    store.close();
+  });
+
+  it("uses a plain string input and fails before synthesis when text is missing or too long", async () => {
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "speak-input",
+      name: "Speak input",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "hablar",
+          type: "speak",
+          position: { x: 1, y: 0 },
+          config: { maxChars: 4 },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "hablar" }],
+      updatedAt: new Date().toISOString(),
+    };
+    let calls = 0;
+    const speech: SpeechPort = {
+      async synthesize() {
+        calls += 1;
+        return { bytes: new Uint8Array([0xff, 0xfb, 0x90, 0x64]), mime: "audio/mpeg" };
+      },
+      async listModels() {
+        return [];
+      },
+      async test() {
+        return { ok: true };
+      },
+    };
+    const { executor, store } = await setup(graph, {}, { speech });
+    store.projects.create({
+      id: "p1",
+      slug: "p1",
+      name: "P1",
+      description: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.projects.update("p1", { speechIntegrationId: "tts1" });
+    const ok = await executor.execute({ projectSlug: "p1", graph, payload: "Hola", entryPoint: "web_ui" });
+    expect(ok.status).toBe("succeeded");
+    const long = await executor.execute({ projectSlug: "p1", graph, payload: "Hola mundo", entryPoint: "web_ui" });
+    expect(long.status).toBe("failed");
+    expect(long.error).toContain("exceeds 4 characters");
+    const empty = await executor.execute({ projectSlug: "p1", graph, payload: {}, entryPoint: "web_ui" });
+    expect(empty.status).toBe("failed");
+    expect(empty.error).toContain("found no text");
+    expect(calls).toBe(1);
+    store.close();
+  });
+
+  it("fails the speak node when the provider fails", async () => {
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "speak-fail",
+      name: "Speak fail",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "hablar",
+          type: "speak",
+          position: { x: 1, y: 0 },
+          config: {},
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "hablar" }],
+      updatedAt: new Date().toISOString(),
+    };
+    const speech: SpeechPort = {
+      async synthesize() {
+        throw new Error("provider caido");
+      },
+      async listModels() {
+        return [];
+      },
+      async test() {
+        return { ok: false };
+      },
+    };
+    const { executor, store } = await setup(graph, {}, { speech });
+    store.projects.create({
+      id: "p1",
+      slug: "p1",
+      name: "P1",
+      description: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.projects.update("p1", { speechIntegrationId: "tts1" });
+    const run = await executor.execute({ projectSlug: "p1", graph, payload: { text: "Hola" }, entryPoint: "web_ui" });
+    expect(run.status).toBe("failed");
+    expect(run.error).toContain("provider caido");
+    store.close();
+  });
+
+  it("retries a failed speak node according to its retry policy", async () => {
+    const graph: WorkflowGraph = {
+      version: 1,
+      id: "speak-retry",
+      name: "Speak retry",
+      description: "",
+      nodes: [
+        {
+          id: "start",
+          type: "trigger",
+          position: { x: 0, y: 0 },
+          config: { kind: "manual" },
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 0 },
+        },
+        {
+          id: "hablar",
+          type: "speak",
+          position: { x: 1, y: 0 },
+          config: {},
+          notebookIds: [],
+          timeoutMs: 30_000,
+          retryPolicy: { maxRetries: 1, backoffMs: 1 },
+        },
+      ],
+      edges: [{ id: "e1", source: "start", target: "hablar" }],
+      updatedAt: new Date().toISOString(),
+    };
+    let attempts = 0;
+    const speech: SpeechPort = {
+      async synthesize() {
+        attempts += 1;
+        if (attempts === 1) throw new Error("transient");
+        return { bytes: new Uint8Array([0xff, 0xfb, 0x90, 0x64]), mime: "audio/mpeg" };
+      },
+      async listModels() {
+        return [];
+      },
+      async test() {
+        return { ok: true };
+      },
+    };
+    const { executor, store } = await setup(graph, {}, { speech });
+    store.projects.create({
+      id: "p1",
+      slug: "p1",
+      name: "P1",
+      description: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    store.projects.update("p1", { speechIntegrationId: "tts1" });
+    const run = await executor.execute({ projectSlug: "p1", graph, payload: { text: "Hola" }, entryPoint: "web_ui" });
+    expect(run.status).toBe("succeeded");
+    expect(attempts).toBe(2);
     store.close();
   });
 

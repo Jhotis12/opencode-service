@@ -48,7 +48,9 @@ describe("IntegrationEditor", () => {
           kind: "telegram",
           name: "Bot",
           slug: "bot",
-          config: expect.objectContaining({ routing: { mode: "hybrid", allowlist: [], public: false } }),
+          config: expect.objectContaining({
+            routing: { mode: "hybrid", allowlist: [], public: false, voiceReplies: "never" },
+          }),
           secrets: { token: "123:ABC" },
         }),
       ),
@@ -73,6 +75,60 @@ describe("IntegrationEditor", () => {
       ),
     );
     expect(apiMock.updateIntegration.mock.calls[0]?.[2]).not.toHaveProperty("secrets.token");
+  });
+
+  it("saves the telegram voice reply preference inside routing", async () => {
+    apiMock.updateIntegration.mockResolvedValueOnce({ ...baseIntegration, name: "Bot" });
+    renderWithProviders(
+      <IntegrationEditor scope="project" projectSlug="ventas" integration={baseIntegration} onSaved={vi.fn()} />,
+    );
+    await userEvent.selectOptions(screen.getByLabelText("Responder con audio cuando llegue audio"), "auto");
+    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() =>
+      expect(apiMock.updateIntegration).toHaveBeenCalledWith(
+        "ventas",
+        "tg1",
+        expect.objectContaining({
+          config: expect.objectContaining({ routing: expect.objectContaining({ voiceReplies: "auto" }) }),
+        }),
+      ),
+    );
+  });
+
+  it("creates a guided speech integration with voice suggestions", async () => {
+    apiMock.createIntegration.mockResolvedValueOnce({
+      integration: { ...baseIntegration, kind: "speech", slug: "voz", name: "Voz" },
+    });
+    const saved = vi.fn();
+    renderWithProviders(<IntegrationEditor scope="project" projectSlug="ventas" onSaved={saved} />);
+    await userEvent.selectOptions(screen.getByLabelText("Tipo"), "speech");
+    expect(screen.getByLabelText("Voz por defecto")).toHaveAttribute("list", "integration-suggestions-voice");
+    expect(
+      document.getElementById("integration-suggestions-voice")?.querySelector('option[value="ef_dora"]'),
+    ).not.toBeNull();
+    await userEvent.type(screen.getByLabelText("Nombre"), "Voz");
+    await userEvent.type(screen.getByLabelText("Slug"), "voz");
+    await userEvent.clear(screen.getByLabelText("Voz por defecto"));
+    await userEvent.type(screen.getByLabelText("Voz por defecto"), "em_alex");
+    await userEvent.type(screen.getByLabelText("API key del TTS"), "sk-voz");
+    await userEvent.click(screen.getByRole("button", { name: "Crear integración" }));
+    await waitFor(() =>
+      expect(apiMock.createIntegration).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({
+          kind: "speech",
+          name: "Voz",
+          slug: "voz",
+          config: expect.objectContaining({
+            baseUrl: "http://transcription:8000/v1",
+            model: "speaches-ai/Kokoro-82M-v1.0-ONNX",
+            voice: "em_alex",
+          }),
+          secrets: { apiKey: "sk-voz" },
+        }),
+      ),
+    );
+    expect(saved).toHaveBeenCalled();
   });
 
   it("shows an actionable error when the transport fails", async () => {

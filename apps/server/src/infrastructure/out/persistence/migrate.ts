@@ -382,6 +382,7 @@ export function migrate(sqlite: Database): void {
     addColumnIfMissing(sqlite, "projects", "approval_integration_id", "TEXT");
     addColumnIfMissing(sqlite, "projects", "approval_recipient", "TEXT");
     addColumnIfMissing(sqlite, "projects", "transcription_integration_id", "TEXT");
+    addColumnIfMissing(sqlite, "projects", "speech_integration_id", "TEXT");
     addColumnIfMissing(sqlite, "projects", "updated_at", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "launched_by", "TEXT");
     addColumnIfMissing(sqlite, "workflow_runs", "graph_hash", "TEXT");

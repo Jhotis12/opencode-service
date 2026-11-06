@@ -74,6 +74,17 @@ async function setup() {
     manager: fakeManager,
     databaseAdapter: {} as never,
     transcription: fakeTranscription,
+    speech: {
+      async synthesize() {
+        return { bytes: new Uint8Array(), mime: "audio/mpeg" };
+      },
+      async listModels() {
+        return [];
+      },
+      async test() {
+        return { ok: true };
+      },
+    },
   }).create({
     scope: "project",
     projectSlug: "ventas",

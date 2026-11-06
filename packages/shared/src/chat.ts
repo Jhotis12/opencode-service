@@ -171,6 +171,7 @@ export const ProjectSettingsSchema = z.object({
   approvalIntegrationId: z.string().optional(),
   approvalRecipient: z.string().optional(),
   transcriptionIntegrationId: z.string().optional(),
+  speechIntegrationId: z.string().optional(),
 });
 export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>;
 

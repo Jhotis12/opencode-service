@@ -4,6 +4,7 @@ import {
   InputSchemaSchema,
   DatabaseNodeConfigSchema,
   NotifyNodeConfigSchema,
+  SpeakNodeConfigSchema,
   SubworkflowNodeConfigSchema,
   ForeachNodeConfigSchema,
   TranscribeNodeConfigSchema,
@@ -21,7 +22,9 @@ import type { CodeWorkerPort, WorkerRpcHandlers } from "../ports/worker.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
 import { AgentPromptTimeoutError } from "../ports/runtime.ts";
 import type { SecretVault } from "../ports/security.ts";
+import type { MediaStorePort } from "../ports/media.ts";
 import type { TranscriptionPort } from "../ports/transcription.ts";
+import { SPEECH_MAX_CHARS, type SpeechPort } from "../ports/speech.ts";
 import type { EventBus } from "../ports/events.ts";
 import type { ErrorTracker, Metrics, Logger } from "../../domain/telemetry/index.ts";
 import { WorkerTimeoutError } from "../ports/worker.ts";
@@ -61,6 +64,8 @@ export interface ExecutorDeps {
   databaseAction?: ExecuteDatabaseActionUseCase;
   notification?: SendNotificationUseCase;
   transcription?: TranscriptionPort;
+  speech?: SpeechPort;
+  media?: MediaStorePort;
   maxConcurrentRuns?: number;
   notifyApproval?: (run: WorkflowRunRecord, nodeId: string) => Promise<void>;
   knowledgeContext?: (projectSlug: string, notebookIds: string[], query: unknown, strictGrounding: boolean) => Promise<string>;
@@ -537,6 +542,7 @@ export class ExecuteWorkflowRunUseCase {
           current.type === "database" ||
           current.type === "notify" ||
           current.type === "transcribe" ||
+          current.type === "speak" ||
           (current.type === "decision" && Boolean(current.codeFile) && current.config.mode !== "condition");
         let attempt = 0;
         for (;;) {
@@ -811,6 +817,68 @@ export class ExecuteWorkflowRunUseCase {
               projectSlug: state.run.projectSlug,
               nodeId: current.id,
               durationMs: Date.now() - transcriptionStarted,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+          }
+        } else if (current.type === "speak") {
+          if (!this.deps.speech) throw new Error("speech is not configured");
+          if (!this.deps.media) throw new Error("media storage is not configured");
+          const config = SpeakNodeConfigSchema.parse(current.config);
+          const project = store.projects.findBySlug(state.run.projectSlug);
+          const integrationId = config.integrationId ?? project?.speechIntegrationId;
+          if (!integrationId) {
+            throw new Error(`speak node ${current.id} requires a speech integration or project default`);
+          }
+          const raw = typeof currentInput === "string" ? currentInput : resolvePath(currentInput, config.textPath);
+          const text = typeof raw === "string" ? raw.trim() : "";
+          if (!text) throw new Error(`speak node ${current.id} found no text at ${config.textPath}`);
+          if (text.length > Math.min(config.maxChars, SPEECH_MAX_CHARS)) {
+            throw new Error(
+              `speak node ${current.id} text exceeds ${Math.min(config.maxChars, SPEECH_MAX_CHARS)} characters`,
+            );
+          }
+          const speechStarted = Date.now();
+          try {
+            const result = await this.deps.speech.synthesize({
+              integrationId,
+              scope: "project",
+              projectSlug: state.run.projectSlug,
+              text,
+              model: config.model,
+              voice: config.voice,
+              speed: config.speed,
+              timeoutMs: current.timeoutMs,
+            });
+            const extension = result.mime === "audio/wav" ? "wav" : result.mime === "audio/flac" ? "flac" : "mp3";
+            const audio = await this.deps.media.save({
+              scope: "project",
+              projectSlug: state.run.projectSlug,
+              filename: `speech-${current.id}.${extension}`,
+              mime: result.mime,
+              bytes: result.bytes,
+            });
+            output = { text, audio };
+            logger.info({
+              event: "speech_node_completed",
+              entryPoint,
+              runId: state.run.id,
+              projectSlug: state.run.projectSlug,
+              nodeId: current.id,
+              integrationId,
+              chars: text.length,
+              bytes: result.bytes.byteLength,
+              durationMs: Date.now() - speechStarted,
+            });
+          } catch (error) {
+            logger.error({
+              event: "speech_node_failed",
+              entryPoint,
+              runId: state.run.id,
+              projectSlug: state.run.projectSlug,
+              nodeId: current.id,
+              integrationId,
+              durationMs: Date.now() - speechStarted,
               error: error instanceof Error ? error.message : String(error),
             });
             throw error;

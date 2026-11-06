@@ -1,4 +1,4 @@
-import { TranscribeNodeConfigSchema, integrationEvents, type WorkflowGraph } from "@platform/shared";
+import { SpeakNodeConfigSchema, TranscribeNodeConfigSchema, integrationEvents, type WorkflowGraph } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import { WorkflowValidationError } from "../../domain/workflow/graph.ts";
@@ -67,6 +67,22 @@ export async function validateWorkflowResources(
           );
         } else if (integration.kind !== "transcription" || !integration.capabilities.includes("transcribe_audio")) {
           issues.push(`transcribe node ${node.id} requires a transcription integration`);
+        }
+      }
+    }
+    if (node.type === "speak") {
+      const config = SpeakNodeConfigSchema.safeParse(node.config);
+      if (!config.success) issues.push(`speak node ${node.id} has invalid config`);
+      const project = store.projects.findBySlug(projectSlug);
+      const integrationId = config.success ? config.data.integrationId ?? project?.speechIntegrationId : undefined;
+      if (!integrationId) {
+        issues.push(`speak node ${node.id} requires a speech integration or project default`);
+      } else {
+        const integration = store.integrations.findById(integrationId);
+        if (!integration || integration.scope !== "project" || integration.projectSlug !== projectSlug) {
+          issues.push(`speak node ${node.id} references a speech integration from another project or the global scope`);
+        } else if (integration.kind !== "speech" || !integration.capabilities.includes("synthesize_speech")) {
+          issues.push(`speak node ${node.id} requires a speech integration`);
         }
       }
     }

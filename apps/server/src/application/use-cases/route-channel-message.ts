@@ -1,18 +1,24 @@
-import { ChannelRoutingSchema, integrationEvents, type MediaRef } from "@platform/shared";
+import { ChannelRoutingSchema, MediaRefSchema, integrationEvents, type MediaRef } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { AgentRuntimePort } from "../ports/runtime.ts";
-import type { IncomingIntegrationMessage, IntegrationEgressPort, TriggerRef } from "../ports/channels.ts";
+import type {
+  EgressSendResult,
+  IncomingIntegrationMessage,
+  IntegrationEgressPort,
+  OutgoingMedia,
+  TriggerRef,
+} from "../ports/channels.ts";
 import type { MediaScope, MediaStorePort } from "../ports/media.ts";
 import { MediaStoreError } from "../ports/media.ts";
 import type { EventBus } from "../ports/events.ts";
 import type { TranscriptionPort } from "../ports/transcription.ts";
+import { SPEECH_MAX_CHARS, type SpeechPort } from "../ports/speech.ts";
 import type { Logger, Metrics } from "../../domain/telemetry/index.ts";
 import { readMedia, toAttachmentFiles } from "../../domain/media.ts";
 import { routeGlobalMessage, routeProjectMessage } from "../../domain/channels/router.ts";
 import type { ExecuteWorkflowRunUseCase } from "./execute-workflow.ts";
-import type { IntegrationRecord } from "../../domain/entities.ts";
-import { validateWorkflowResources } from "./workflow-resources.ts";
+import type { IntegrationRecord, WorkflowDeliveryRecord } from "../../domain/entities.ts";import { validateWorkflowResources } from "./workflow-resources.ts";
 import { resolveDestinationList } from "./destinations.ts";
 import { ensureChatSession, promptWithSessionRecovery } from "./chat-session.ts";
 import type { ChatTarget, ChatTurnService } from "./chat-turns.ts";
@@ -24,81 +30,163 @@ async function deliverChatTurn(
     store: Store;
     egress: IntegrationEgressPort;
     turns?: ChatTurnService;
+    speech?: SpeechPort;
+    metrics?: Metrics;
     logger: Logger;
   },
   integrationId: string,
   recipient: string,
   turnId: string,
+  options: { voiceReply?: boolean; speechIntegrationId?: string } = {},
 ): Promise<void> {
   if (!deps.turns) return;
   const actionKey = `chat:${turnId}`;
   if (deliveriesInFlight.has(actionKey)) return;
   deliveriesInFlight.add(actionKey);
   try {
-  const existing = deps.store.deliveries.findByActionKey({ actionKey, integrationId });
-  if (existing?.status === "delivered") return;
-  const now = new Date().toISOString();
-  const delivery =
-    existing ?? {
-      id: crypto.randomUUID(),
-      projectSlug: deps.turns.get(turnId)?.projectSlug ?? "",
-      runId: undefined,
-      nodeId: undefined,
-      integrationId,
-      actionKey,
-      recipient,
-      status: "pending" as const,
-      attempts: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
-  if (!existing) deps.store.deliveries.create(delivery);
-  try {
-    const final = await deps.turns.waitForTerminal(turnId);
-    if (final.status !== "succeeded") {
-      deps.store.deliveries.update(delivery.id, {
-        status: "failed",
-        lastError: `turn ${final.status}`,
-        attempts: delivery.attempts + 1,
-      });
-      deps.logger.warn({
-        event: "channel_chat_turn_failed",
-        turnId,
+    const existing = deps.store.deliveries.findByActionKey({ actionKey, integrationId });
+    if (existing?.status === "delivered") return;
+    const now = new Date().toISOString();
+    const delivery =
+      existing ?? {
+        id: crypto.randomUUID(),
+        projectSlug: deps.turns.get(turnId)?.projectSlug ?? "",
+        runId: undefined,
+        nodeId: undefined,
         integrationId,
-        status: final.status,
-        errorCode: final.errorCode,
-      });
-      return;
-    }
-    const reply = deps.turns.replyForTurn(turnId) || "(sin respuesta)";
-    for (let attempt = delivery.attempts + 1; attempt <= 3; attempt += 1) {
-      try {
-        const result = await deps.egress.send(integrationId, reply, recipient);
+        actionKey,
+        recipient,
+        status: "pending" as const,
+        attempts: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+    if (!existing) deps.store.deliveries.create(delivery);
+    try {
+      const final = await deps.turns.waitForTerminal(turnId);
+      if (final.status !== "succeeded") {
         deps.store.deliveries.update(delivery.id, {
-          status: "delivered",
-          providerMessageId: result.providerMessageId,
-          attempts: attempt,
+          status: "failed",
+          lastError: `turn ${final.status}`,
+          attempts: delivery.attempts + 1,
+        });
+        deps.logger.warn({
+          event: "channel_chat_turn_failed",
+          turnId,
+          integrationId,
+          status: final.status,
+          errorCode: final.errorCode,
         });
         return;
-      } catch (error) {
-        const lastError = error instanceof Error ? error.message : String(error);
-        deps.store.deliveries.update(delivery.id, { status: "failed", lastError, attempts: attempt });
-        if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
       }
+      const reply = deps.turns.replyForTurn(turnId) || "(sin respuesta)";
+      const integration = deps.store.integrations.findById(integrationId);
+      let media: OutgoingMedia | undefined;
+      if (options.voiceReply) {
+        const fallback = (reason: string, error?: unknown) => {
+          deps.metrics?.increment("voice_reply_fallback");
+          deps.logger.warn({
+            event: "voice_reply_fallback",
+            projectSlug: integration?.projectSlug,
+            integrationId,
+            turnId,
+            reason,
+            ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+          });
+        };
+        if (!integration?.projectSlug) fallback("missing_project");
+        else if (!options.speechIntegrationId) fallback("missing_speech");
+        else if (!deps.speech) fallback("missing_speech");
+        else if (!deps.egress.sendMedia) fallback("media_unsupported");
+        else if (reply.length > SPEECH_MAX_CHARS) fallback("text_too_long");
+        else {
+          try {
+            const speech = await deps.speech.synthesize({
+              integrationId: options.speechIntegrationId,
+              scope: "project",
+              projectSlug: integration.projectSlug,
+              text: reply,
+              timeoutMs: 120_000,
+            });
+            const extension = speech.mime === "audio/wav" ? "wav" : speech.mime === "audio/flac" ? "flac" : "mp3";
+            media = { bytes: speech.bytes, filename: `reply.${extension}`, mime: speech.mime, caption: reply };
+          } catch (error) {
+            fallback("synthesis_failed", error);
+          }
+        }
+      }
+
+      const deliver = async (attempt: number): Promise<EgressSendResult> => {
+        if (media && deps.egress.sendMedia) return deps.egress.sendMedia(integrationId, media, recipient);
+        return deps.egress.send(integrationId, reply, recipient);
+      };
+      for (let attempt = delivery.attempts + 1; attempt <= 3; attempt += 1) {
+        try {
+          const result = await deliver(attempt);
+          deps.store.deliveries.update(delivery.id, {
+            status: "delivered",
+            providerMessageId: result.providerMessageId,
+            attempts: attempt,
+          });
+          if (media) {
+            deps.metrics?.increment("voice_reply_sent");
+            deps.logger.info({
+              event: "voice_reply_sent",
+              projectSlug: integration?.projectSlug,
+              integrationId,
+              turnId,
+              bytes: media.bytes.byteLength,
+            });
+          }
+          return;
+        } catch (error) {
+          const lastError = error instanceof Error ? error.message : String(error);
+          deps.store.deliveries.update(delivery.id, { status: "failed", lastError, attempts: attempt });
+          if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+        }
+      }
+      if (media) {
+        deps.metrics?.increment("voice_reply_fallback");
+        deps.logger.warn({
+          event: "voice_reply_fallback",
+          projectSlug: integration?.projectSlug,
+          integrationId,
+          turnId,
+          reason: "delivery_failed",
+        });
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          try {
+            const result = await deps.egress.send(integrationId, reply, recipient);
+            deps.store.deliveries.update(delivery.id, {
+              status: "delivered",
+              providerMessageId: result.providerMessageId,
+              attempts: delivery.attempts + attempt,
+            });
+            return;
+          } catch (error) {
+            const lastError = error instanceof Error ? error.message : String(error);
+            deps.store.deliveries.update(delivery.id, {
+              status: "failed",
+              lastError,
+              attempts: delivery.attempts + attempt,
+            });
+            if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+          }
+        }
+      }
+    } catch (error) {
+      deps.store.deliveries.update(delivery.id, {
+        status: "failed",
+        lastError: error instanceof Error ? error.message : String(error),
+        attempts: delivery.attempts + 1,
+      });
+      deps.logger.error({
+        event: "channel_chat_delivery_failed",
+        turnId,
+        integrationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-  } catch (error) {
-    deps.store.deliveries.update(delivery.id, {
-      status: "failed",
-      lastError: error instanceof Error ? error.message : String(error),
-      attempts: delivery.attempts + 1,
-    });
-    deps.logger.error({
-      event: "channel_chat_delivery_failed",
-      turnId,
-      integrationId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
   } finally {
     deliveriesInFlight.delete(actionKey);
   }
@@ -113,6 +201,7 @@ export interface ChannelRouterDeps {
   egress: IntegrationEgressPort;
   media: MediaStorePort;
   transcription?: TranscriptionPort;
+  speech?: SpeechPort;
   metrics?: Metrics;
   events: EventBus;
   logger: Logger;
@@ -272,6 +361,8 @@ export class RouteProjectIntegrationMessageUseCase {
         project.primaryAgent,
         project.defaultModel,
         project.transcriptionIntegrationId,
+        project.speechIntegrationId,
+        routing.voiceReplies === "auto" && attachments.some((attachment) => attachment.kind === "audio"),
         message,
         attachments,
       );
@@ -308,6 +399,8 @@ export class RouteProjectIntegrationMessageUseCase {
     primaryAgent: string | undefined,
     defaultModel: string | undefined,
     transcriptionIntegrationId: string | undefined,
+    speechIntegrationId: string | undefined,
+    voiceReply: boolean,
     message: IncomingIntegrationMessage,
     attachments: MediaRef[],
   ): Promise<void> {
@@ -413,7 +506,7 @@ export class RouteProjectIntegrationMessageUseCase {
         attachments,
         idempotencyKey: message.externalMessageId ? `${integration.id}:${message.externalMessageId}` : undefined,
       });
-      void this.deliverTurn(integration.id, message.senderId, turn.id);
+      void this.deliverTurn(integration.id, message.senderId, turn.id, { voiceReply, speechIntegrationId });
       return;
     }
     const create = () =>
@@ -436,11 +529,66 @@ export class RouteProjectIntegrationMessageUseCase {
       toAttachmentFiles(directory, attachments),
     );
     this.deps.store.chatThreads.touch(thread.id);
-    await this.deps.egress.send(integration.id, result.reply || "(sin respuesta)", message.senderId);
+    await this.sendReply(integration, message.senderId, result.reply || "(sin respuesta)", {
+      voiceReply,
+      speechIntegrationId,
+    });
   }
 
-  private async deliverTurn(integrationId: string, recipient: string, turnId: string): Promise<void> {
-    await deliverChatTurn(this.deps, integrationId, recipient, turnId);
+  private async sendReply(
+    integration: IntegrationRecord,
+    recipient: string,
+    reply: string,
+    options: { voiceReply?: boolean; speechIntegrationId?: string },
+  ): Promise<void> {
+    const fallback = (reason: string, error?: unknown) => {
+      this.deps.metrics?.increment("voice_reply_fallback");
+      this.deps.logger.warn({
+        event: "voice_reply_fallback",
+        projectSlug: integration.projectSlug,
+        integrationId: integration.id,
+        reason,
+        ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+      });
+    };
+    if (options.voiceReply) {
+      if (!integration.projectSlug) fallback("missing_project");
+      else if (!options.speechIntegrationId) fallback("missing_speech");
+      else if (!this.deps.speech) fallback("missing_speech");
+      else if (!this.deps.egress.sendMedia) fallback("media_unsupported");
+      else if (reply.length > SPEECH_MAX_CHARS) fallback("text_too_long");
+      else {
+        try {
+          const speech = await this.deps.speech.synthesize({
+            integrationId: options.speechIntegrationId,
+            scope: "project",
+            projectSlug: integration.projectSlug,
+            text: reply,
+            timeoutMs: 120_000,
+          });
+          const extension = speech.mime === "audio/wav" ? "wav" : speech.mime === "audio/flac" ? "flac" : "mp3";
+          await this.deps.egress.sendMedia(
+            integration.id,
+            { bytes: speech.bytes, filename: `reply.${extension}`, mime: speech.mime, caption: reply },
+            recipient,
+          );
+          this.deps.metrics?.increment("voice_reply_sent");
+          return;
+        } catch (error) {
+          fallback("synthesis_failed", error);
+        }
+      }
+    }
+    await this.deps.egress.send(integration.id, reply, recipient);
+  }
+
+  private async deliverTurn(
+    integrationId: string,
+    recipient: string,
+    turnId: string,
+    options: { voiceReply?: boolean; speechIntegrationId?: string } = {},
+  ): Promise<void> {
+    await deliverChatTurn(this.deps, integrationId, recipient, turnId, options);
   }
 
   private async handleWorkflow(
@@ -476,6 +624,59 @@ export class RouteProjectIntegrationMessageUseCase {
         message.senderId,
       );
       return;
+    }
+    const audioCandidate =
+      run.output && typeof run.output === "object" && !Array.isArray(run.output)
+        ? MediaRefSchema.safeParse((run.output as { audio?: unknown }).audio)
+        : undefined;
+    const audio = audioCandidate?.success && audioCandidate.data.kind === "audio" ? audioCandidate.data : undefined;
+    if (audio) {
+      const actionKey = `run:${run.id}:output`;
+      const existing = this.deps.store.deliveries.findByActionKey({ actionKey, integrationId: integration.id });
+      if (existing?.status === "delivered") return;
+      const now = new Date().toISOString();
+      const delivery: WorkflowDeliveryRecord = existing ?? {
+        id: crypto.randomUUID(),
+        projectSlug: trigger.projectSlug,
+        runId: run.id,
+        integrationId: integration.id,
+        actionKey,
+        recipient: message.senderId,
+        status: "pending",
+        attempts: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      if (!existing) this.deps.store.deliveries.create(delivery);
+      try {
+        if (!this.deps.egress.sendMedia) throw new Error("integration does not support audio delivery");
+        const directory = await this.deps.workspace.projectDirectory(trigger.projectSlug);
+        const media = await readMedia(directory, audio);
+        const caption =
+          typeof (run.output as { text?: unknown }).text === "string" ? (run.output as { text: string }).text : undefined;
+        const result = await this.deps.egress.sendMedia(
+          integration.id,
+          { bytes: media.bytes, filename: media.filename, mime: audio.mime, caption },
+          message.senderId,
+        );
+        this.deps.store.deliveries.update(delivery.id, {
+          status: "delivered",
+          providerMessageId: result.providerMessageId,
+          attempts: 1,
+        });
+        return;
+      } catch (error) {
+        const lastError = error instanceof Error ? error.message : String(error);
+        this.deps.store.deliveries.update(delivery.id, { status: "failed", lastError, attempts: 1 });
+        this.deps.logger.error({
+          event: "workflow_audio_delivery_failed",
+          projectSlug: trigger.projectSlug,
+          runId: run.id,
+          integrationId: integration.id,
+          error: lastError,
+        });
+        throw error;
+      }
     }
     const output = typeof run.output === "string" ? run.output : JSON.stringify(run.output ?? run.status);
     await this.deps.egress.send(integration.id, output, message.senderId);

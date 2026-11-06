@@ -35,6 +35,7 @@ export function ProjectSettingsPanel({
   const [approvalIntegrationId, setApprovalIntegrationId] = useState("");
   const [approvalRecipient, setApprovalRecipient] = useState("");
   const [transcriptionIntegrationId, setTranscriptionIntegrationId] = useState("");
+  const [speechIntegrationId, setSpeechIntegrationId] = useState("");
   const [status, setStatus] = useState<string>();
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export function ProjectSettingsPanel({
     setApprovalIntegrationId(settingsQuery.data.project.approvalIntegrationId ?? "");
     setApprovalRecipient(settingsQuery.data.project.approvalRecipient ?? "");
     setTranscriptionIntegrationId(settingsQuery.data.project.transcriptionIntegrationId ?? "");
+    setSpeechIntegrationId(settingsQuery.data.project.speechIntegrationId ?? "");
   }, [settingsQuery.data]);
 
   const save = useMutation({
@@ -58,6 +60,7 @@ export function ProjectSettingsPanel({
         approvalIntegrationId: approvalIntegrationId || null,
         approvalRecipient: approvalRecipient || null,
         transcriptionIntegrationId: transcriptionIntegrationId || null,
+        speechIntegrationId: speechIntegrationId || null,
       }),
     onSuccess: async () => {
       setStatus("Ajustes del proyecto guardados");
@@ -174,6 +177,26 @@ export function ProjectSettingsPanel({
         </p>
         {settings.integrations.every((integration) => integration.kind !== "transcription") && (
           <p className="text-xs text-warn">Crea una integración de Transcripción en Recursos para habilitar audio.</p>
+        )}
+        <h3 className="mt-2 text-sm font-semibold text-slate-100">Voz</h3>
+        <label>
+          Conexión de voz por defecto
+          <select value={speechIntegrationId} onChange={(event) => setSpeechIntegrationId(event.target.value)}>
+            <option value="">Sin conexión por defecto</option>
+            {settings.integrations
+              .filter((integration) => integration.kind === "speech")
+              .map((integration) => (
+                <option key={integration.id} value={integration.id}>
+                  {integration.name} · {String(integration.config.voice ?? "sin voz")}
+                </option>
+              ))}
+          </select>
+        </label>
+        <p className="text-xs text-muted">
+          Se usa para responder con audio en Telegram y para los nodos Generar voz que no eligen otra conexión.
+        </p>
+        {settings.integrations.every((integration) => integration.kind !== "speech") && (
+          <p className="text-xs text-warn">Crea una integración de Voz (TTS) en Recursos para habilitar la respuesta por audio.</p>
         )}
         <button className={buttonPrimary} disabled={save.isPending || !name}>
           Guardar ajustes

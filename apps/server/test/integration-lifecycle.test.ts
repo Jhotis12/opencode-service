@@ -51,6 +51,12 @@ class FakeTelegram implements TelegramTransport {
     this.sent.push({ to, text });
     return { providerMessageId: `fake-${this.sent.length}` };
   }
+  async sendVoice() {
+    return { providerMessageId: "fake-voice" };
+  }
+  async sendAudio() {
+    return { providerMessageId: "fake-audio" };
+  }
   async stop() {
     this.running = false;
   }
@@ -244,6 +250,17 @@ describe("telegram token rotation", () => {
       transcription: {
         async transcribe() {
           return { text: "" };
+        },
+        async listModels() {
+          return [];
+        },
+        async test() {
+          return { ok: true };
+        },
+      },
+      speech: {
+        async synthesize() {
+          return { bytes: new Uint8Array(), mime: "audio/mpeg" };
         },
         async listModels() {
           return [];

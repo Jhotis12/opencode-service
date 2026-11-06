@@ -210,6 +210,7 @@ export class SqliteStore implements Store {
           approvalIntegrationId: record.approvalIntegrationId ?? null,
           approvalRecipient: record.approvalRecipient ?? null,
           transcriptionIntegrationId: record.transcriptionIntegrationId ?? null,
+          speechIntegrationId: record.speechIntegrationId ?? null,
           createdAt: record.createdAt,
           updatedAt: record.updatedAt ?? record.createdAt,
         })
@@ -234,6 +235,7 @@ export class SqliteStore implements Store {
         approvalIntegrationId?: string | null;
         approvalRecipient?: string | null;
         transcriptionIntegrationId?: string | null;
+        speechIntegrationId?: string | null;
       },
     ): void => {
       this.handle.db
@@ -251,6 +253,9 @@ export class SqliteStore implements Store {
             : {}),
           ...(patch.transcriptionIntegrationId !== undefined
             ? { transcriptionIntegrationId: patch.transcriptionIntegrationId ?? null }
+            : {}),
+          ...(patch.speechIntegrationId !== undefined
+            ? { speechIntegrationId: patch.speechIntegrationId ?? null }
             : {}),
           updatedAt: new Date().toISOString(),
         })
@@ -1454,6 +1459,7 @@ export class SqliteStore implements Store {
       approvalIntegrationId: row.approvalIntegrationId ?? undefined,
       approvalRecipient: row.approvalRecipient ?? undefined,
       transcriptionIntegrationId: row.transcriptionIntegrationId ?? undefined,
+      speechIntegrationId: row.speechIntegrationId ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt ?? undefined,
     };

@@ -332,6 +332,48 @@ describe("application HTTP surface", () => {
     expect(messages.data[1]?.content).toContain("[simulado");
   });
 
+  it("tests a speech connection through the integration route", async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname.endsWith("/models")) {
+          return Response.json({ data: [{ id: "kokoro" }] });
+        }
+        return new Response(new Uint8Array([0xff, 0xfb, 0x90, 0x64]), {
+          headers: { "content-type": "audio/mpeg" },
+        });
+      },
+    });
+    try {
+      const created = await json("/api/projects/ventas-bot/integrations", {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "speech",
+          name: "Voz salud",
+          slug: "voz-salud",
+          config: {
+            baseUrl: `http://127.0.0.1:${server.port}/v1`,
+            model: "kokoro",
+            voice: "ef_dora",
+          },
+        }),
+      });
+      expect(created.status).toBe(201);
+      const body = (await created.json()) as { integration: { id: string } };
+      const tested = await json(`/api/projects/ventas-bot/integrations/${body.integration.id}/test`, {
+        method: "POST",
+      });
+      expect(tested.status).toBe(200);
+      const result = (await tested.json()) as { ok: boolean; models?: string[] };
+      expect(result.ok).toBe(true);
+      expect(result.models).toEqual(["kokoro"]);
+      await json(`/api/projects/ventas-bot/integrations/${body.integration.id}`, { method: "DELETE" });
+    } finally {
+      server.stop(true);
+    }
+  });
+
   it("shows transcription connections in the health snapshot", async () => {
     const created = await json("/api/projects/ventas-bot/integrations", {
       method: "POST",

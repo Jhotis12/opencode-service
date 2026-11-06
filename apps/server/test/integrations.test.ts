@@ -8,6 +8,7 @@ import {
 import { ManageIntegrationsUseCase, verifyIntegrationKey } from "../src/application/use-cases/manage-integrations.ts";
 import type { IntegrationManagerPort } from "../src/application/ports/integrations.ts";
 import type { TranscriptionPort } from "../src/application/ports/transcription.ts";
+import type { SpeechPort } from "../src/application/ports/speech.ts";
 
 const manager: IntegrationManagerPort = {
   async start() {},
@@ -40,6 +41,18 @@ const transcription: TranscriptionPort = {
   },
 };
 
+const speech: SpeechPort = {
+  async synthesize() {
+    return { bytes: new Uint8Array([0xff, 0xfb, 0x90]), mime: "audio/mpeg" };
+  },
+  async listModels() {
+    return ["kokoro"];
+  },
+  async test() {
+    return { ok: true, models: ["kokoro"] };
+  },
+};
+
 function useCase(store: SqliteStore, vault: Aes256GcmVaultAdapter) {
   return new ManageIntegrationsUseCase({
     store,
@@ -48,6 +61,7 @@ function useCase(store: SqliteStore, vault: Aes256GcmVaultAdapter) {
     manager,
     databaseAdapter: {} as never,
     transcription,
+    speech,
   });
 }
 
@@ -165,7 +179,7 @@ describe("integration validation", () => {
       config: {},
       secretRefs: { token: "alias" },
     });
-    expect(validated.config.routing).toEqual({ mode: "hybrid", allowlist: [], public: false });
+    expect(validated.config.routing).toEqual({ mode: "hybrid", allowlist: [], public: false, voiceReplies: "never" });
   });
 });
 
@@ -257,6 +271,31 @@ describe("project integration lifecycle", () => {
     });
     expect(created.integration.config.alerts).toEqual(["run.failed", "integration.down"]);
     expect(created.integration.config.alertRecipient).toBe("123");
+    store.close();
+  });
+
+  it("tests a speech integration and caches discovered models", async () => {
+    const store = new SqliteStore(":memory:");
+    const vault = new Aes256GcmVaultAdapter(Buffer.alloc(32, 12));
+    const integrations = useCase(store, vault);
+    const created = await integrations.create({
+      scope: "project",
+      projectSlug: "ventas",
+      kind: "speech",
+      name: "Voz",
+      slug: "voz",
+      config: {
+        baseUrl: "http://speech.local/v1",
+        model: "kokoro",
+        voice: "ef_dora",
+      },
+      secrets: { apiKey: "supersecret-speech" },
+    });
+    expect(JSON.stringify(created.integration)).not.toContain("supersecret-speech");
+    const tested = await integrations.test(created.integration.id, { scope: "project", projectSlug: "ventas" });
+    expect(tested.ok).toBe(true);
+    expect(tested.models).toEqual(["kokoro"]);
+    expect(store.integrations.findById(created.integration.id)?.config.models).toEqual(["kokoro"]);
     store.close();
   });
 

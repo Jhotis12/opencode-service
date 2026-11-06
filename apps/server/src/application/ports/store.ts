@@ -61,6 +61,8 @@ export interface ProjectRepository {
       primaryAgent?: string | null;
       approvalIntegrationId?: string | null;
       approvalRecipient?: string | null;
+      transcriptionIntegrationId?: string | null;
+      speechIntegrationId?: string | null;
     },
   ): void;
 }

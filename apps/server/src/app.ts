@@ -66,6 +66,7 @@ import type { TelegramTransport } from "./infrastructure/in/channels/telegram-ad
 import { WorkspaceError } from "./infrastructure/out/workspace-fs/safe-workspace.ts";
 import { FsMediaStore } from "./infrastructure/out/media/fs-media-store.ts";
 import { OpenAiCompatibleTranscriptionService } from "./infrastructure/out/transcription/openai-compatible-transcription-service.ts";
+import { OpenAiCompatibleSpeechService } from "./infrastructure/out/speech/openai-compatible-speech-service.ts";
 import {
   IdempotencyMismatchError,
   RunInFlightError,
@@ -257,6 +258,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const egress = new IntegrationEgressRouter();
   const externalDb = new DynamicDatabaseClientAdapter();
   const transcription = new OpenAiCompatibleTranscriptionService({ store, vault, fetchImpl: fetch });
+  const speech = new OpenAiCompatibleSpeechService({ store, vault, fetchImpl: fetch, logger, metrics });
   const queryDatabase = new QueryDatabaseIntegrationUseCase(store, vault, externalDb, logger);
   const testDatabase = new TestDatabaseIntegrationUseCase(store, vault, externalDb);
   const databaseAction = new ExecuteDatabaseActionUseCase(store, vault, externalDb, logger);
@@ -363,6 +365,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     manager: integrationManager,
     databaseAdapter: externalDb,
     transcription,
+    speech,
   });
   const destinations = new ManageDestinationsUseCase({ store, workspace });
 

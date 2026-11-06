@@ -252,6 +252,17 @@ describe("telegram token rotation", () => {
           return { ok: true };
         },
       },
+      speech: {
+        async synthesize() {
+          return { bytes: new Uint8Array(), mime: "audio/mpeg" };
+        },
+        async listModels() {
+          return [];
+        },
+        async test() {
+          return { ok: true };
+        },
+      },
     });
     const created = await useCase.create({
       scope: "project",

@@ -9,9 +9,9 @@
 
 ## 2. Servicio de voz
 
-- [ ] 2.1 Crear `SpeechPort`, `SpeechError` y `OpenAiCompatibleSpeechService` con `synthesize`, `listModels` y `test`: request a `/audio/speech`, auth opcional, timeout configurable, límite de caracteres, validación de bytes vacíos y tipo detectable, y errores sanitizados. Verificar con tests unitarios que usan `fetch` falso y cubren request shape, API key, overrides de modelo/voz/velocidad, respuesta vacía, formato inválido, error HTTP y timeout.
-- [ ] 2.2 Cablear el servicio en `app.ts`, tratarlo como integración sin transporte en `IntegrationManager` y hacer que el test existente de integraciones devuelva `ok`, latencia y modelos para `speech`; verificar con los tests HTTP de integraciones y del manager que probar una conexión local sin key y una con key funciona.
-- [ ] 2.3 Emitir métricas y logs de síntesis (`speech_requests`, `speech_succeeded`, `speech_failed`) con proyecto, integración, modelo, voz, caracteres, latencia y resultado, sin texto ni audio; verificar con un test de telemetría que el logger recibe los campos esperados y no el contenido.
+- [x] 2.1 Crear `SpeechPort`, `SpeechError` y `OpenAiCompatibleSpeechService` con `synthesize`, `listModels` y `test`: request a `/audio/speech`, auth opcional, timeout configurable, límite de caracteres, validación de bytes vacíos y tipo detectable, y errores sanitizados. Verificar con tests unitarios que usan `fetch` falso y cubren request shape, API key, overrides de modelo/voz/velocidad, respuesta vacía, formato inválido, error HTTP y timeout.
+- [x] 2.2 Cablear el servicio en `app.ts`, tratarlo como integración sin transporte en `IntegrationManager` y hacer que el test existente de integraciones devuelva `ok`, latencia y modelos para `speech`; verificar con los tests HTTP de integraciones y del manager que probar una conexión local sin key y una con key funciona.
+- [x] 2.3 Emitir métricas y logs de síntesis (`speech_requests`, `speech_succeeded`, `speech_failed`) con proyecto, integración, modelo, voz, caracteres, latencia y resultado, sin texto ni audio; verificar con un test de telemetría que el logger recibe los campos esperados y no el contenido.
 
 ## 3. Nodo `speak`
 

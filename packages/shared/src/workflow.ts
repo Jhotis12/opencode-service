@@ -5,6 +5,7 @@ export const NodeTypeSchema = z.enum([
   "code",
   "agent",
   "transcribe",
+  "speak",
   "decision",
   "approval",
   "http",
@@ -98,6 +99,16 @@ export const TranscribeNodeConfigSchema = z.object({
   mediaPath: z.string().min(1).default("attachments"),
 });
 export type TranscribeNodeConfig = z.infer<typeof TranscribeNodeConfigSchema>;
+
+export const SpeakNodeConfigSchema = z.object({
+  integrationId: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  voice: z.string().min(1).optional(),
+  speed: z.number().min(0.5).max(2).optional(),
+  textPath: z.string().min(1).default("text"),
+  maxChars: z.number().int().min(1).max(10_000).default(4_000),
+});
+export type SpeakNodeConfig = z.infer<typeof SpeakNodeConfigSchema>;
 
 export const DatabaseStatementSchema = z.object({
   sql: z.string().min(1),

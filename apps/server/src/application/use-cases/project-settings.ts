@@ -1,8 +1,8 @@
-import type { WorkflowGraph } from "@platform/shared";
+import { ChannelRoutingSchema, type WorkflowGraph } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { WorkspacePort } from "../ports/workspace.ts";
 import type { EventBus } from "../ports/events.ts";
-import type { ProjectRecord } from "../../domain/entities.ts";
+import type { IntegrationRecord, ProjectRecord } from "../../domain/entities.ts";
 
 export interface ProjectReadinessItem {
   id: string;
@@ -55,6 +55,7 @@ export class UpdateProjectSettingsUseCase {
       approvalIntegrationId?: string | null;
       approvalRecipient?: string | null;
       transcriptionIntegrationId?: string | null;
+      speechIntegrationId?: string | null;
     },
   ): ProjectRecord {
     if (!this.store.projects.findBySlug(slug)) throw new Error(`project not found: ${slug}`);
@@ -76,6 +77,18 @@ export class UpdateProjectSettingsUseCase {
         throw new Error("transcription integration must be a transcription integration of the project");
       }
     }
+    if (patch.speechIntegrationId) {
+      const integration = this.store.integrations.findById(patch.speechIntegrationId);
+      if (
+        !integration ||
+        integration.scope !== "project" ||
+        integration.projectSlug !== slug ||
+        integration.kind !== "speech" ||
+        !integration.capabilities.includes("synthesize_speech")
+      ) {
+        throw new Error("speech integration must be a speech integration of the project");
+      }
+    }
     this.store.projects.update(slug, patch);
     const project = this.store.projects.findBySlug(slug)!;
     this.events.publish({ type: "agent.updated", projectSlug: slug, agentId: "project-settings" });
@@ -86,7 +99,7 @@ export class UpdateProjectSettingsUseCase {
 export function readinessFor(
   project: ProjectRecord,
   graph: WorkflowGraph | undefined,
-  integrations: Array<{ id: string }>,
+  integrations: IntegrationRecord[],
 ): ProjectReadinessItem[] {
   const trigger = graph?.nodes.find((node) => node.type === "trigger");
   const integrationTriggers = (graph?.nodes ?? []).filter(
@@ -103,6 +116,17 @@ export function readinessFor(
     (node) => typeof node.config.integrationId !== "string" || !node.config.integrationId,
   );
   const transcriptionReady = !transcribeNeedsDefault || Boolean(project.transcriptionIntegrationId);
+  const speakNodes = (graph?.nodes ?? []).filter((node) => node.type === "speak");
+  const speakNeedsDefault = speakNodes.some(
+    (node) => typeof node.config.integrationId !== "string" || !node.config.integrationId,
+  );
+  const channelVoiceReplies = integrations.some(
+    (integration) =>
+      integration.kind === "telegram" &&
+      ChannelRoutingSchema.parse(integration.config.routing ?? {}).voiceReplies === "auto",
+  );
+  const speechNeeded = speakNeedsDefault || channelVoiceReplies;
+  const speechReady = !speechNeeded || Boolean(project.speechIntegrationId);
   const items: ProjectReadinessItem[] = [
     {
       id: "primary-agent",
@@ -145,6 +169,16 @@ export function readinessFor(
       detail: transcriptionReady
         ? undefined
         : "El flujo tiene un nodo Transcribir sin conexión propia; define una conexión de transcripción por defecto.",
+    });
+  }
+  if (speechNeeded) {
+    items.push({
+      id: "speech",
+      label: "Conexión de voz configurada",
+      ready: speechReady,
+      detail: speechReady
+        ? undefined
+        : "Hay respuesta por voz o un nodo Generar voz sin conexión propia; define una conexión de voz por defecto.",
     });
   }
   return items;

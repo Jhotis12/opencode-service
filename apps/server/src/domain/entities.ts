@@ -45,6 +45,7 @@ export interface ProjectRecord {
   approvalIntegrationId?: string;
   approvalRecipient?: string;
   transcriptionIntegrationId?: string;
+  speechIntegrationId?: string;
   createdAt: string;
   updatedAt?: string;
 }

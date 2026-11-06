@@ -150,8 +150,89 @@ describe("project settings and readiness", () => {
     store.close();
   });
 
-  it("reports missing resources and updates the project model", async () => {
+  it("validates the default speech connection for voice replies and speak nodes", async () => {
     const dir = await mkdtemp(join(tmpdir(), "platform-settings-"));
+    dirs.push(dir);
+    const store = new SqliteStore(":memory:");
+    const workspace = new SafeFsWorkspaceAdapter(join(dir, "workspaces"));
+    await workspace.createProject({ slug: "ventas", name: "Ventas" });
+    const now = new Date().toISOString();
+    store.projects.create({
+      id: "p1",
+      slug: "ventas",
+      name: "Ventas",
+      description: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.integrations.create({
+      id: "tts1",
+      scope: "project",
+      projectSlug: "ventas",
+      kind: "speech",
+      name: "Voz",
+      slug: "voz",
+      config: { baseUrl: "http://transcription:8000/v1", model: "kokoro", voice: "ef_dora" },
+      secretRefs: {},
+      capabilities: ["synthesize_speech"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.integrations.create({
+      id: "tg1",
+      scope: "project",
+      projectSlug: "ventas",
+      kind: "telegram",
+      name: "Telegram",
+      slug: "telegram",
+      config: { routing: { mode: "agent", allowlist: [], public: false, voiceReplies: "auto" } },
+      secretRefs: {},
+      capabilities: ["inbound_message", "outbound_message"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.integrations.create({
+      id: "global-tts",
+      scope: "global",
+      kind: "speech",
+      name: "Global TTS",
+      slug: "global-tts",
+      config: { baseUrl: "http://transcription:8000/v1", model: "kokoro", voice: "ef_dora" },
+      secretRefs: {},
+      capabilities: ["synthesize_speech"],
+      status: "connected",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const graph = await workspace.readWorkflow("ventas");
+    graph.nodes.push({
+      id: "hablar",
+      type: "speak",
+      position: { x: 0, y: 0 },
+      config: {},
+      notebookIds: [],
+      timeoutMs: 120_000,
+      retryPolicy: { maxRetries: 0 },
+    });
+    graph.edges.push({ id: "e-speak", source: "start", target: "hablar" });
+    await workspace.writeWorkflow("ventas", graph);
+
+    const before = await new GetProjectSettingsUseCase(store, workspace).execute("ventas");
+    expect(before.readiness.find((item) => item.id === "speech")?.ready).toBe(false);
+
+    const useCase = new UpdateProjectSettingsUseCase(store, { publish() {} });
+    const updated = useCase.execute("ventas", { speechIntegrationId: "tts1" });
+    expect(updated.speechIntegrationId).toBe("tts1");
+    expect(() => useCase.execute("ventas", { speechIntegrationId: "tg1" })).toThrow(/speech/);
+    expect(() => useCase.execute("ventas", { speechIntegrationId: "global-tts" })).toThrow(/speech/);
+    const after = await new GetProjectSettingsUseCase(store, workspace).execute("ventas");
+    expect(after.readiness.find((item) => item.id === "speech")?.ready).toBe(true);
+    store.close();
+  });
+
+  it("reports missing resources and updates the project model", async () => {    const dir = await mkdtemp(join(tmpdir(), "platform-settings-"));
     dirs.push(dir);
     const store = new SqliteStore(":memory:");
     const workspace = new SafeFsWorkspaceAdapter(join(dir, "workspaces"));

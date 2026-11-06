@@ -1032,6 +1032,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
       approvalIntegrationId: string | null;
       approvalRecipient: string | null;
       transcriptionIntegrationId: string | null;
+      speechIntegrationId: string | null;
     }>;
     try {
       return c.json(
@@ -1047,6 +1048,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
           ...(body.transcriptionIntegrationId !== undefined
             ? { transcriptionIntegrationId: body.transcriptionIntegrationId }
             : {}),
+          ...(body.speechIntegrationId !== undefined ? { speechIntegrationId: body.speechIntegrationId } : {}),
         }),
       );
     } catch (error) {
@@ -1755,6 +1757,15 @@ export async function createApplication(config: AppConfig): Promise<Application>
           label: "Conexión de transcripción",
           value: record.transcriptionIntegrationId || null,
           source: record.transcriptionIntegrationId ? "project" : "default",
+          secret: false,
+          editable: true,
+          restartRequired: false,
+        },
+        {
+          key: "speechIntegrationId",
+          label: "Conexión de voz",
+          value: record.speechIntegrationId || null,
+          source: record.speechIntegrationId ? "project" : "default",
           secret: false,
           editable: true,
           restartRequired: false,

@@ -1,31 +1,31 @@
 # Graph Report - Opencode-server  (2026-11-05)
 
 ## Corpus Check
-- 396 files · ~322,415 words
+- 396 files · ~322,412 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 9 file(s) not represented in the graph (top: (none) 6, .example 1, .css 1)
 
 ## Summary
-- 5021 nodes · 9559 edges · 268 communities (244 shown, 24 thin omitted)
+- 5024 nodes · 9558 edges · 272 communities (251 shown, 21 thin omitted)
 - Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 538 edges (avg confidence: 0.91)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `3f142a8e`
+- Built from commit: `eb757e40`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - LogBindings
 - HttpPlatformClient
-- auth.ts
+- ProjectResourcesPanel.tsx
 - ADDED Requirements
 - agents.test.ts
-- AgentRuntimePort
-- App.tsx
-- Store
+- ensureChatSession
+- Layout.tsx
+- connections.ts
 - ADDED Requirements
-- WorkflowGraph
+- createApplication
 - send-notification.ts
 - Requirements
 - server/package.json
@@ -45,30 +45,30 @@
 - web/tsconfig.json
 - scripts
 - web/package.json
-- channel-router.test.ts
+- openai-compatible-transcription-service.ts
 - extractors.ts
 - chat.ts
 - web/src/api.ts
 - steps
 - Requirements
 - opencode-adapter.ts
-- ExecuteWorkflowRunUseCase
+- WorkflowRunRecord
 - opencode-plugin/package.json
 - FakeAgentRuntime
 - channel-manager.ts
-- ChatTurnService
-- app.ts
+- .run
+- store.ts
 - NotebookRecord
 - tools.ts
 - ProjectPage
-- cron.ts
+- WorkflowScheduler
 - artifacts
 - compilerOptions
 - integrations.test.ts
 - FakeClient
 - input.ts
-- fs-media-store.ts
-- WhatsAppCloudTransport
+- MediaRef
+- legacy-migration.test.ts
 - OpenCodeV2Adapter
 - EntityScope
 - ADDED Requirements
@@ -78,19 +78,19 @@
 - IntegrationManager
 - shared/package.json
 - PlatformClient
-- UserRecord
+- graph.ts
 - WorkflowScheduleStateRecord
 - ProjectPage.tsx
 - NodeConfigFields.tsx
 - KbSourceRecord
 - ManageIntegrationsUseCase
-- SqliteStore
+- WorkflowTimerRecord
 - WorkflowDeliveryRecord
 - auth-routes.ts
 - FakeAgent
 - IntegrationRecord
 - telemetry.ts
-- contracts.test.ts
+- agents.ts
 - Requirements
 - Requirement: Single executable trigger per workflow
 - entrypoint.sh
@@ -111,26 +111,26 @@
 - Animation Recipes
 - shared/tsconfig.json
 - Aes256GcmVaultAdapter
-- IntegrationValidationError
+- ChatTurnRecord
 - Requirements
 - MODIFIED Requirements
 - setup.ts
 - ADDED Requirements
 - Requirement: Integration lifecycle and health
-- IntegrationManagerPort
+- project-settings.ts
 - Requirements
 - Requirements
-- AgentModelInfo
+- ChatTurnService
 - Animation Standards Reference
 - Requirement: Integration trigger media acceptance
-- auth.routes.test.ts
+- ExecuteWorkflowRunUseCase
 - GrammyTransport
 - Decisions
-- ref_bun_test
+- SqliteStore
 - BaileysTransport
 - ChatWithOrchestratorUseCase
 - Decisions
-- ErrorTracker
+- Impact
 - ADDED Requirements
 - transcription-init
 - MODIFIED Requirements
@@ -139,7 +139,7 @@
 - services
 - transcription
 - ADDED Requirements
-- createApplication
+- OpenAiCompatibleSpeechService
 - Requirement: Integration-backed triggers
 - Requirement: Database access policy
 - Requirement: Opt-in voice replies for audio messages
@@ -152,13 +152,13 @@
 - Requirement: Speech integration kind
 - Requirement: External Application Chat Gateway API with persistent conversation threads
 - Requirement: Automation delivery, schedule, and approval telemetry
-- TelegramTransport
+- FakeTelegram
 - Requirement: Inbound channel media capture
 - Requirement: Transcription integration kind
 - Requirement: External Application Chat Gateway API with persistent conversation threads
-- Impact
+- Tasks
 - ADDED Requirements
-- integration-lifecycle.test.ts
+- ChatTurnStatus
 - 5. Components
 - Decisions
 - Animation Performance
@@ -168,7 +168,7 @@
 - Decisions
 - Decisions
 - Requirement: Approval notifications for manual and scheduled runs
-- Decisions
+- Design
 - ADDED Requirements
 - Requirement: Effective configuration resolution
 - Decisions
@@ -184,10 +184,10 @@
 - ADDED Requirements
 - Requirement: Chat progress, timeout, and error states
 - Requirement: Chat turn resilience test coverage
-- Tasks
+- domain/media.ts
 - Requirement: Agent catalog cards
 - Requirement: Native OpenCode platform plugin tools (`platform_*`)
-- Decisions
+- shared/src/api.ts
 - Requirement: Project-scoped chat turn access
 - Decisions
 - ADDED Requirements
@@ -214,9 +214,9 @@
 - Requirement: Durable channel turns and idempotent delivery
 - settings.ts
 - Component Building Principles
-- SessionCodec
+- ChatMessageRecord
 - UI motion and modal standard
-- openspec-explore/SKILL.md
+- resolvePath
 - Requirement: Chat turns preserve message attachments
 - Requirement: Model input modality discovery
 - Proposal
@@ -225,8 +225,8 @@
 - Proposal
 - Requirement: Original brand identity across surfaces
 - Proposal
-- src/destinations.ts
-- opsx-explore.md
+- router.ts
+- Proposal
 - Requirement: Native notification action node
 - Requirement: Operable human approvals
 - Requirement: Schedule lifecycle and timezone
@@ -234,13 +234,13 @@
 - Tasks
 - Design
 - Requirement: Single executable trigger per workflow
-- config-registry.test.ts
+- configuration.ts
 - The Animation Decision Framework
 - clip-path for Animation
 - Performance Rules
 - Gesture and Drag Interactions
 - RunQueueRepository
-- alerts.test.ts
+- SseEvent
 - Graphify
 - Requirement: Native database action node
 - Requirement: Uniform timeout, retry, and error policy
@@ -272,8 +272,8 @@
 - Core Philosophy
 - Debugging Animations
 - SettingsRepository
-- OpenSpec Awareness
-- OpenSpec Awareness
+- Tasks
+- SessionContextRecord
 - Requirement: Disk-backed project workspaces
 - Requirement: Scheduled and webhook workflow triggers
 - Requirement: Step-level checkpointing, idempotency, and partial replay
@@ -284,6 +284,10 @@
 - ADDED Requirements
 - workflow-and-workspace-engine Specification
 - AGENTS.md
+- Proposal
+- scripts
+- CanvasActions
+- Performance and limits
 
 ## God Nodes (most connected - your core abstractions)
 1. `createApplication()` - 158 edges
@@ -291,68 +295,68 @@
 3. `Store` - 73 edges
 4. `Logger` - 63 edges
 5. `IntegrationRecord` - 59 edges
-6. `AgentRuntimePort` - 55 edges
-7. `ChatTurnService` - 55 edges
+6. `ChatTurnService` - 55 edges
+7. `AgentRuntimePort` - 55 edges
 8. `ProjectPage()` - 50 edges
 9. `SafeFsWorkspaceAdapter` - 49 edges
-10. `WorkflowGraph` - 49 edges
+10. `WorkflowGraph` - 47 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `Context` --references--> `IntegrationEgressPort`  [INFERRED]
-  openspec/changes/add-tts-node-and-telegram-voice-replies/design.md → apps/server/src/application/ports/channels.ts
-- `Context` --references--> `IncomingIntegrationMessage`  [INFERRED]
-  openspec/changes/add-transcription-nodes-and-channel-media/design.md → apps/server/src/application/ports/channels.ts
-- `4. Timeout, reintentos y política de error uniforme` --references--> `AgentRuntimePort`  [INFERRED]
-  openspec/changes/add-reliable-automation-actions/tasks.md → apps/server/src/application/ports/runtime.ts
-- `8. Decisión de alcance sobre la base de datos de la plataforma` --references--> `Store`  [INFERRED]
-  openspec/changes/archive/2026-11-02-hexagonal-agentic-platform/design.md → apps/server/src/application/ports/store.ts
-- `3. Destinos de proyecto` --references--> `Store`  [INFERRED]
-  openspec/changes/centralize-node-and-channel-config/tasks.md → apps/server/src/application/ports/store.ts
+- `Voz (TTS) y respuestas de audio en Telegram` --references--> `MediaRef`  [INFERRED]
+  README.md → packages/shared/src/media.ts
+- `7. UI y configuración` --references--> `ProjectSettingsPanel()`  [INFERRED]
+  openspec/changes/add-tts-node-and-telegram-voice-replies/tasks.md → apps/web/src/components/ProjectSettingsPanel.tsx
+- `9. Seguridad de base de datos y secretos HTTP P1` --references--> `ExecuteDatabaseActionUseCase`  [INFERRED]
+  openspec/changes/add-reliable-automation-actions/tasks.md → apps/server/src/application/use-cases/database-actions.ts
+- `5. SSE reenganchable y API de turno` --references--> `SseHub`  [INFERRED]
+  openspec/changes/harden-chat-turn-lifecycle/design.md → apps/server/src/infrastructure/in/sse/sse-hub.ts
+- `5. Plantilla vertical (`triaje-operativo`)` --references--> `CreateProjectUseCase`  [INFERRED]
+  openspec/changes/archive/2026-11-02-automate-and-harden-workflows/design.md → apps/server/src/application/use-cases/projects.ts
 
 ## Import Cycles
 - None detected.
 
-## Communities (268 total, 24 thin omitted)
+## Communities (272 total, 21 thin omitted)
 
 ### Community 0 - "LogBindings"
-Cohesion: 0.17
-Nodes (8): LogBindings, redact(), createLogger(), createMemoryLogger(), LoggerOptions, PinoLoggerAdapter, sanitizeSentryEvent(), SentryErrorTracker
+Cohesion: 0.12
+Nodes (9): ErrorTracker, LogBindings, redact(), createMemoryLogger(), LoggerOptions, PinoLoggerAdapter, NoopErrorTracker, sanitizeSentryEvent() (+1 more)
 
-### Community 2 - "auth.ts"
-Cohesion: 0.18
-Nodes (6): ChangePasswordUseCase, InvalidCredentialsError, LoginUseCase, assertPasswordPolicy(), MIN_PASSWORD_LENGTH, PasswordPolicyError
+### Community 2 - "ProjectResourcesPanel.tsx"
+Cohesion: 0.07
+Nodes (35): ControlChannelsPanel(), refresh(), saved(), IntegrationEditor(), SavedIntegration, ConfigurationSection, ProjectConfigurationPanel(), SECTIONS (+27 more)
 
 ### Community 3 - "ADDED Requirements"
 Cohesion: 0.04
 Nodes (45): ADDED Requirements, REMOVED Requirements, Requirement: Bottom node inspector with last execution context, Requirement: Click-based connection editing, Requirement: Collapsible global navigation, Requirement: Connection validation guidance, Requirement: Full-bleed workflow workspace, Requirement: Node inspector modal with execution context (+37 more)
 
 ### Community 4 - "agents.test.ts"
-Cohesion: 0.12
-Nodes (11): ManageSubagentsUseCase, AgentMarkdownError, agentRelativePath(), parseAgentMarkdown(), parseAgentPath(), serializeAgentMarkdown(), MarkdownAgentAdapter, McpServerConfig (+3 more)
-
-### Community 5 - "AgentRuntimePort"
-Cohesion: 0.10
-Nodes (10): AgentFileAttachment, AgentRuntimePort, ChatSessionFactory, ensureChatSession(), isSessionNotFoundError(), promptWithSessionRecovery(), registerSessionContext(), 15. Persistir el estado de OpenCode y recuperar sesiones huérfanas (+2 more)
-
-### Community 6 - "App.tsx"
-Cohesion: 0.09
-Nodes (30): App(), RequireAuth(), AuthContext, AuthProvider(), AuthState, useAuth(), BrandLockup(), BrandMark() (+22 more)
-
-### Community 7 - "Store"
 Cohesion: 0.08
-Nodes (27): AgentSessionRef, ExternalDatabaseAdapter, SecretVault, Store, ConnectProviderUseCase, OPENCODE_GO_PROVIDER_ID, QueryDatabaseIntegrationUseCase, TestDatabaseIntegrationUseCase (+19 more)
+Nodes (12): EventBus, WorkspacePort, AgentMarkdownError, agentRelativePath(), parseAgentMarkdown(), parseAgentPath(), serializeAgentMarkdown(), MarkdownAgentAdapter (+4 more)
+
+### Community 5 - "ensureChatSession"
+Cohesion: 0.22
+Nodes (10): ChatSessionFactory, ensureChatSession(), isSessionNotFoundError(), promptWithSessionRecovery(), registerSessionContext(), 15. Persistir el estado de OpenCode y recuperar sesiones huérfanas, 9. Endurecimiento y experiencia posterior, 3. Recover a stuck session once, on the same thread, and persist the replacement (+2 more)
+
+### Community 6 - "Layout.tsx"
+Cohesion: 0.10
+Nodes (23): BrandLockup(), BrandMark(), initialCollapsed(), Layout(), toggleCollapsed(), NAV_ITEMS, saveCollapsed(), common (+15 more)
+
+### Community 7 - "connections.ts"
+Cohesion: 0.11
+Nodes (16): AgentModelInfo, ExternalDatabaseAdapter, SecretVault, ConnectProviderUseCase, OPENCODE_GO_PROVIDER_ID, QueryDatabaseIntegrationUseCase, TestDatabaseIntegrationUseCase, DatabaseActionValidationError (+8 more)
 
 ### Community 8 - "ADDED Requirements"
 Cohesion: 0.04
 Nodes (44): ADDED Requirements, Purpose, Requirement: Authoritative completion and final answer recovery, Requirement: Cross-surface turn reuse and scope, Requirement: Durable turn ownership, Requirement: Idempotent turn creation and per-thread single-flight, Requirement: Turn attach, status, and replay, Requirement: Turn lifecycle observability (+36 more)
 
-### Community 9 - "WorkflowGraph"
-Cohesion: 0.10
-Nodes (9): EventBus, WorkspacePort, ExecuteRunInput, GetProjectSettingsUseCase, UpdateProjectSettingsUseCase, captureCodeBundle(), syncProjectsFromDisk(), computeGraphHash() (+1 more)
+### Community 9 - "createApplication"
+Cohesion: 0.06
+Nodes (36): AppEnv, Application, createApplication(), destinationError(), integrationError(), maskSecret(), resolveProjectRouteTool(), safeEqual() (+28 more)
 
 ### Community 10 - "send-notification.ts"
-Cohesion: 0.18
-Nodes (9): NotifyApprovalUseCase, SendNotificationInput, SendNotificationResult, SendNotificationUseCase, SUPPORTED_CHANNELS, FakeEgress, integration(), logger() (+1 more)
+Cohesion: 0.20
+Nodes (6): NotifyApprovalUseCase, SendNotificationUseCase, FakeEgress, integration(), logger(), setup()
 
 ### Community 11 - "Requirements"
 Cohesion: 0.04
@@ -367,32 +371,32 @@ Cohesion: 0.18
 Nodes (8): WorkflowVersionRepository, WorkflowVersionRecord, Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, Why
 
 ### Community 14 - "configuration.ts"
-Cohesion: 0.04
-Nodes (54): IntegrationCommand, IntegrationUpdateCommand, 1. Registro compartido de configuración, alertFields, CHANNEL_KINDS, ConfigDefinition, ConfigField, ConfigFieldType (+46 more)
+Cohesion: 0.06
+Nodes (29): CHANNEL_CAPABILITIES, ChannelModeSchema, CreateIntegrationInput, DATABASE_CAPABILITIES, DatabaseAccessPolicy, defaultRouting, EMAIL_CAPABILITIES, EmailAccountSchema (+21 more)
 
 ### Community 15 - "vitest"
 Cohesion: 0.09
-Nodes (28): apiMock, primary, renderCatalog(), subagent, apiMock, baseIntegration, Harness(), now (+20 more)
+Nodes (26): formatDate(), ProjectsPage(), onNameChange(), slugify(), apiMock, primary, renderCatalog(), subagent (+18 more)
 
 ### Community 16 - "sqlite-store.ts"
-Cohesion: 0.09
-Nodes (29): SessionContextRepository, SessionContextRecord, chatMessages, chatThreads, chatTurns, integrations, kbChunks, kbSources (+21 more)
+Cohesion: 0.11
+Nodes (28): chatMessages, chatThreads, chatTurns, integrations, kbChunks, kbSources, notebooks, projectDestinations (+20 more)
 
 ### Community 17 - "execute-workflow.ts"
 Cohesion: 0.06
-Nodes (25): MediaStorePort, AgentPromptTimeoutError, SpeechPort, TranscriptionPort, CodeWorkerPort, WorkerRpcHandlers, WorkerTimeoutError, executeHttpNode() (+17 more)
+Nodes (29): AgentPromptTimeoutError, SPEECH_MAX_CHARS, SpeechPort, SpeechRequest, SpeechResult, SpeechTestResult, TranscriptionPort, CodeWorkerPort (+21 more)
 
 ### Community 18 - "workflow.ts"
 Cohesion: 0.05
-Nodes (36): ApprovalNodeConfig, CodeNodeConfig, DatabaseNodeConfig, DatabaseStatementSchema, DecisionNodeConfig, DecisionNodeConfigSchema, DecisionOperatorSchema, DelayNodeConfig (+28 more)
+Nodes (49): ExecuteDatabaseActionInput, SpeechIntegrationConfigSchema, TranscriptionIntegrationConfigSchema, AgentNodeConfigSchema, ApprovalNodeConfig, CodeNodeConfig, DatabaseNodeConfig, DatabaseNodeConfigSchema (+41 more)
 
 ### Community 19 - "SafeFsWorkspaceAdapter"
-Cohesion: 0.13
-Nodes (13): NoopErrorTracker, SafeFsWorkspaceAdapter, WorkspaceError, setup(), setup(), setup(), setup(), setup() (+5 more)
+Cohesion: 0.16
+Nodes (12): SafeFsWorkspaceAdapter, WorkspaceError, setup(), setup(), setup(), setup(), setup(), setup() (+4 more)
 
 ### Community 20 - "Tasks"
-Cohesion: 0.12
-Nodes (13): AlertService, redact(), D10. P1: timers, lotes, subworkflows y cola, 10. Contexto de sesión y permisos de tools P1, 11. Timers durables y schedules únicos P1, 12. Foreach y subworkflows P1, 13. Cola, rate limit y alertas por proyecto P1, 14. Observabilidad y verificación P1 (+5 more)
+Cohesion: 0.11
+Nodes (14): ApprovalDecisionError, DecideApprovalUseCase, D6. Aprobaciones, 10. Contexto de sesión y permisos de tools P1, 11. Timers durables y schedules únicos P1, 12. Foreach y subworkflows P1, 14. Observabilidad y verificación P1, 4. Timeout, reintentos y política de error uniforme (+6 more)
 
 ### Community 21 - "ADDED Requirements"
 Cohesion: 0.05
@@ -407,8 +411,8 @@ Cohesion: 0.18
 Nodes (12): chunkMarkdown(), ChunkOptions, KnowledgeChunk, splitLongText(), summarize(), assertSafeUrl(), ipv4Parts(), isPrivateAddress() (+4 more)
 
 ### Community 25 - "RouteProjectIntegrationMessageUseCase"
-Cohesion: 0.14
-Nodes (16): IncomingIntegrationMessage, TriggerRef, deliverChatTurn(), imagePrompt(), RouteProjectIntegrationMessageUseCase, storeIncomingMedia(), ApprovalCommand, normalizeSender() (+8 more)
+Cohesion: 0.23
+Nodes (7): IncomingIntegrationMessage, deliverChatTurn(), imagePrompt(), RouteProjectIntegrationMessageUseCase, storeIncomingMedia(), 4. La respuesta automática vive en la entrega del turno, no en el agente, 5. Respuesta automática por voz en Telegram
 
 ### Community 26 - "web/tsconfig.json"
 Cohesion: 0.25
@@ -419,12 +423,12 @@ Cohesion: 0.08
 Nodes (21): devDependencies, @playwright/test@^1.49.1, @types/bun@latest, typescript@^5.7.2, @types/bun, typescript, name, private (+13 more)
 
 ### Community 28 - "web/package.json"
-Cohesion: 0.05
-Nodes (54): dependencies, @fontsource-variable/inter@^5.3.0, @monaco-editor/react@^4.6.0, @platform/shared@workspace:*, qrcode@^1.5.4, react@^19.0.0, react-dom@^19.0.0, react-markdown@^9.0.3 (+46 more)
+Cohesion: 0.06
+Nodes (46): dependencies, @fontsource-variable/inter@^5.3.0, @monaco-editor/react@^4.6.0, @platform/shared@workspace:*, qrcode@^1.5.4, react@^19.0.0, react-dom@^19.0.0, react-markdown@^9.0.3 (+38 more)
 
-### Community 29 - "channel-router.test.ts"
-Cohesion: 0.07
-Nodes (9): MetricsSnapshot, InMemoryMetrics, SseHub, dirs, silentLogger, trigger, setup(), silentLogger (+1 more)
+### Community 29 - "openai-compatible-transcription-service.ts"
+Cohesion: 0.20
+Nodes (12): TranscriptionAccess, TranscriptionError, TranscriptionRequest, TranscriptionResult, TranscriptionTestResult, Connection, OpenAiCompatibleTranscriptionService, access (+4 more)
 
 ### Community 30 - "extractors.ts"
 Cohesion: 0.13
@@ -435,8 +439,8 @@ Cohesion: 0.08
 Nodes (23): ChatMessage, ChatMessageSchema, ChatProgressEventSchema, ChatRole, ChatRoleSchema, ChatScope, ChatScopeSchema, ChatThreadSchema (+15 more)
 
 ### Community 32 - "web/src/api.ts"
-Cohesion: 0.05
-Nodes (48): ApiClientError, ApprovalRecord, attachTurnStream(), ChatHistoryMessage, chatStream(), ChatTurnResult, ChatTurnStreamError, DeliveryRecord (+40 more)
+Cohesion: 0.06
+Nodes (42): ApiClientError, ApprovalRecord, attachTurnStream(), ChatHistoryMessage, chatStream(), ChatTurnStreamError, DeliveryRecord, HealthPayload (+34 more)
 
 ### Community 33 - "steps"
 Cohesion: 0.10
@@ -448,31 +452,27 @@ Nodes (43): project-resources Specification, Purpose, Requirement: Guided projec
 
 ### Community 35 - "opencode-adapter.ts"
 Cohesion: 0.08
-Nodes (10): AgentInboxItem, createAgentRuntime(), extractAssistantText(), MessageLike, ModelLike, OpenCodeClientFactory, OpenCodeClientLike, ServiceClientFactory (+2 more)
+Nodes (10): AgentInboxItem, AgentPromptInput, extractAssistantText(), MessageLike, ModelLike, OpenCodeClientFactory, OpenCodeClientLike, ServiceClientFactory (+2 more)
 
-### Community 36 - "ExecuteWorkflowRunUseCase"
-Cohesion: 0.07
-Nodes (27): WorkflowRunRepository, ApprovalDecisionError, DecideApprovalUseCase, evaluateCondition(), executeTransform(), ExecuteWorkflowRunUseCase, SaveWorkflowUseCase, ApprovalRecord (+19 more)
+### Community 36 - "WorkflowRunRecord"
+Cohesion: 0.14
+Nodes (6): WorkflowRunRepository, RunState, ApprovalRecord, StepRunRecord, WorkflowRunRecord, StepStatus
 
 ### Community 37 - "opencode-plugin/package.json"
 Cohesion: 0.12
 Nodes (20): dependencies, @opencode/plugin@^2.2.5, @platform/shared@workspace:*, zod@^3.24.1, devDependencies, @types/bun@latest, typescript@^5.7.2, exports (+12 more)
 
-### Community 38 - "FakeAgentRuntime"
-Cohesion: 0.09
-Nodes (8): AgentPromptInput, FakeAgentRuntime, cleanups, fakeManager, fakeTranscription, captureLogger(), dirs, setup()
-
 ### Community 39 - "channel-manager.ts"
-Cohesion: 0.08
-Nodes (18): AudioConverterPort, EgressSendResult, IntegrationEgressPort, OutgoingMedia, ManagedIntegration, IntegrationEgressRouter, TelegramChannelAdapter, TelegramHandler (+10 more)
+Cohesion: 0.05
+Nodes (22): AppConfig, AudioConversionError, AudioConverterPort, EgressSendResult, IntegrationEgressPort, OutgoingMedia, ManagedIntegration, IntegrationEgressRouter (+14 more)
 
-### Community 40 - "ChatTurnService"
-Cohesion: 0.08
-Nodes (18): AgentSessionState, ChatTurnRepository, ChatTurnService, extractTurnReply(), isTransportError(), nowIso(), TurnFailureError, TurnNotFoundError (+10 more)
+### Community 40 - ".run"
+Cohesion: 0.31
+Nodes (5): AgentSessionState, extractTurnReply(), isTransportError(), nowIso(), TurnTimeoutError
 
-### Community 41 - "app.ts"
-Cohesion: 0.07
-Nodes (33): AppEnv, ChatRepository, ChatThreadRepository, ErrorEventRepository, ProjectRepository, ChatTarget, StartChatTurnInput, TurnInProgressError (+25 more)
+### Community 41 - "store.ts"
+Cohesion: 0.05
+Nodes (41): AgentFileAttachment, AgentRuntimePort, AgentSessionRef, ErrorEventRepository, Store, ChatTurnPolicy, ChatTarget, StartChatTurnInput (+33 more)
 
 ### Community 42 - "NotebookRecord"
 Cohesion: 0.21
@@ -483,12 +483,12 @@ Cohesion: 0.14
 Nodes (15): setup(), agentSegment, createPlatformTools(), GLOBAL_READ_ONLY_TOOLS, objectSchema(), PlatformClientScope, PlatformTool, PlatformToolContext (+7 more)
 
 ### Community 44 - "ProjectPage"
-Cohesion: 0.10
-Nodes (28): ProjectTopBar(), ProjectPage(), addNode(), changeEdgeCondition(), changeGraph(), closeInspector(), connect(), deleteEdge() (+20 more)
-
-### Community 45 - "cron.ts"
 Cohesion: 0.07
-Nodes (40): validateWorkflowResources(), cronMinuteKey(), cronWindowsBetween(), FIELD_RANGES, formatterCache, isValidCronExpression(), matchesCron(), matchesCronInTimeZone() (+32 more)
+Nodes (35): ProjectKnowledgePanel(), ProjectTopBar(), ProjectPage(), addNode(), changeEdgeCondition(), changeGraph(), closeInspector(), connect() (+27 more)
+
+### Community 45 - "WorkflowScheduler"
+Cohesion: 0.14
+Nodes (15): cronMinuteKey(), cronWindowsBetween(), matchesCron(), matchesCronInTimeZone(), matchesParts(), nextCronDate(), parseCron(), parseCronField() (+7 more)
 
 ### Community 46 - "artifacts"
 Cohesion: 0.13
@@ -499,24 +499,28 @@ Cohesion: 0.13
 Nodes (14): compilerOptions, allowImportingTsExtensions, allowSyntheticDefaultImports, esModuleInterop, forceConsistentCasingInFileNames, lib, module, moduleResolution (+6 more)
 
 ### Community 48 - "integrations.test.ts"
-Cohesion: 0.21
-Nodes (12): assertIntegrationInScope(), DATABASE_KINDS, requiredSecretRefs(), validateIntegrationInput(), manager, speech, transcription, useCase() (+4 more)
+Cohesion: 0.24
+Nodes (11): assertIntegrationInScope(), DATABASE_KINDS, requiredSecretRefs(), ValidatedIntegrationInput, validateIntegrationInput(), withDatabaseDefaults(), 2. Validación de servidor y ruteo de triggers, findSecretLikeFields() (+3 more)
 
 ### Community 50 - "input.ts"
-Cohesion: 0.17
-Nodes (15): buildNodePrompt(), parseAndValidateAgentOutput(), checkField(), NodeValidationError, validateInputPayload(), validateNodeRules(), valueAt(), WorkflowInputValidationError (+7 more)
+Cohesion: 0.23
+Nodes (11): buildNodePrompt(), parseAndValidateAgentOutput(), checkField(), NodeValidationError, validateInputPayload(), validateNodeRules(), valueAt(), WorkflowInputValidationError (+3 more)
 
-### Community 51 - "fs-media-store.ts"
-Cohesion: 0.07
-Nodes (37): MEDIA_MAX_BYTES, MEDIA_MAX_DURATION_SECONDS, MediaScope, MediaStoreError, SaveMediaInput, SPEECH_MAX_CHARS, SpeechAccess, SpeechError (+29 more)
+### Community 51 - "MediaRef"
+Cohesion: 0.16
+Nodes (17): MEDIA_MAX_BYTES, MEDIA_MAX_DURATION_SECONDS, MediaScope, MediaStoreError, MediaStorePort, SaveMediaInput, ascii(), DetectedMedia (+9 more)
+
+### Community 52 - "legacy-migration.test.ts"
+Cohesion: 0.17
+Nodes (12): AppDatabase, DatabaseHandle, openDatabase(), addColumnIfMissing(), backfillDatabasePolicies(), columnsOf(), migrate(), SQLITE_DDL (+4 more)
 
 ### Community 53 - "OpenCodeV2Adapter"
 Cohesion: 0.15
-Nodes (5): AgentMessage, OpenCodeV2Adapter, Context, Resultado del spike (2026-11-03), parseModelRef()
+Nodes (3): AgentMessage, OpenCodeV2Adapter, parseModelRef()
 
 ### Community 54 - "EntityScope"
-Cohesion: 0.39
-Nodes (3): VaultRepository, EntityScope, VaultSecretRecord
+Cohesion: 0.19
+Nodes (4): ChatThreadRepository, VaultRepository, EntityScope, VaultSecretRecord
 
 ### Community 55 - "ADDED Requirements"
 Cohesion: 0.05
@@ -527,52 +531,60 @@ Cohesion: 0.05
 Nodes (40): ADDED Requirements, Purpose, Requirement: Accessible and responsive chat interaction, Requirement: Adaptive chat surface, Requirement: Business-oriented communication contract, Requirement: Chat drawer that preserves canvas space, Requirement: Chat progress, timeout, and error states, Requirement: Markdown and structured content rendering (+32 more)
 
 ### Community 57 - "NodeInspectorModal.tsx"
-Cohesion: 0.08
-Nodes (29): ModelInfo, StepRun, nodeIssues(), CodeEditor(), FallbackEditor(), Monaco, NodeInspector(), conditionLabel() (+21 more)
+Cohesion: 0.07
+Nodes (42): ModelInfo, AgentCard(), AgentCatalog(), agentKey(), deniedTools(), AgentEditorModal(), toForm(), nodeIssues() (+34 more)
 
 ### Community 58 - "graph-edits.ts"
 Cohesion: 0.08
 Nodes (25): changeEdgeCondition(), connectNodes(), cycleNodes(), visit(), getConnectionIssue(), getGraphIssues(), GraphIssue, issue() (+17 more)
 
 ### Community 59 - "IntegrationManager"
-Cohesion: 0.16
-Nodes (6): deliverWebhook(), signWebhook(), IntegrationManager, sanitizeTelegramError(), WhatsAppChannelAdapter, 3. Ciclo de vida de Telegram
+Cohesion: 0.18
+Nodes (5): IntegrationManager, sanitizeTelegramError(), WhatsAppChannelAdapter, managerFor(), 3. Ciclo de vida de Telegram
 
 ### Community 60 - "shared/package.json"
 Cohesion: 0.14
 Nodes (16): dependencies, zod@^3.24.1, devDependencies, @types/bun@latest, typescript@^5.7.2, exports, @types/bun, typescript (+8 more)
 
+### Community 62 - "graph.ts"
+Cohesion: 0.24
+Nodes (12): isValidCronExpression(), computePayloadHash(), effectiveEdges(), IdempotencyMismatchError, normalizeNodeConfig(), reachableFrom(), stableStringify(), startNode() (+4 more)
+
 ### Community 64 - "ProjectPage.tsx"
 Cohesion: 0.08
-Nodes (61): api, AgentCard(), AgentCatalog(), agentKey(), deniedTools(), AgentEditorModal(), AgentFormState, AgentMode (+53 more)
+Nodes (56): api, RunRecord, App(), RequireAuth(), AuthContext, AuthProvider(), AuthState, useAuth() (+48 more)
 
 ### Community 65 - "NodeConfigFields.tsx"
-Cohesion: 0.11
-Nodes (28): getConfigValue(), getPath(), isFieldVisible(), setConfigValue(), setPath(), toList(), ControlChannelsPanel(), refresh() (+20 more)
+Cohesion: 0.12
+Nodes (25): CodeEditor(), FallbackEditor(), Monaco, getConfigValue(), getPath(), isFieldVisible(), setConfigValue(), setPath() (+17 more)
 
 ### Community 66 - "KbSourceRecord"
 Cohesion: 0.27
 Nodes (3): KnowledgeRepository, KbChunkRecord, KbSourceRecord
 
 ### Community 67 - "ManageIntegrationsUseCase"
-Cohesion: 0.25
-Nodes (5): hashIntegrationKey(), ManageIntegrationsUseCase, ValidatedIntegrationInput, withDatabaseDefaults(), IntegrationScope
+Cohesion: 0.19
+Nodes (5): databaseConfig(), ManageIntegrationsUseCase, IntegrationValidationError, useCase(), IntegrationScope
 
-### Community 68 - "SqliteStore"
-Cohesion: 0.09
-Nodes (10): WorkflowTimerRepository, WorkflowTimerRecord, DatabaseHandle, createStore(), parse(), SqliteStore, Measured baseline, Operational limits (+2 more)
+### Community 68 - "WorkflowTimerRecord"
+Cohesion: 0.18
+Nodes (3): WorkflowTimerRepository, WorkflowTimerRecord, parse()
 
 ### Community 70 - "auth-routes.ts"
-Cohesion: 0.20
-Nodes (13): destinationError(), integrationError(), authMiddleware(), AuthVariables, PASSWORD_CHANGE_ALLOWLIST, readUser(), SESSION_COOKIE, sessionMiddleware() (+5 more)
+Cohesion: 0.06
+Nodes (37): PasswordHasher, UserRepository, ChangePasswordUseCase, InvalidCredentialsError, LoginUseCase, UserRecord, assertPasswordPolicy(), MIN_PASSWORD_LENGTH (+29 more)
+
+### Community 72 - "IntegrationRecord"
+Cohesion: 0.14
+Nodes (4): IntegrationManagerPort, IntegrationRepository, IntegrationRecord, Connection
 
 ### Community 73 - "telemetry.ts"
 Cohesion: 0.10
 Nodes (19): ChatMessageRequest, ChatMessageRequestSchema, ChatMessageResponse, ChatMessageResponseSchema, SseEventSchema, ChatHealthSummary, ChatHealthSummarySchema, EntryPointTypeSchema (+11 more)
 
-### Community 74 - "contracts.test.ts"
-Cohesion: 0.06
-Nodes (31): AgentExecutionContextSchema, AgentMode, AgentModeSchema, ModelRef, ModelRefSchema, modelRefToString(), PermissionRuleSchema, PlatformToolName (+23 more)
+### Community 74 - "agents.ts"
+Cohesion: 0.17
+Nodes (11): AgentExecutionContextSchema, AgentMode, AgentModeSchema, ModelRef, ModelRefSchema, modelRefToString(), PermissionRuleSchema, PlatformToolName (+3 more)
 
 ### Community 75 - "Requirements"
 Cohesion: 0.05
@@ -591,12 +603,12 @@ Cohesion: 0.25
 Nodes (7): guidance, guidance, context, operations, apply, archive, schema
 
 ### Community 79 - "legacy-migration.ts"
-Cohesion: 0.10
-Nodes (27): [databasePath, mappingPath, backupPath], mapping, sqlite, AppDatabase, openDatabase(), channelKind(), createMigrationBackup(), databaseKind() (+19 more)
+Cohesion: 0.16
+Nodes (16): [databasePath, mappingPath, backupPath], mapping, sqlite, channelKind(), createMigrationBackup(), databaseKind(), ensureIntegrationsTable(), hasColumn() (+8 more)
 
 ### Community 80 - "WorkflowCanvas.tsx"
-Cohesion: 0.05
-Nodes (49): NodePaletteModal(), ShapePreview(), CanvasActions, CanvasActionsContext, useCanvasActions(), NODE_CATALOG, NODE_CATEGORY_COLORS, NODE_META (+41 more)
+Cohesion: 0.10
+Nodes (26): @xyflow/react@^12.3.6, CanvasActionsContext, useCanvasActions(), NODE_CATALOG, NODE_CATEGORY_COLORS, NODE_META, PALETTE_GROUPS, ConnectRole (+18 more)
 
 ### Community 81 - "EmbeddingPort"
 Cohesion: 0.26
@@ -631,8 +643,8 @@ Cohesion: 0.44
 Nodes (4): KnowledgeSearchResult, buildGroundedContext(), SearchKnowledgeUseCase, cosineSimilarity()
 
 ### Community 89 - "chat-progress.ts"
-Cohesion: 0.30
-Nodes (9): commandText(), createChatProgressHandler(), fileEditText(), filePathFromInput(), fileReadText(), normalizeToolName(), RawAgentEvent, toolText() (+1 more)
+Cohesion: 0.25
+Nodes (10): commandText(), createChatProgressHandler(), fileEditText(), filePathFromInput(), fileReadText(), normalizeToolName(), RawAgentEvent, toolText() (+2 more)
 
 ### Community 91 - "opencode-plugin/tsconfig.json"
 Cohesion: 0.50
@@ -647,8 +659,8 @@ Cohesion: 0.50
 Nodes (3): extends, include, ../../tsconfig.base.json
 
 ### Community 94 - "Aes256GcmVaultAdapter"
-Cohesion: 0.09
-Nodes (20): BootstrapOptions, BootstrapResult, BootstrapSystemUseCase, DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME, ensureControlWorkspace(), SUBDIRECTORIES, writeIfMissing() (+12 more)
+Cohesion: 0.05
+Nodes (19): BootstrapOptions, BootstrapResult, BootstrapSystemUseCase, DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_USERNAME, ensureControlWorkspace(), SUBDIRECTORIES, writeIfMissing() (+11 more)
 
 ### Community 96 - "Requirements"
 Cohesion: 0.06
@@ -658,10 +670,6 @@ Nodes (31): identity-and-bootstrap Specification, Purpose, Requirement: AES-256-
 Cohesion: 0.06
 Nodes (30): ADDED Requirements, MODIFIED Requirements, Requirement: Automated TDD testing pyramid (Unit, Integration, Contract, and E2E), Requirement: Built-in System Health and Error Inspector dashboard, Requirement: Error tracking integration with external login dashboard (Sentry / GlitchTip), Requirement: Integration and alert telemetry, Requirement: Resilience regression coverage, Requirement: Structured JSON logging with correlation ID and entry-point attribution (+22 more)
 
-### Community 98 - "setup.ts"
-Cohesion: 0.13
-Nodes (4): @testing-library/jest-dom@^6.6.3, EventSourceStub, ResizeObserverStub, @testing-library/jest-dom
-
 ### Community 99 - "ADDED Requirements"
 Cohesion: 0.07
 Nodes (29): ADDED Requirements, Purpose, Requirement: Cross-project read-only tools, Requirement: Deterministic failure and health alerts, Requirement: Global channels configured in platform settings, Requirement: On-demand global questions and reports, Requirement: Separate global orchestrator workspace and agent, Requirement: Separation of authority between project and control planes (+21 more)
@@ -669,6 +677,10 @@ Nodes (29): ADDED Requirements, Purpose, Requirement: Cross-project read-only to
 ### Community 100 - "Requirement: Integration lifecycle and health"
 Cohesion: 0.07
 Nodes (29): ADDED Requirements, MODIFIED Requirements, Requirement: Guided project integration configuration, Requirement: Integration lifecycle and health, Requirement: Project configuration surface and readiness, Requirement: Project destination registry, Scenario: Advanced configuration remains available, Scenario: Advanced JSON cannot store secrets (+21 more)
+
+### Community 101 - "project-settings.ts"
+Cohesion: 0.17
+Nodes (8): ProjectRepository, ProjectReadinessItem, ProjectSettingsView, readinessFor(), UpdateProjectSettingsUseCase, ProjectRecord, 1. Contratos compartidos y persistencia, ChannelRoutingSchema
 
 ### Community 102 - "Requirements"
 Cohesion: 0.07
@@ -678,6 +690,10 @@ Nodes (29): global-orchestrator Specification, Purpose, Requirement: Cross-proje
 Cohesion: 0.07
 Nodes (29): project-isolation Specification, Purpose, Requirement: Long-running project chat with SSE heartbeats, Requirement: Per-project chat session and persistent history, Requirement: Project file isolation, Requirement: Project-owned asset isolation, Requirement: Project-scoped tool and API access, Requirement: Separate project and global authorization scopes (+21 more)
 
+### Community 104 - "ChatTurnService"
+Cohesion: 0.21
+Nodes (3): ChatTurnService, TurnNotFoundError, ChatTurnEvent
+
 ### Community 105 - "Animation Standards Reference"
 Cohesion: 0.07
 Nodes (26): Aggressive Escalation Triggers, Guidelines, Initial Response, Operating Posture, Part 1 — Findings table (REQUIRED), Part 2 — Verdict (REQUIRED), Remedial Preference Hierarchy, Required Output Format (+18 more)
@@ -686,33 +702,33 @@ Nodes (26): Aggressive Escalation Triggers, Guidelines, Initial Response, Operat
 Cohesion: 0.07
 Nodes (27): ADDED Requirements, Requirement: Agent node media attachments, Requirement: Integration trigger media acceptance, Requirement: Transcribe node, Requirement: Transcription resource validation for workflows, Scenario: Audio without transcript is flagged, Scenario: Cross-project connection is rejected, Scenario: Default preserves text-only workflows (+19 more)
 
-### Community 107 - "auth.routes.test.ts"
+### Community 107 - "ExecuteWorkflowRunUseCase"
 Cohesion: 0.29
-Nodes (4): PasswordHasher, BunPasswordHasher, buildApp(), hono
+Nodes (5): ExecuteWorkflowRunUseCase, nextEdge(), 2. Snapshots inmutables (`workflow_versions`) y recuperación de runs al arranque, Context, 2. Workflow Graph Snapshots, Version History, Rollback & Startup Run Recovery
 
 ### Community 109 - "Decisions"
-Cohesion: 0.07
-Nodes (26): Capabilities, Impact, Modified Capabilities, New Capabilities, Out of scope, Proposal, What Changes, Why (+18 more)
+Cohesion: 0.11
+Nodes (18): 10. Aislamiento y sesiones por proyecto, 11. Chat de proyecto, timeout y modelo global, 12. Frontend: Tailwind CSS v4 y React Query, 1. Stack de Runtime y Monorepo: Bun + Hono + React (Vite) sobre Next.js, 2. Estructura de Arquitectura Hexagonal (Puertos y Adaptadores), 3. Integración Nativa con OpenCode V2 (`@opencode/client` + `@opencode/plugin`), 4. Contrato de `workflow.json` y Ejecución Aislada de Nodos `.ts`, 5. Bancos de Información Estilo NotebookLM (Búsqueda Híbrida + Resúmenes) (+10 more)
 
-### Community 110 - "ref_bun_test"
-Cohesion: 0.07
-Nodes (20): Application, EXTENSION, json(), logEntries, testLogger, waitForApproval(), dirs, logger (+12 more)
+### Community 110 - "SqliteStore"
+Cohesion: 0.04
+Nodes (37): TriggerRef, TurnInProgressError, MetricsSnapshot, InMemoryMetrics, SseHub, SqliteStore, PROJECT_ISOLATION_PERMISSIONS, dirs (+29 more)
 
 ### Community 111 - "BaileysTransport"
-Cohesion: 0.12
-Nodes (3): BaileysTransport, WhatsAppTransport, FakeWhatsApp
+Cohesion: 0.08
+Nodes (5): BaileysTransport, parseCloudWebhook(), WhatsAppCloudTransport, WhatsAppTransport, FakeWhatsApp
 
 ### Community 112 - "ChatWithOrchestratorUseCase"
-Cohesion: 0.12
-Nodes (17): ChatWithOrchestratorUseCase, EmptyAgentReplyError, OrchestratorConfigurationError, 1. Resolve the orchestrator model explicitly, with env first and platform default second, 4. Filter blank agent messages from the control history, 5. Stream control-chat progress with the existing handler, 6. Make the global tool inventory read-only at registration, 8. Test strategy (+9 more)
+Cohesion: 0.18
+Nodes (10): ChatWithOrchestratorUseCase, EmptyAgentReplyError, OrchestratorConfigurationError, 1. Resolve the orchestrator model explicitly, with env first and platform default second, 4. Filter blank agent messages from the control history, 5. Stream control-chat progress with the existing handler, 6. Make the global tool inventory read-only at registration, 8. Test strategy (+2 more)
 
 ### Community 113 - "Decisions"
 Cohesion: 0.07
 Nodes (27): 10. Contrato de ejecución manual y nodo `validate`, 11. Agente principal por proyecto y contrato de comunicación, 12. Email como extensión del contrato de integración, 13. API tipada y consistente, 14. Observabilidad y pruebas desde el diseño, 16. Restaurar credenciales de proveedor al arrancar, 17. Ciclo de vida y borrado en cascada del proyecto, 18. Canvas con paleta lateral, inspector inferior y chat en drawer (+19 more)
 
-### Community 114 - "ErrorTracker"
-Cohesion: 0.21
-Nodes (6): assertChatTimeoutsCoverOpenCode(), ChatTurnPolicy, positive(), resolveChatTurnPolicy(), ErrorTracker, 10. Observabilidad
+### Community 114 - "Impact"
+Cohesion: 0.13
+Nodes (13): Context, Design, Goals / Non-Goals, Migration Plan, Risks / Trade-offs, Impact, 1. Contratos compartidos y base de datos, ChatThread (+5 more)
 
 ### Community 115 - "ADDED Requirements"
 Cohesion: 0.07
@@ -746,9 +762,9 @@ Nodes (5): transcription, expose, image, restart, volumes
 Cohesion: 0.08
 Nodes (25): ADDED Requirements, Purpose, Requirement: Bidirectional synchronization between Chat and Visual Canvas, Requirement: Disk-backed project workspaces, Requirement: Extended node catalog (HTTP, delay, transform, visual condition), Requirement: Isolated execution of TypeScript code nodes, Requirement: Live node execution status on the canvas, Requirement: Run trace with per-step inputs, outputs, logs and agent attribution (+17 more)
 
-### Community 123 - "createApplication"
-Cohesion: 0.18
-Nodes (9): createApplication(), maskSecret(), resolveProjectRouteTool(), safeEqual(), GetHealthUseCase, ChatWithProjectUseCase, withTimeout(), port (+1 more)
+### Community 123 - "OpenAiCompatibleSpeechService"
+Cohesion: 0.42
+Nodes (4): SpeechAccess, SpeechError, OpenAiCompatibleSpeechService, 2. Servicio de voz
 
 ### Community 124 - "Requirement: Integration-backed triggers"
 Cohesion: 0.08
@@ -783,8 +799,8 @@ Cohesion: 0.08
 Nodes (23): knowledge-base-notebooks Specification, Purpose, Requirement: Cross-project knowledge search for the global orchestrator, Requirement: Document and URL ingestion into Notebooks, Requirement: Grounded sub-agent binding to Notebooks, Requirement: Hybrid semantic and full-text search with source citations, Requirement: Project-owned knowledge isolation, Requirements (+15 more)
 
 ### Community 132 - "ManageDestinationsUseCase"
-Cohesion: 0.16
-Nodes (5): ProjectDestinationRepository, DestinationError, ManageDestinationsUseCase, referencesIn(), ProjectDestinationRecord
+Cohesion: 0.11
+Nodes (12): ProjectDestinationRepository, DestinationError, ManageDestinationsUseCase, referencesIn(), ProjectDestinationRecord, CreateProjectDestinationInput, CreateProjectDestinationSchema, DestinationKind (+4 more)
 
 ### Community 133 - "Requirement: Speech integration kind"
 Cohesion: 0.09
@@ -798,10 +814,6 @@ Nodes (22): ADDED Requirements, MODIFIED Requirements, REMOVED Requirements, Req
 Cohesion: 0.09
 Nodes (21): ADDED Requirements, Requirement: Automation delivery, schedule, and approval telemetry, Requirement: Automation operations view, Requirement: Automation regression coverage, Scenario: Cobertura P0, Scenario: Cobertura P1, Scenario: Cola y aprobaciones pendientes, Scenario: Cola y rate limit (+13 more)
 
-### Community 136 - "TelegramTransport"
-Cohesion: 0.10
-Nodes (5): AppConfig, IntegrationTransport, TelegramTransport, FakeTelegram, 2. Captura y almacenamiento de media
-
 ### Community 137 - "Requirement: Inbound channel media capture"
 Cohesion: 0.10
 Nodes (20): ADDED Requirements, Requirement: Automatic audio transcription for agent-mode channels, Requirement: Inbound channel media capture, Requirement: Media attachments in channel chat turns, Scenario: Attachment path outside the project is rejected, Scenario: Audio with a caption, Scenario: Image document is captured, Scenario: Image reaches the agent (+12 more)
@@ -814,17 +826,17 @@ Nodes (20): ADDED Requirements, Requirement: Guided transcription configuration,
 Cohesion: 0.10
 Nodes (20): omnichannel-and-chat-gateway Specification, Purpose, Requirement: External Application Chat Gateway API with persistent conversation threads, Requirement: Interactive Human-in-the-Loop permission and approval replies over chat, Requirement: Project-scoped channel routing, Requirement: Separate global control channels, Requirements, Scenario: Approval from the global control channel (+12 more)
 
-### Community 140 - "Impact"
-Cohesion: 0.10
-Nodes (18): fetch(), Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why (+10 more)
+### Community 140 - "Tasks"
+Cohesion: 0.13
+Nodes (10): IntegrationTransport, 1. Contratos compartidos y persistencia, 2. Captura y almacenamiento de media, 4. Modo agente: transcripción automática y adjuntos, 5. Workflow: trigger, nodo Transcribir y nodo Agente, 6. Modalidades de modelo y UI, 7. Despliegue local con speaches, 8. Observabilidad, seguridad y verificación integral (+2 more)
 
 ### Community 141 - "ADDED Requirements"
 Cohesion: 0.10
 Nodes (19): ADDED Requirements, Purpose, Requirement: AES-256-GCM secret vault and alias resolution, Requirement: External database connection pool registry, Requirement: First-boot admin provisioning and master key initialization, Requirement: Global default model selection, Requirement: Mandatory initial password rotation, Requirement: OpenCode Go and provider connection management (+11 more)
 
-### Community 142 - "integration-lifecycle.test.ts"
-Cohesion: 0.11
-Nodes (3): createIntegration(), dirs, silentLogger
+### Community 142 - "ChatTurnStatus"
+Cohesion: 0.20
+Nodes (4): ChatTurnResult, ChatTurnActions, ChatTurnController, ChatTurnStatus
 
 ### Community 143 - "5. Components"
 Cohesion: 0.11
@@ -851,20 +863,20 @@ Cohesion: 0.11
 Nodes (17): ADDED Requirements, MODIFIED Requirements, Requirement: Desktop project top bar, Requirement: Full-bleed workflow workspace, Requirement: Readable initial canvas viewport, Scenario: Active tab stays visible when the strip scrolls, Scenario: All tabs remain fully readable at 1440 px, Scenario: Canvas fills the available space (+9 more)
 
 ### Community 149 - "Decisions"
-Cohesion: 0.12
-Nodes (16): readinessFor(), 10. Observabilidad y seguridad, 1. Una integración `speech` separada de `transcription`, 2. El motor local es speaches + Kokoro, y la API es el mismo contrato, 3. El nodo `speak` produce un `MediaRef` y no un base64, 6. La salida final de un workflow puede ser audio, 7. Persistencia aditiva y ajustes del proyecto, 8. UI guiada y voz configurable (+8 more)
+Cohesion: 0.18
+Nodes (11): fetch(), 3. Servicio de transcripción y recurso por proyecto, 10. Observabilidad y seguridad, 1. Una integración `speech` separada de `transcription`, 2. El motor local es speaches + Kokoro, y la API es el mismo contrato, 3. El nodo `speak` produce un `MediaRef` y no un base64, 6. La salida final de un workflow puede ser audio, 7. Persistencia aditiva y ajustes del proyecto (+3 more)
 
 ### Community 150 - "Decisions"
-Cohesion: 0.12
-Nodes (16): target(), Context, D11. UI, D12. Gate P0 → P1, D1. `notify` y `database` son nodos de primera clase, D2. Contratos de configuración, D3. Política de error por nodo, sin una segunda arista en el DAG, D5. Scheduler con estado persistido (+8 more)
+Cohesion: 0.11
+Nodes (17): target(), Context, D11. UI, D12. Gate P0 → P1, D1. `notify` y `database` son nodos de primera clase, D3. Política de error por nodo, sin una segunda arista en el DAG, D4. Ledger de entregas y claves de acción, D5. Scheduler con estado persistido (+9 more)
 
 ### Community 151 - "Requirement: Approval notifications for manual and scheduled runs"
 Cohesion: 0.12
 Nodes (16): ADDED Requirements, Requirement: Approval notifications for manual and scheduled runs, Requirement: Reliable outbound notification delivery, Scenario: Aprobación de un run manual, Scenario: Aprobación de un run originado por canal, Scenario: Aprobación de un run programado, Scenario: Decisión consistente entre canal y UI, Scenario: Entrega a chat externo (+8 more)
 
-### Community 152 - "Decisions"
-Cohesion: 0.12
-Nodes (16): 10. Design standard document, 1. Brand mark: "Nodo abierto", 2. Tokens: small vocabulary, semantic roles, 3. Typography: bundle Inter, compact scale, 4. Desktop shell and project top bar, 5. Canvas: readable initial viewport, 6. Agent catalog, 8. Status, copy and error mapping (+8 more)
+### Community 152 - "Design"
+Cohesion: 0.29
+Nodes (6): Context, Design, Goals / Non-Goals, Migration Plan, Open Questions, Risks / Trade-offs
 
 ### Community 153 - "ADDED Requirements"
 Cohesion: 0.12
@@ -911,8 +923,8 @@ Cohesion: 0.14
 Nodes (13): Common Skill Categories, Find Skills, How to Help Users Find Skills, Step 1: Understand What They Need, Step 2: Check the Leaderboard First, Step 3: Search for Skills, Step 4: Verify Quality Before Recommending, Step 5: Present Options to the User (+5 more)
 
 ### Community 164 - "Proposal"
-Cohesion: 0.14
-Nodes (13): Capabilities, Fase 1 — P0, Fase 2 — P1, Fuera de alcance, Impact, Modified Capabilities, New Capabilities, Proposal (+5 more)
+Cohesion: 0.09
+Nodes (21): Capabilities, Fase 1 — P0, Fase 2 — P1, Fuera de alcance, Impact, Modified Capabilities, New Capabilities, Proposal (+13 more)
 
 ### Community 165 - "ADDED Requirements"
 Cohesion: 0.14
@@ -926,9 +938,9 @@ Nodes (13): ADDED Requirements, MODIFIED Requirements, Requirement: Chat progres
 Cohesion: 0.14
 Nodes (13): ADDED Requirements, Requirement: Chat turn resilience test coverage, Requirement: Chat turn telemetry, Scenario: Active turn health, Scenario: Channel and orchestrator regression, Scenario: Disconnect and reload regression, Scenario: Idempotency and timeout regression, Scenario: Long turn is measurable (+5 more)
 
-### Community 168 - "Tasks"
-Cohesion: 0.17
-Nodes (9): AudioConversionError, FfmpegAudioConverter, 3. Nodo `speak`, 4. Egress de audio y conversión, 6. Entrega de audio en workflows, 7. UI y configuración, 8. Despliegue, salud y verificación integral, Tasks (+1 more)
+### Community 168 - "domain/media.ts"
+Cohesion: 0.18
+Nodes (11): MediaAttachmentError, readMedia(), ResolvedAttachment, resolveMediaPath(), toAttachmentFiles(), 3. Nodo `speak`, 6. Entrega de audio en workflows, 7. UI y configuración (+3 more)
 
 ### Community 169 - "Requirement: Agent catalog cards"
 Cohesion: 0.15
@@ -938,17 +950,17 @@ Nodes (12): ADDED Requirements, Requirement: Agent catalog cards, Requirement: F
 Cohesion: 0.15
 Nodes (12): ADDED Requirements, MODIFIED Requirements, Requirement: Native OpenCode platform plugin tools (`platform_*`), Requirement: Per-agent and execution-context tool permission enforcement, Scenario: Agent with a deny rule on database or notification tools is blocked, Scenario: Asking the global orchestrator for workflow status, Scenario: Global tools are read-only by default, Scenario: Primary agent in authenticated web chat retains design capabilities (+4 more)
 
-### Community 171 - "Decisions"
-Cohesion: 0.15
-Nodes (12): 1. Registro compartido de configuración, 4. Ruteo y validación de triggers, 5. Superficie de configuración, 6. Destinos de proyecto, 7. Configuración efectiva, 9. Compatibilidad de API y datos, Decisions, Design (+4 more)
+### Community 171 - "shared/src/api.ts"
+Cohesion: 0.18
+Nodes (9): ApiError, ApiErrorSchema, CreateProjectRequest, CreateProjectRequestSchema, PaginationMeta, PaginationMetaSchema, PaginationQuery, PaginationQuerySchema (+1 more)
 
 ### Community 172 - "Requirement: Project-scoped chat turn access"
 Cohesion: 0.15
 Nodes (12): ADDED Requirements, MODIFIED Requirements, Requirement: Long-running project chat with SSE heartbeats, Requirement: Project-scoped chat turn access, Scenario: Channel turn maps to its owning project, Scenario: Chat timeout is persisted, Scenario: Cross-project retry is rejected, Scenario: Global and project turns remain separate (+4 more)
 
 ### Community 173 - "Decisions"
-Cohesion: 0.17
-Nodes (10): 1. El turno es un registro durable; el request es una vista, 2. `ChatTurnService` es el dueño del ciclo de vida, 3. Detección de fin: log durable + watchdog, sin `session.wait` como dueño, 4. Separar “enviar” de “esperar” en el puerto de runtime, 5. SSE reenganchable y API de turno, 6. UI: estado derivado del servidor, no del request, 7. Presupuesto de timeouts coherente, 8. Taxonomía de estados y recuperación (+2 more)
+Cohesion: 0.15
+Nodes (11): 10. Observabilidad, 1. El turno es un registro durable; el request es una vista, 2. `ChatTurnService` es el dueño del ciclo de vida, 3. Detección de fin: log durable + watchdog, sin `session.wait` como dueño, 4. Separar “enviar” de “esperar” en el puerto de runtime, 5. SSE reenganchable y API de turno, 6. UI: estado derivado del servidor, no del request, 7. Presupuesto de timeouts coherente (+3 more)
 
 ### Community 174 - "ADDED Requirements"
 Cohesion: 0.17
@@ -963,8 +975,12 @@ Cohesion: 0.17
 Nodes (11): ADDED Requirements, Requirement: Durable orchestrator turns, Requirement: Read-only empty-reply policy for orchestrator turns, Scenario: Empty first reply is retried, Scenario: Empty retry also fails, Scenario: Global channel turn, Scenario: Long cross-project report, Scenario: Orchestrator timeout or cancel (+3 more)
 
 ### Community 177 - "Impact"
-Cohesion: 0.18
-Nodes (9): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why, ProjectSettings (+1 more)
+Cohesion: 0.29
+Nodes (6): Capabilities, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+
+### Community 178 - "context"
+Cohesion: 0.07
+Nodes (22): context(), Check for context, Ending Discovery, Guardrails, OpenSpec Awareness, Planning a Change, The Stance, What You Don't Have To Do (+14 more)
 
 ### Community 179 - "ADDED Requirements"
 Cohesion: 0.18
@@ -979,8 +995,8 @@ Cohesion: 0.18
 Nodes (10): ADDED Requirements, Requirement: Orchestrator tool-turn regression coverage, Scenario: Blank history is tested, Scenario: Control-chat progress is tested, Scenario: Empty reply is tested, Scenario: Model resolution is tested, Scenario: Read-only global inventory is tested, Scenario: Stuck-session recovery is tested (+2 more)
 
 ### Community 182 - "Tasks"
-Cohesion: 0.18
-Nodes (10): 10. Observabilidad y salud, 11. Rollout y verificación integral, 1. Spike y contrato de OpenCode, 2. Persistencia durable del turno, 3. Runtime de OpenCode: enviar, esperar y reconciliar, 4. ChatTurnService, 7. Orquestador global, 9. Presupuesto de timeouts y configuración (+2 more)
+Cohesion: 0.15
+Nodes (12): 10. Observabilidad y salud, 11. Rollout y verificación integral, 1. Spike y contrato de OpenCode, 2. Persistencia durable del turno, 3. Runtime de OpenCode: enviar, esperar y reconciliar, 4. ChatTurnService, 5. API y SSE, 7. Orquestador global (+4 more)
 
 ### Community 184 - "Decisions"
 Cohesion: 0.20
@@ -1015,8 +1031,8 @@ Cohesion: 0.22
 Nodes (8): Capabilities, Impact, Modified Capabilities, New Capabilities, Out of scope, Proposal, What Changes, Why
 
 ### Community 192 - "Tasks"
-Cohesion: 0.22
-Nodes (8): 2. Validación de servidor y ruteo de triggers, 3. Destinos de proyecto, 4. Ciclo de vida de Telegram, 6. Superficie única de configuración y destinos UI, 8. Configuración efectiva y ajustes, 9. Integración final y verificación, Tasks, Workflow follow-up
+Cohesion: 0.25
+Nodes (7): 3. Destinos de proyecto, 4. Ciclo de vida de Telegram, 6. Superficie única de configuración y destinos UI, 8. Configuración efectiva y ajustes, 9. Integración final y verificación, Tasks, Workflow follow-up
 
 ### Community 193 - "Proposal"
 Cohesion: 0.22
@@ -1038,13 +1054,17 @@ Nodes (8): EffectiveConfig, EffectiveConfigSchema, EffectiveConfigSource, Effect
 Cohesion: 0.25
 Nodes (8): Animate enter states with @starting-style, Buttons must feel responsive, Component Building Principles, Make popovers origin-aware, Never animate from scale(0), Tooltips: skip delay on subsequent hovers, Use blur to mask imperfect transitions, Use CSS transitions over keyframes for interruptible UI
 
+### Community 198 - "ChatMessageRecord"
+Cohesion: 0.28
+Nodes (4): ChatRepository, TurnFailureError, ChatMessageRecord, ChatTurnErrorCode
+
 ### Community 199 - "UI motion and modal standard"
 Cohesion: 0.25
 Nodes (7): Live status motion, Modal behavior, Modal sizes, Motion tokens, Navigation rail, Press and focus feedback, UI motion and modal standard
 
-### Community 200 - "openspec-explore/SKILL.md"
-Cohesion: 0.25
-Nodes (7): Ending Discovery, Guardrails, Handling Different Entry Points, Planning a Change, The Stance, What You Don't Have To Do, What You Might Do
+### Community 200 - "resolvePath"
+Cohesion: 0.36
+Nodes (8): evaluateCondition(), executeTransform(), collectMedia(), renderParams(), renderTemplate(), resolvePath(), templateValue(), D2. Contratos de configuración
 
 ### Community 201 - "Requirement: Chat turns preserve message attachments"
 Cohesion: 0.25
@@ -1078,13 +1098,13 @@ Nodes (7): MODIFIED Requirements, Requirement: Original brand identity across su
 Cohesion: 0.25
 Nodes (7): Capabilities, Impact, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
 
-### Community 209 - "src/destinations.ts"
-Cohesion: 0.25
-Nodes (7): CreateProjectDestinationInput, CreateProjectDestinationSchema, DestinationKind, DestinationKindSchema, ProjectDestinationSchema, UpdateProjectDestinationInput, UpdateProjectDestinationSchema
+### Community 209 - "router.ts"
+Cohesion: 0.33
+Nodes (8): ApprovalCommand, normalizeSender(), parseApprovalCommand(), ProjectRouteDecision, routeGlobalMessage(), routeProjectMessage(), senderMatchesAllowlist(), ChannelMode
 
-### Community 210 - "opsx-explore.md"
-Cohesion: 0.29
-Nodes (6): Ending Discovery, Guardrails, Planning a Change, The Stance, What You Don't Have To Do, What You Might Do
+### Community 210 - "Proposal"
+Cohesion: 0.22
+Nodes (8): Capabilities, Impact, Modified Capabilities, New Capabilities, Out of scope, Proposal, What Changes, Why
 
 ### Community 211 - "Requirement: Native notification action node"
 Cohesion: 0.29
@@ -1114,9 +1134,9 @@ Nodes (6): Context, Design, Goals / Non-Goals, Migration Plan, Open Questions, R
 Cohesion: 0.29
 Nodes (7): Requirement: Single executable trigger per workflow, Scenario: Existing unsupported trigger is visible in the inspector, Scenario: Integration trigger requires an integration, Scenario: Schedule trigger requires a valid cron expression, Scenario: Second trigger is rejected, Scenario: Unimplemented trigger kind is rejected, Scenario: Webhook trigger requires a secret alias or token configuration
 
-### Community 218 - "config-registry.test.ts"
-Cohesion: 0.29
-Nodes (5): CHANNEL_EVENTS, INTEGRATION_CONFIG_REGISTRY, NODE_CONFIG_REGISTRY, IntegrationKindSchema, NodeTypeSchema
+### Community 218 - "configuration.ts"
+Cohesion: 0.07
+Nodes (29): 1. Registro compartido de configuración, alertFields, CHANNEL_EVENTS, CHANNEL_KINDS, ConfigDefinition, ConfigField, ConfigFieldType, DATABASE_KINDS (+21 more)
 
 ### Community 219 - "The Animation Decision Framework"
 Cohesion: 0.33
@@ -1133,6 +1153,10 @@ Nodes (6): CSS animations beat JS under load, CSS variables are inheritable, Mot
 ### Community 222 - "Gesture and Drag Interactions"
 Cohesion: 0.33
 Nodes (6): Damping at boundaries, Friction instead of hard stops, Gesture and Drag Interactions, Momentum-based dismissal, Multi-touch protection, Pointer capture for drag
+
+### Community 224 - "SseEvent"
+Cohesion: 0.13
+Nodes (8): AlertService, redact(), FakeEgress, logger, FakeEvents, D10. P1: timers, lotes, subworkflows y cola, 13. Cola, rate limit y alertas por proyecto P1, SseEvent
 
 ### Community 225 - "Graphify"
 Cohesion: 0.33
@@ -1254,13 +1278,9 @@ Nodes (4): Beauty is leverage, Core Philosophy, Taste is trained, not innate, Un
 Cohesion: 0.50
 Nodes (4): Debugging Animations, Frame-by-frame inspection, Slow motion testing, Test on real devices
 
-### Community 256 - "OpenSpec Awareness"
-Cohesion: 0.50
-Nodes (4): Check for context, OpenSpec Awareness, When a change exists, When no change exists
-
-### Community 257 - "OpenSpec Awareness"
-Cohesion: 0.50
-Nodes (4): Check for context, OpenSpec Awareness, When a change exists, When no change exists
+### Community 256 - "Tasks"
+Cohesion: 0.25
+Nodes (7): 1. Model resolution and session configuration, 3. Stuck-session recovery, 5. Read-only global tool inventory, 6. Orchestrator logging, 7. Integration verification, Tasks, Workflow follow-up
 
 ### Community 258 - "Requirement: Disk-backed project workspaces"
 Cohesion: 0.50
@@ -1290,25 +1310,37 @@ Nodes (4): Requirement: Validate node, Scenario: Multiple rules report the first
 Cohesion: 0.50
 Nodes (4): Requirement: Workflow graph snapshots, version history, and rollback, Scenario: Replay and approval resume use the run's original snapshot, Scenario: Rolling back to a previous workflow version, Scenario: Saving a workflow records a new version snapshot
 
+### Community 268 - "Proposal"
+Cohesion: 0.29
+Nodes (6): Capabilities, Modified Capabilities, New Capabilities, Proposal, What Changes, Why
+
+### Community 269 - "scripts"
+Cohesion: 0.33
+Nodes (6): scripts, build, dev, preview, test, typecheck
+
+### Community 271 - "Performance and limits"
+Cohesion: 0.40
+Nodes (4): Measured baseline, Operational limits, Performance and limits, Verification
+
 ## Knowledge Gaps
-- **10 isolated node(s):** `../../tsconfig.base.json`, `../../tsconfig.base.json`, `PLATFORM_SERVICE_TOKEN`, `PLATFORM_GLOBAL_TOKEN`, `PLATFORM_API_URL` (+5 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2609 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **24 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **10 isolated node(s):** `../../tsconfig.base.json`, `OPENCODE_DB`, `OPENCODE_MODE`, `PLATFORM_API_URL`, `PLATFORM_GLOBAL_TOKEN` (+5 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2612 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **21 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `createApplication()` connect `createApplication` to `LogBindings`, `ManageDestinationsUseCase`, `AgentRuntimePort`, `agents.test.ts`, `Store`, `WorkflowGraph`, `send-notification.ts`, `server/package.json`, `Impact`, `execute-workflow.ts`, `SafeFsWorkspaceAdapter`, `Tasks`, `RouteProjectIntegrationMessageUseCase`, `channel-router.test.ts`, `extractors.ts`, `opencode-adapter.ts`, `ExecuteWorkflowRunUseCase`, `channel-manager.ts`, `ChatTurnService`, `app.ts`, `NotebookRecord`, `Tasks`, `tools.ts`, `cron.ts`, `fs-media-store.ts`, `IntegrationManager`, `ManageIntegrationsUseCase`, `SqliteStore`, `auth-routes.ts`, `SessionCodec`, `EmbeddingPort`, `search-knowledge.ts`, `Aes256GcmVaultAdapter`, `IntegrationValidationError`, `auth.routes.test.ts`, `ref_bun_test`, `ChatWithOrchestratorUseCase`, `ErrorTracker`?**
-  _High betweenness centrality (0.034) - this node is a cross-community bridge._
+- **Why does `WorkflowGraph` connect `createApplication` to `web/src/api.ts`, `ProjectPage.tsx`, `project-settings.ts`, `store.ts`, `ExecuteWorkflowRunUseCase`, `ProjectPage`, `WorkflowVersionRecord`, `WorkflowScheduler`, `SqliteStore`, `sqlite-store.ts`, `execute-workflow.ts`, `WorkflowCanvas.tsx`, `SafeFsWorkspaceAdapter`, `vitest`, `workflow.ts`, `NodeInspectorModal.tsx`, `graph-edits.ts`, `graph.ts`?**
+  _High betweenness centrality (0.022) - this node is a cross-community bridge._
 - **Are the 81 inferred relationships involving `createApplication()` (e.g. with `.start()` and `.stop()`) actually correct?**
   _`createApplication()` has 81 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `../../tsconfig.base.json`, `../../tsconfig.base.json`, `PLATFORM_SERVICE_TOKEN` to the rest of the system?**
+- **What connects `../../tsconfig.base.json`, `OPENCODE_DB`, `OPENCODE_MODE` to the rest of the system?**
   _10 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `ADDED Requirements` be split into smaller, more focused modules?**
-  _Cohesion score 0.043478260869565216 - nodes in this community are weakly interconnected._
-- **Why does `WorkflowGraph` connect `WorkflowGraph` to `web/src/api.ts`, `ProjectPage.tsx`, `ExecuteWorkflowRunUseCase`, `app.ts`, `cron.ts`, `WorkflowVersionRecord`, `ref_bun_test`, `sqlite-store.ts`, `execute-workflow.ts`, `WorkflowCanvas.tsx`, `SafeFsWorkspaceAdapter`, `vitest`, `workflow.ts`, `NodeInspectorModal.tsx`, `graph-edits.ts`, `channel-router.test.ts`?**
-  _High betweenness centrality (0.031) - this node is a cross-community bridge._
+- **Should `LogBindings` be split into smaller, more focused modules?**
+  _Cohesion score 0.11612903225806452 - nodes in this community are weakly interconnected._
+- **Why does `Modal()` connect `NodeInspectorModal.tsx` to `ProjectPage.tsx`, `ProjectResourcesPanel.tsx`, `Layout.tsx`, `UI motion and modal standard`, `ProjectPage`, `5. Components`, `vitest`?**
+  _High betweenness centrality (0.018) - this node is a cross-community bridge._
 - **Are the 4 inferred relationships involving `Store` (e.g. with `1. Contratos compartidos P0 y persistencia base` and `8. Decisión de alcance sobre la base de datos de la plataforma`) actually correct?**
   _`Store` has 4 INFERRED edges - model-reasoned connections that need verification._
-- **Should `agents.test.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.12179487179487179 - nodes in this community are weakly interconnected._
+- **Should `ProjectResourcesPanel.tsx` be split into smaller, more focused modules?**
+  _Cohesion score 0.07092198581560284 - nodes in this community are weakly interconnected._

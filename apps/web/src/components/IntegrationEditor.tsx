@@ -340,7 +340,15 @@ export function IntegrationEditor({
           type={field.type === "password" ? "password" : field.type === "email" ? "email" : field.type === "url" ? "url" : "text"}
           value={String(value ?? "")}
           onChange={(event) => setField(field, event.target.value)}
+          {...(field.suggestions ? { list: `integration-suggestions-${field.key}` } : {})}
         />
+        {field.suggestions && (
+          <datalist id={`integration-suggestions-${field.key}`}>
+            {field.suggestions.map((suggestion) => (
+              <option key={suggestion} value={suggestion} />
+            ))}
+          </datalist>
+        )}
       </label>
     );
   }

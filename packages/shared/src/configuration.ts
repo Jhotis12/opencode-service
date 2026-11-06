@@ -58,6 +58,7 @@ export interface ConfigField {
   options?: Array<{ value: string; label: string }>;
   placeholder?: string;
   help?: string;
+  suggestions?: string[];
   widget?: string;
   resource?: "integration" | "agent" | "notebook" | "workflow-version" | "destination";
   integrationKinds?: IntegrationKind[];
@@ -445,6 +446,7 @@ export const INTEGRATION_CONFIG_REGISTRY: Record<IntegrationKind, IntegrationCon
         group: "Voz",
         required: true,
         placeholder: "ef_dora",
+        suggestions: ["ef_dora", "em_alex", "em_santa"],
         help: "Kokoro local: ef_dora (español), em_alex, em_santa. Otros proveedores usan sus propias voces.",
       },
       { key: "speed", label: "Velocidad (0.5–2.0)", type: "number", group: "Voz" },

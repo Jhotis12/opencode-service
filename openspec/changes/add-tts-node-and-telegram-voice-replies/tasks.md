@@ -38,9 +38,9 @@
 
 ## 7. UI y configuración
 
-- [ ] 7.1 Hacer que el formulario de integración renderice los campos de `speech`, con sugerencias de voz (`ef_dora`, `em_alex`, `em_santa`) sin bloquear una voz personalizada, y que el botón existente “Probar conexión” muestre latencia y modelos. Verificar con `apps/web/test/integration-editor.test.tsx` que se guardan base URL, modelo, voz, velocidad y API key sin exponer el secreto.
-- [ ] 7.2 Agregar el selector de conexión de voz por defecto y el ítem de readiness en `ProjectSettingsPanel`, y el control “Responder con audio cuando llegue audio” en el editor de canal escribiendo `routing.voiceReplies`. Verificar con `apps/web/test/pages.test.tsx`, `apps/web/test/project-configuration.test.tsx` y el test de `config-field-utils` que el valor se guarda y se recupera.
-- [ ] 7.3 Verificar que el inspector y la paleta renderizan el nodo `speak` con sus campos (conexión, modelo, voz, velocidad, ruta y máximo de caracteres) sin cambios manuales por nodo; ejecutar `bun run --cwd apps/web typecheck` y `bun run --cwd apps/web test`.
+- [x] 7.1 Hacer que el formulario de integración renderice los campos de `speech`, con sugerencias de voz (`ef_dora`, `em_alex`, `em_santa`) sin bloquear una voz personalizada, y que el botón existente “Probar conexión” muestre latencia y modelos. Verificar con `apps/web/test/integration-editor.test.tsx` que se guardan base URL, modelo, voz, velocidad y API key sin exponer el secreto.
+- [x] 7.2 Agregar el selector de conexión de voz por defecto y el ítem de readiness en `ProjectSettingsPanel`, y el control “Responder con audio cuando llegue audio” en el editor de canal escribiendo `routing.voiceReplies`. Verificar con `apps/web/test/pages.test.tsx`, `apps/web/test/project-configuration.test.tsx` y el test de `config-field-utils` que el valor se guarda y se recupera.
+- [x] 7.3 Verificar que el inspector y la paleta renderizan el nodo `speak` con sus campos (conexión, modelo, voz, velocidad, ruta y máximo de caracteres) sin cambios manuales por nodo; ejecutar `bun run --cwd apps/web typecheck` y `bun run --cwd apps/web test`.
 
 ## 8. Despliegue, salud y verificación integral
 

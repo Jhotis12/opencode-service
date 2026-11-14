@@ -120,7 +120,7 @@ export function ProjectResourcesPanel({
       setStatus(
         `${integration.name}: ${result.ok ? "ok" : "error"}${result.detail ? ` · ${result.detail}` : ""}${
           result.models?.length ? ` · modelos: ${result.models.slice(0, 6).join(", ")}` : ""
-        }`,
+        }${result.voices?.length ? ` · voces: ${result.voices.slice(0, 6).join(", ")}` : ""}`,
       ),
     onError: (cause) => setError(friendlyError(cause, "No se pudo probar la integración.")),
   });

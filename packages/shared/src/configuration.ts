@@ -438,16 +438,17 @@ export const INTEGRATION_CONFIG_REGISTRY: Record<IntegrationKind, IntegrationCon
     fields: [
       { key: "baseUrl", label: "URL base del proveedor", type: "url", group: "Conexión", required: true },
       { key: "apiKey", label: "API key del TTS", type: "password", group: "Conexión", secret: true },
-      { key: "model", label: "Modelo por defecto", type: "text", group: "Voz", required: true },
+      { key: "model", label: "Modelo por defecto", type: "custom", widget: "speech-model-picker", group: "Voz", required: true },
       {
         key: "voice",
         label: "Voz por defecto",
-        type: "text",
+        type: "custom",
+        widget: "voice-picker",
         group: "Voz",
         required: true,
         placeholder: "ef_dora",
         suggestions: ["ef_dora", "em_alex", "em_santa"],
-        help: "Kokoro local: ef_dora (español), em_alex, em_santa. Otros proveedores usan sus propias voces.",
+        help: "Prueba la conexión para descubrir y elegir entre las voces del proveedor local.",
       },
       { key: "speed", label: "Velocidad (0.5–2.0)", type: "number", group: "Voz" },
       {
@@ -614,8 +615,8 @@ export const NODE_CONFIG_REGISTRY: Record<NodeType, NodeConfigDefinition> = {
     defaults: { textPath: "text", maxChars: 4_000 },
     fields: [
       integrationField("integrationId", "Conexión de voz", ["speech"]),
-      { key: "model", label: "Modelo (override)", type: "text" },
-      { key: "voice", label: "Voz (override)", type: "text", placeholder: "ef_dora" },
+      { key: "model", label: "Modelo (override)", type: "custom", widget: "speech-model-picker" },
+      { key: "voice", label: "Voz (override)", type: "custom", widget: "voice-picker", placeholder: "ef_dora" },
       { key: "speed", label: "Velocidad (0.5–2.0)", type: "number" },
       { key: "textPath", label: "Ruta del texto en el input", type: "text", placeholder: "text" },
       { key: "maxChars", label: "Máximo de caracteres", type: "number" },

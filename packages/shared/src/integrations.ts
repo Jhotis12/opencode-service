@@ -138,6 +138,7 @@ export const SpeechIntegrationConfigSchema = z.object({
   speed: z.number().min(0.5).max(2).default(1),
   responseFormat: z.enum(["mp3", "wav", "flac"]).default("mp3"),
   models: z.array(z.string().min(1)).optional(),
+  voices: z.array(z.string().min(1)).optional(),
 }).passthrough();
 
 export const IntegrationConfigSchema = z.discriminatedUnion("kind", [

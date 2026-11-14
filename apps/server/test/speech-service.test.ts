@@ -155,7 +155,12 @@ describe("OpenAI-compatible speech service", () => {
     const { store, vault } = setup();
     const fetchImpl = (async (url: string) => {
       if (String(url).endsWith("/models")) {
-        return Response.json({ data: [{ id: "kokoro" }, { id: "otra" }] });
+        return Response.json({
+          data: [
+            { id: "kokoro", voices: [{ id: "ef_dora" }, { name: "em_alex" }] },
+            { id: "otra" },
+          ],
+        });
       }
       return new Response(MP3, { status: 200 });
     }) as typeof fetch;
@@ -164,6 +169,7 @@ describe("OpenAI-compatible speech service", () => {
     expect(result.ok).toBe(true);
     expect(result.detail).toContain("bytes");
     expect(result.models).toEqual(["kokoro", "otra"]);
+    expect(result.voices).toEqual(["ef_dora", "em_alex"]);
     expect(result.latencyMs).toBeGreaterThanOrEqual(0);
     store.close();
   });

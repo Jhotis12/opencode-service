@@ -251,6 +251,102 @@ export function NodeConfigFields({
     const help = field.help ? <small className="text-[11px] text-muted">{field.help}</small> : null;
 
     if (field.type === "custom") {
+      if (field.widget === "speech-model-picker") {
+        const sources = integrations.filter(
+          (integration) =>
+            integration.kind === "speech" &&
+            (typeof config.integrationId !== "string" || !config.integrationId || integration.id === config.integrationId),
+        );
+        const models = [
+          ...new Set(
+            sources.flatMap((integration) =>
+              Array.isArray(integration.config.models) ? integration.config.models.map(String) : [],
+            ),
+          ),
+        ];
+        const current = String(value ?? "");
+        if (models.length > 0) {
+          const options = current && !models.includes(current) ? [current, ...models] : models;
+          return (
+            <label key={field.key}>
+              {field.label}
+              <select aria-label={field.label} value={current} onChange={(event) => set(field, event.target.value || undefined)}>
+                <option value="">Heredar de la conexión</option>
+                {options.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+              {help}
+            </label>
+          );
+        }
+        return (
+          <label key={field.key}>
+            {field.label}
+            <input
+              aria-label={field.label}
+              value={current}
+              placeholder={field.placeholder}
+              onChange={(event) => set(field, event.target.value || undefined)}
+            />
+            {help}
+            {error && <small className="text-danger">{error}</small>}
+          </label>
+        );
+      }
+      if (field.widget === "voice-picker") {
+        const sources = integrations.filter(
+          (integration) =>
+            integration.kind === "speech" &&
+            (typeof config.integrationId !== "string" || !config.integrationId || integration.id === config.integrationId),
+        );
+        const voices = [
+          ...new Set(
+            sources.flatMap((integration) =>
+              Array.isArray(integration.config.voices) ? integration.config.voices.map(String) : [],
+            ),
+          ),
+        ];
+        const current = String(value ?? "");
+        if (voices.length > 0) {
+          const options = current && !voices.includes(current) ? [current, ...voices] : voices;
+          return (
+            <label key={field.key}>
+              {field.label}
+              <select aria-label={field.label} value={current} onChange={(event) => set(field, event.target.value || undefined)}>
+                <option value="">Heredar de la conexión</option>
+                {options.map((voice) => (
+                  <option key={voice} value={voice}>
+                    {voice}
+                  </option>
+                ))}
+              </select>
+              {help}
+            </label>
+          );
+        }
+        return (
+          <label key={field.key}>
+            {field.label}
+            <input
+              aria-label={field.label}
+              value={current}
+              placeholder={field.placeholder}
+              list="node-voice-suggestions"
+              onChange={(event) => set(field, event.target.value || undefined)}
+            />
+            <datalist id="node-voice-suggestions">
+              {(field.suggestions ?? []).map((suggestion) => (
+                <option key={suggestion} value={suggestion} />
+              ))}
+            </datalist>
+            {help}
+            {error && <small className="text-danger">{error}</small>}
+          </label>
+        );
+      }
       if (field.widget === "integration-picker") {
         const options = integrations.filter(
           (integration) =>

@@ -49,7 +49,7 @@ const speech: SpeechPort = {
     return ["kokoro"];
   },
   async test() {
-    return { ok: true, models: ["kokoro"] };
+    return { ok: true, models: ["kokoro"], voices: ["ef_dora", "em_alex"] };
   },
 };
 
@@ -295,7 +295,9 @@ describe("project integration lifecycle", () => {
     const tested = await integrations.test(created.integration.id, { scope: "project", projectSlug: "ventas" });
     expect(tested.ok).toBe(true);
     expect(tested.models).toEqual(["kokoro"]);
+    expect(tested.voices).toEqual(["ef_dora", "em_alex"]);
     expect(store.integrations.findById(created.integration.id)?.config.models).toEqual(["kokoro"]);
+    expect(store.integrations.findById(created.integration.id)?.config.voices).toEqual(["ef_dora", "em_alex"]);
     store.close();
   });
 

@@ -153,6 +153,15 @@ describe("media and transcription contracts", () => {
     });
     expect(parsed.speed).toBe(1);
     expect(parsed.responseFormat).toBe("mp3");
+    expect(
+      SpeechIntegrationConfigSchema.parse({
+        kind: "speech",
+        baseUrl: "http://transcription:8000/v1",
+        model: "m",
+        voice: "v",
+        voices: ["ef_dora", "em_alex"],
+      }).voices,
+    ).toEqual(["ef_dora", "em_alex"]);
     expect(SpeechIntegrationConfigSchema.safeParse({ kind: "speech", baseUrl: "nope", voice: "x" }).success).toBe(false);
     expect(
       SpeechIntegrationConfigSchema.safeParse({

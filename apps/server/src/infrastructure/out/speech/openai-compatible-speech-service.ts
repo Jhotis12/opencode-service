@@ -119,6 +119,31 @@ export class OpenAiCompatibleSpeechService implements SpeechPort {
   }
 
   async listModels(input: SpeechAccess): Promise<string[]> {
+    return (await this.catalog(input)).models;
+  }
+
+  async test(input: SpeechAccess): Promise<SpeechTestResult> {
+    const started = Date.now();
+    try {
+      const sample = await this.synthesize({ ...input, text: "Prueba de voz.", timeoutMs: 30_000 });
+      const catalog = await this.catalog(input).catch(() => ({ models: [], voices: [] }));
+      return {
+        ok: true,
+        detail: `${sample.bytes.byteLength} bytes`,
+        latencyMs: Date.now() - started,
+        models: catalog.models,
+        voices: catalog.voices,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error),
+        latencyMs: Date.now() - started,
+      };
+    }
+  }
+
+  private async catalog(input: SpeechAccess): Promise<{ models: string[]; voices: string[] }> {
     const connection = this.resolve(input);
     let response: Response;
     try {
@@ -134,10 +159,10 @@ export class OpenAiCompatibleSpeechService implements SpeechPort {
     }
     if (!response.ok) throw new SpeechError("PROVIDER_ERROR", `speech provider returned ${response.status}`);
     const payload = (await response.json().catch(() => undefined)) as
-      | { data?: unknown[]; models?: unknown[] }
+      | { data?: unknown[]; models?: unknown[]; voices?: unknown[] }
       | undefined;
     const raw = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
-    const models = raw
+    const modelNames = raw
       .map((item) =>
         typeof item === "string"
           ? item
@@ -148,27 +173,27 @@ export class OpenAiCompatibleSpeechService implements SpeechPort {
               : undefined,
       )
       .filter((item): item is string => Boolean(item));
-    return [...new Set(models)].slice(0, 200);
-  }
-
-  async test(input: SpeechAccess): Promise<SpeechTestResult> {
-    const started = Date.now();
-    try {
-      const sample = await this.synthesize({ ...input, text: "Prueba de voz.", timeoutMs: 30_000 });
-      const models = await this.listModels(input).catch(() => []);
-      return {
-        ok: true,
-        detail: `${sample.bytes.byteLength} bytes`,
-        latencyMs: Date.now() - started,
-        models,
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        detail: error instanceof Error ? error.message : String(error),
-        latencyMs: Date.now() - started,
-      };
-    }
+    const voices = [
+      ...raw.flatMap((item) => {
+        const list = typeof item === "object" && item ? (item as { voices?: unknown }).voices : undefined;
+        return Array.isArray(list) ? list : [];
+      }),
+      ...(Array.isArray(payload?.voices) ? payload.voices : []),
+    ]
+      .map((item) =>
+        typeof item === "string"
+          ? item
+          : typeof (item as { id?: unknown })?.id === "string"
+            ? (item as { id: string }).id
+            : typeof (item as { name?: unknown })?.name === "string"
+              ? (item as { name: string }).name
+              : undefined,
+      )
+      .filter((item): item is string => Boolean(item));
+    return {
+      models: [...new Set(modelNames)].slice(0, 200),
+      voices: [...new Set(voices)].slice(0, 500),
+    };
   }
 
   private failed(

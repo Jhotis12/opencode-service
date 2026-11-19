@@ -11,7 +11,7 @@ const SIZE_CLASS: Record<ModalSize, string> = {
   xl: "max-w-5xl",
 };
 
-const EXIT_MS = 160;
+const EXIT_MS = 140;
 
 export function Modal({
   title,

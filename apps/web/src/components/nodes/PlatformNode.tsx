@@ -193,7 +193,7 @@ export function PlatformNode({ id, data, selected }: NodeProps<PlatformFlowNode>
       >
         <div className={`relative flex h-full min-w-0 items-center gap-2.5 ${data.nodeType === "transform" ? "px-3.5 pr-7" : "px-4"}`}>
           <div
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px]"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
             style={{ background: `color-mix(in srgb, ${meta.color} 22%, var(--color-well))`, color: meta.color }}
           >
             <NodeIcon type={data.nodeType} />

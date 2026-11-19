@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKe
 import { Link } from "react-router-dom";
 import type { WorkflowGraph, WorkflowVersion } from "@platform/shared";
 import { Modal } from "./Modal.tsx";
-import { badge, button, buttonGhost, buttonPrimary, statusBadge } from "../ui.ts";
+import { badge, button, buttonGhost, buttonPrimary, focusRing, statusBadge } from "../ui.ts";
 
 export type ProjectTab = "canvas" | "runs" | "agents" | "knowledge" | "configuration";
 
@@ -232,7 +232,7 @@ export function ProjectTopBar({
                 <button
                   type="button"
                   role="menuitem"
-                  className="rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 focus:outline-none"
+                  className={`rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 ${focusRing}`}
                   onClick={() => {
                     setMenuOpen(false);
                     setVersionsOpen(true);
@@ -243,7 +243,7 @@ export function ProjectTopBar({
                 <button
                   type="button"
                   role="menuitem"
-                  className="rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 focus:outline-none"
+                  className={`rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 ${focusRing}`}
                   onClick={() => {
                     setMenuOpen(false);
                     setSettingsOpen(true);

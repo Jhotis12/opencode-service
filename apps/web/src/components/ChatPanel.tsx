@@ -349,11 +349,11 @@ export function ChatPanel({
         {messages.map((message, index) => (
           <article
             key={index}
-            className={`whitespace-pre-wrap rounded-[10px] px-3 py-2 text-sm leading-relaxed ${
+            className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-relaxed ${
               message.role === "user"
                 ? "ml-auto max-w-[90%] border border-accent/30 bg-accent/10"
                 : message.role === "system"
-                  ? "border border-danger/35 bg-danger/10 text-rose-200"
+                  ? "border border-danger/35 bg-danger/10 text-danger"
                   : "border border-line bg-well"
             }`}
           >
@@ -361,7 +361,7 @@ export function ChatPanel({
           </article>
         ))}
         {busy && (
-          <article className="flex flex-col gap-2 rounded-[10px] border border-accent/25 bg-well px-3 py-2.5 text-sm">
+          <article className="flex flex-col gap-2 rounded-lg border border-accent/25 bg-well px-3 py-2.5 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="flex items-center gap-1.5 text-[11px] font-medium text-accent">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />

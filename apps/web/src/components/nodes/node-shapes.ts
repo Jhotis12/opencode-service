@@ -8,22 +8,22 @@ export interface NodeShape {
 
 export const NODE_SHAPES: Record<NodeType, NodeShape> = {
   trigger: { name: "stadium", style: { borderRadius: "999px" } },
-  http: { name: "rounded-card", style: { borderRadius: "14px" } },
+  http: { name: "rounded-card", style: { borderRadius: "12px" } },
   database: {
     name: "cylinder",
     style: { borderRadius: "50% / 14%" },
   },
   notify: {
     name: "speech-bubble",
-    style: { borderRadius: "14px 14px 14px 4px" },
+    style: { borderRadius: "12px 12px 12px 4px" },
   },
   subworkflow: {
     name: "stacked-card",
-    style: { borderRadius: "14px", boxShadow: "4px 4px 0 color-mix(in srgb, currentColor 22%, transparent)" },
+    style: { borderRadius: "12px", boxShadow: "4px 4px 0 color-mix(in srgb, currentColor 22%, transparent)" },
   },
   foreach: {
     name: "loop",
-    style: { borderRadius: "14px", borderStyle: "dashed" },
+    style: { borderRadius: "12px", borderStyle: "dashed" },
   },
   code: {
     name: "notched-card",

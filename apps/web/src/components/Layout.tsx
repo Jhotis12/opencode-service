@@ -197,7 +197,7 @@ export function Layout() {
         className={
           fluid
             ? "h-[calc(100dvh-3.5rem)] min-w-0 overflow-hidden lg:h-dvh"
-            : "mx-auto w-full max-w-[1500px] px-5 py-6 lg:px-8 lg:py-7"
+            : "mx-auto w-full max-w-[1500px] px-5 py-6 lg:px-8 lg:py-8"
         }
       >
         <Outlet />

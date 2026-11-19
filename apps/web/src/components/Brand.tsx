@@ -64,7 +64,7 @@ export function BrandLockup({
         <span className={`min-w-0 overflow-hidden ${wordmarkClassName}`}>
           <Wordmark
             className={`block whitespace-nowrap text-slate-100 ${
-              prominent ? "text-xl font-semibold" : "text-[13px] font-semibold"
+              prominent ? "text-xl font-semibold" : "text-xs font-semibold"
             }`}
           >
             Agentic Platform

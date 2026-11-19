@@ -1,3 +1,5 @@
+export const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+
 export const card =
   "flex flex-col gap-3 rounded-xl border border-line bg-panel/90 p-5 shadow-[0_1px_0_rgba(255,255,255,0.03)]";
 

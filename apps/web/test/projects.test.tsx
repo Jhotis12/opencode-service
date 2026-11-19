@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { renderWithProviders } from "./render.tsx";
 
-const { project } = vi.hoisted(() => ({
+const { project, secondProject } = vi.hoisted(() => ({
   project: {
     id: "p1",
     slug: "bot-ventas",
@@ -12,7 +12,16 @@ const { project } = vi.hoisted(() => ({
     description: "Atiende leads",
     primaryAgent: "principal/agente",
     defaultModel: "opencode-go/fast",
-    createdAt: new Date().toISOString(),
+    createdAt: "2026-06-15T12:00:00.000Z",
+  },
+  secondProject: {
+    id: "p2",
+    slug: "mesa-soporte",
+    name: "Mesa de soporte",
+    description: "Clasifica tickets",
+    primaryAgent: "principal/agente",
+    defaultModel: "opencode-go/fast",
+    createdAt: "2026-06-14T12:00:00.000Z",
   },
 }));
 
@@ -42,6 +51,41 @@ function renderPage() {
 }
 
 describe("ProjectsPage", () => {
+  beforeEach(() => {
+    vi.mocked(api.createProject).mockClear();
+    vi.mocked(api.deleteProject).mockClear();
+  });
+
+  it("renders the value-proposition header with the canonical descriptor and project cards", async () => {
+    vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [project] });
+    renderPage();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Automatizaciones agénticas sobre OpenCode" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Nuevo proyecto" })).toBeInTheDocument();
+    const projectCard = await screen.findByRole("article");
+    expect(within(projectCard).getByRole("heading", { name: "Bot de ventas" })).toBeInTheDocument();
+    expect(within(projectCard).getByText(/2026/)).toBeInTheDocument();
+    expect(within(projectCard).getByRole("link", { name: "Abrir proyecto" })).toHaveAttribute(
+      "href",
+      "/projects/bot-ventas",
+    );
+  });
+
+  it("shows skeletons while the project list loads", () => {
+    vi.mocked(api.listProjects).mockReturnValueOnce(new Promise(() => {}));
+    renderPage();
+    expect(screen.getByRole("status")).toHaveTextContent("Cargando proyectos…");
+  });
+
+  it("renders the empty state with a CTA when there are no projects", async () => {
+    vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [] });
+    renderPage();
+    expect(await screen.findByRole("heading", { name: "Todavía no hay proyectos" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Crear primer proyecto" }));
+    expect(screen.getByRole("dialog", { name: "Nuevo proyecto" })).toBeInTheDocument();
+  });
+
   it("creates a project with auto-generated slug and description", async () => {
     vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [] });
     renderPage();
@@ -58,6 +102,57 @@ describe("ProjectsPage", () => {
     expect(await screen.findByText("proyecto abierto")).toBeInTheDocument();
   });
 
+  it("shows both templates in the gallery and creates from the triaje-operativo template", async () => {
+    vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [project] });
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Nuevo proyecto" }));
+    const blank = screen.getByRole("radio", { name: /En blanco/ });
+    const triaje = screen.getByRole("radio", { name: /Triaje operativo/ });
+    expect(blank).toBeChecked();
+    expect(triaje).not.toBeChecked();
+    await userEvent.click(triaje);
+    expect(triaje).toBeChecked();
+    expect(blank).not.toBeChecked();
+    await userEvent.type(screen.getByLabelText(/Nombre del proyecto/), "Mesa Operativa");
+    await userEvent.click(screen.getByRole("button", { name: "Crear proyecto" }));
+    expect(api.createProject).toHaveBeenLastCalledWith({
+      name: "Mesa Operativa",
+      slug: "mesa-operativa",
+      description: undefined,
+      template: "triaje-operativo",
+    });
+  });
+
+  it("shows an inline Spanish error and does not POST when the slug is invalid", async () => {
+    vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [] });
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Crear primer proyecto" }));
+    await userEvent.type(screen.getByLabelText(/Nombre del proyecto/), "Bot de Ventas");
+    const slugField = screen.getByLabelText(/^Slug/);
+    await userEvent.clear(slugField);
+    await userEvent.type(slugField, "x");
+    await userEvent.click(screen.getByRole("button", { name: "Crear proyecto" }));
+    const error = screen.getByText("El slug debe tener entre 2 y 61 caracteres: minúsculas, números y guiones.");
+    expect(error).toBeInTheDocument();
+    expect(slugField).toHaveAttribute("aria-invalid", "true");
+    expect(slugField.getAttribute("aria-describedby")).toContain(error.id);
+    expect(api.createProject).not.toHaveBeenCalled();
+  });
+
+  it("clears the search with the clear control and restores the full list", async () => {
+    vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [project, secondProject] });
+    renderPage();
+    await screen.findByRole("heading", { name: "Bot de ventas" });
+    const search = screen.getByLabelText("Buscar proyectos");
+    await userEvent.type(search, "ventas");
+    expect(screen.getByText("1 de 2 proyectos")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Mesa de soporte" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Limpiar" }));
+    expect(search).toHaveValue("");
+    expect(screen.getByRole("heading", { name: "Mesa de soporte" })).toBeInTheDocument();
+    expect(screen.getByText("2 de 2 proyectos")).toBeInTheDocument();
+  });
+
   it("maps a project creation failure to actionable Spanish copy", async () => {
     vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [] });
     vi.mocked(api.createProject).mockRejectedValueOnce(new Error("already exists"));
@@ -67,21 +162,6 @@ describe("ProjectsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Crear proyecto" }));
     const error = await screen.findByText("Ya existe un recurso con ese identificador.");
     expect(error).toHaveAttribute("title", "already exists");
-  });
-
-  it("creates a project from the triaje-operativo vertical template", async () => {
-    vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [] });
-    renderPage();
-    await userEvent.click(await screen.findByRole("button", { name: "Crear primer proyecto" }));
-    await userEvent.type(screen.getByLabelText(/Nombre del proyecto/), "Mesa Operativa");
-    await userEvent.selectOptions(screen.getByLabelText(/Plantilla inicial/), "triaje-operativo");
-    await userEvent.click(screen.getByRole("button", { name: "Crear proyecto" }));
-    expect(api.createProject).toHaveBeenLastCalledWith({
-      name: "Mesa Operativa",
-      slug: "mesa-operativa",
-      description: undefined,
-      template: "triaje-operativo",
-    });
   });
 
   it("deletes a project only after typing its slug", async () => {

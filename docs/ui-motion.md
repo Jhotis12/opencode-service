@@ -4,6 +4,18 @@ This project follows the design-engineering and animation standards from
 `emilkowalski/skills` (installed in `.agents/skills`): `emil-design-eng`,
 `animate`, `animation-performance` and `review-animations`.
 
+## Shell and route changes
+
+Sections are routes, not in-place panels, and the shell doesn't animate a page
+transition. Switching tabs swaps the content immediately behind a Suspense
+skeleton, so the top bar never moves and the user never waits on a fade. The
+tab strip only animates colour on hover and selection; the active tab is marked
+with border and surface, plus `aria-current="page"`.
+
+The top bar itself stays mounted across sections. Its unsaved dot, save state
+and tab scroll position survive the change, which is why a route transition
+must not restart the shell.
+
 ## Modal sizes
 
 Use the smallest size that fits the content. Modals are centered on desktop and

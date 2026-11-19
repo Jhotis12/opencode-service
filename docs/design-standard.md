@@ -151,10 +151,19 @@ reachable while the body scrolls.
 ### Project top bar
 
 One row at 1280 px and 1440 px. Left: breadcrumb and project name. Center:
-scrollable six-tab strip with fade affordances. Right: unsaved dot, Save, Run,
-Agent and an overflow menu containing Versiones and Ajustes del flujo. The
-project name truncates before any tab label is clipped. At 1280 px the save
-action reads `Guardar`; from 1400 px it expands to `Guardar flujo`.
+scrollable tab strip with fade affordances and seven routed sections: Resumen,
+Flujo, Ejecuciones, Agentes, Conocimiento, Integraciones and Ajustes. Each tab is
+a URL under `/projects/:slug/`, so reload and deep links land on the same
+section; `/projects/:slug` redirects to `overview`. Right: unsaved dot, Save,
+Run, Agent and an overflow menu containing Versiones del flujo, Biblioteca del
+flujo and Ajustes del flujo. The project name truncates before any tab label is
+clipped. At 1280 px the save action reads `Guardar`; from 1400 px it expands to
+`Guardar flujo`.
+
+The rail above the project shell has five global destinations: Proyectos,
+Ejecuciones, Orquestador global, Ajustes and Salud del sistema. Ejecuciones is
+the cross-project run history with filters, child-run grouping and JSON/CSV
+export; it uses the list template.
 
 ### Canvas
 

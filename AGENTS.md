@@ -15,3 +15,34 @@ Rules:
 ## Design guidance
 
 - Before any HTML/CSS/client-side JS UI decision, run `npx modern-web-guidance search "<topic>"` and follow the returned guide; consult the `frontend-design` skill for aesthetic direction. Both skills are pinned in `skills-lock.json`; see `docs/design-standard.md` ("Guia externa") for when to use each and the exact commands.
+
+## Web shell
+
+- `apps/web/src/App.tsx` is the route source of truth. The rail has five global pages (`/projects`, `/runs`, `/orchestrator`, `/settings`, `/system/health`) and each project section is a route under `/projects/:slug/`: `overview`, `flow`, `runs`, `agents`, `knowledge`, `integrations`, `settings`. `/projects/:slug` redirects to `overview`. Keep the README route table 1:1 with this file.
+- The project shell lives in `pages/ProjectLayout.tsx` with shared state in `pages/project-workspace.tsx`; `components/ProjectTopBar.tsx` renders the section tabs and the overflow menu (Versiones, Biblioteca del flujo, Ajustes del flujo).
+- Workflow import/export uses `WorkflowDefinitionSchema` in `apps/web/src/workflow-transfer.ts`: `{ version: 1, exportedAt, graph }`, where `graph` is `WorkflowGraphSchema`. The plan calls this envelope `WorkflowExportEnvelopeSchema`; it's the same contract under the real symbol.
+- Visual rules: `docs/design-standard.md`. Motion: `docs/ui-motion.md`. Both are binding for new UI work.
+
+## Default model
+
+- The platform and the global orchestrator default to DeepSeek V4.1 Flash (`opencode/deepseek-v4.1-flash-free`, `PLATFORM_DEFAULT_MODEL` in `packages/shared`).
+- `BootstrapSystemUseCase` seeds `default_model` and `orchestrator_model` only when the key is unset, from `options.defaultModel ?? DEFAULT_MODEL ?? PLATFORM_DEFAULT_MODEL`. Startup never overwrites a saved setting, and a project, flow or node can override the platform value.
+- `.env.example` and `docker-compose.yml` ship `DEFAULT_MODEL` so fresh installs land on DeepSeek; see the README variables table for precedence.
+
+## Installed skills
+
+Vendored under `.agents/skills/` and pinned by commit in `skills-lock.json`:
+
+- `modern-web-guidance` (`GoogleChrome/modern-web-guidance`): platform patterns, accessibility and performance for HTML/CSS/client JS.
+- `frontend-design` (`anthropics/skills`): aesthetic direction, palette, typography and layout.
+- `emil-design-eng`, `animate`, `animation-performance`, `review-animations` (`emilkowalski/skills`): UI polish, motion design and motion review.
+- `find-skills` (`vercel-labs/skills`): discovery for adding more skills.
+
+Project skills live in `.opencode/skills/`: `graphify` plus the `openspec-*` workflow. Add skills with the vercel-labs CLI and keep `skills-lock.json` updated; see `docs/design-standard.md` for the design commands.
+
+## Docs map
+
+- `README.md`: product behavior, routes, environment variables, APIs and development commands.
+- `docs/design-standard.md`: identity, tokens, typography, components, accessibility and copy.
+- `docs/ui-motion.md`: timing, easing, rail, modal and status motion.
+- `docs/graphify.md`, `docs/performance.md`, `docs/security-checklist.md`: graph usage, performance budget and security review.

@@ -59,6 +59,68 @@ PLATAFORMA
 - **Plano de proyecto:** cada caso de uso configura sus canales, conexiones, secretos, agentes y conocimiento. Los nodos referencian `integrationId`, no slugs.
 - **Plano de control:** el orquestador global vive en `/data/control`, tiene su propio agente y canales, y consulta todos los proyectos con herramientas de solo lectura. No edita proyectos por defecto.
 
+## Interfaz web
+
+El rail lateral fija las cinco páginas globales: **Proyectos**, **Ejecuciones**, **Orquestador global**, **Ajustes** y **Salud del sistema**. Dentro de un proyecto, la barra superior convierte cada sección en una ruta propia: recargar o compartir un enlace abre la misma sección, y `/projects/<slug>` redirige a `overview`.
+
+| Ruta | Pantalla |
+|---|---|
+| `/login` | Inicio de sesión. |
+| `/change-password` | Cambio obligatorio de contraseña en el primer ingreso. |
+| `/projects` | Listado de proyectos. |
+| `/projects/:slug` | Redirige a `/overview`. |
+| `/projects/:slug/overview` | **Resumen**: preparación, últimas ejecuciones y acciones rápidas. |
+| `/projects/:slug/flow` | **Flujo**: canvas, inspector de nodos y biblioteca del flujo. |
+| `/projects/:slug/runs` | **Ejecuciones** del proyecto con filtros, jerarquía de runs hijos y exportación JSON/CSV. |
+| `/projects/:slug/agents` | **Agentes**: catálogo del agente principal y los sub-agentes. |
+| `/projects/:slug/knowledge` | **Conocimiento**: notebooks, fuentes y búsqueda híbrida. |
+| `/projects/:slug/integrations` | **Integraciones**: canales, bases, HTTP, transcripción y voz. |
+| `/projects/:slug/settings` | **Ajustes** del proyecto: General, Destinos, Secretos y Preparación. |
+| `/projects/:slug/*` | Redirige a `/overview`. |
+| `/runs` | **Ejecuciones** globales de todos los proyectos. |
+| `/orchestrator` | **Orquestador global**: chat de control y estado cross-project. |
+| `/settings` | **Ajustes** de plataforma: proveedor, Sentry, bóveda y canales del orquestador. |
+| `/system/health` | **Salud del sistema**: servicios, errores recientes y runbook. |
+| `*` | Redirige a `/projects`. |
+
+**Ejecuciones globales** reúne los runs de todos los proyectos en una sola tabla. Filtra por estado, slug de proyecto y rango de fechas en UTC, pagina de 50 en 50, abre el detalle paso a paso y exporta hasta 200 filas en JSON o CSV con los filtros activos. Los runs hijos de `foreach` y `subworkflow` se agrupan bajo su padre (`parentRunId`).
+
+### Importar y exportar un flujo
+
+El menú de la barra superior del proyecto abre **Biblioteca del flujo**. Exportar descarga un archivo `.workflow.json`; importar reemplaza el borrador y no lo guarda, así que conviene revisar el canvas y pulsar **Guardar flujo** después.
+
+El contrato es la envoltura `WorkflowDefinitionSchema` de `apps/web/src/workflow-transfer.ts` (el plan la nombra `WorkflowExportEnvelopeSchema`; es el mismo contrato):
+
+```json
+{
+  "version": 1,
+  "exportedAt": "2026-11-19T12:00:00.000Z",
+  "graph": {
+    "version": 1,
+    "id": "<id-del-flujo-de-destino>",
+    "name": "Triaje de soporte",
+    "description": "",
+    "defaultModel": "opencode/deepseek-v4.1-flash-free",
+    "nodes": [
+      {
+        "id": "entrada",
+        "type": "trigger",
+        "label": "Entrada",
+        "position": { "x": 0, "y": 0 },
+        "config": {}
+      }
+    ],
+    "edges": [],
+    "updatedAt": "2026-11-19T11:58:00.000Z"
+  }
+}
+```
+
+- `version` es la versión del formato de archivo (`1`) y debe coincidir con la que entiende la plataforma; una versión mayor se rechaza con un mensaje para actualizar.
+- `graph` reutiliza el mismísimo `WorkflowGraphSchema`: nodos, conexiones, modelo por defecto y marcas de tiempo.
+- Al importar, el grafo conserva el `id` del flujo abierto, así que el mismo archivo se mueve entre proyectos sin rebindear el editor.
+- Un archivo más antiguo que el borrador pide confirmación explícita antes de reemplazarlo. Los errores de validación se listan en español y no tocan el borrador.
+
 ## Modelo de proyecto
 
 Cada proyecto contiene:
@@ -79,7 +141,7 @@ La configuración no secreta de integraciones vive en la base con `project_slug`
 
 ## Configuración centralizada
 
-Cada proyecto tiene una sola pestaña **Configuración** con secciones de General, Conexiones, Canales, Destinos, Secretos y Preparación. El editor de integraciones es el mismo para canales de proyecto y canales globales del orquestador: permite crear y editar sin recrear la integración, rotar el token de Telegram y conservar el `integrationId` y sus referencias.
+Cada proyecto tiene una sola pestaña **Ajustes** con secciones de General, Destinos, Secretos y Preparación. Las conexiones y los canales viven en **Integraciones**, con el mismo editor para canales de proyecto y canales globales del orquestador: permite crear y editar sin recrear la integración, rotar el token de Telegram y conservar el `integrationId` y sus referencias.
 
 Los **destinos** son etiquetas reutilizables (chat de Telegram/WhatsApp, email, webhook) para allowlists, alertas, aprobaciones y nodos `notify`. Los valores crudos existentes siguen funcionando; adoptar un valor como destino no reescribe las referencias actuales.
 
@@ -102,7 +164,7 @@ Telegram puede capturar fotos, notas de voz, audio y documentos de imagen. El ar
 - **Modo agente:** la plataforma transcribe el audio con la conexión de transcripción por defecto del proyecto antes de iniciar el turno. Sin conexión, responde con un mensaje accionable.
 - **Modo workflow:** el trigger declara qué acepta (`text`, `image`, `audio`) y el flujo decide cuándo convertir el audio con el nodo **Transcribir audio**.
 - **Imágenes:** el nodo **Agente** adjunta las imágenes del input al prompt. El modelo elegido debe aceptar imagen.
-- **Conexiones:** se crean en **Recursos > Transcripción (ASR)** y se prueban desde la misma tarjeta; el botón de prueba lista y cachea los modelos del proveedor.
+- **Conexiones:** se crean en **Integraciones > Transcripción (ASR)** y se prueban desde la misma tarjeta; el botón de prueba lista y cachea los modelos del proveedor.
 - **Local:** `docker-compose.yml` incluye `speaches` CPU con `Systran/faster-whisper-base` y `Systran/faster-whisper-small` preinstalados. La conexión local usa `http://transcription:8000/v1` y `Systran/faster-whisper-small`.
 - **Terceros:** cualquier endpoint OpenAI-compatible sirve, por ejemplo `https://api.groq.com/openai/v1` con `whisper-large-v3`. Las notas de voz de Telegram son OGG/Opus; algunos modelos de OpenAI no aceptan ese formato, así que verifica el proveedor antes de usarlo.
 - **Ajustes:** el proyecto elige su conexión de transcripción por defecto en **Ajustes > Transcripción**.
@@ -113,7 +175,7 @@ Fuera de alcance en esta versión: ASR para el orquestador global, media en What
 
 La plataforma puede convertir texto en voz y responder con una nota de voz nativa cuando el mensaje entrante traía audio.
 
-- **Conexiones:** se crean en **Recursos > Voz (TTS)** y se prueban desde la tarjeta. Cualquier endpoint OpenAI-compatible (`/audio/speech`) sirve; la API key es opcional y se guarda en la bóveda.
+- **Conexiones:** se crean en **Integraciones > Voz (TTS)** y se prueban desde la tarjeta. Cualquier endpoint OpenAI-compatible (`/audio/speech`) sirve; la API key es opcional y se guarda en la bóveda.
 - **Voces:** al probar la conexión, la plataforma lee `/v1/models`, descubre las voces del proveedor (por ejemplo las de Kokoro local) y las muestra como selector en la conexión y en el nodo **Generar voz**. Si el proveedor no publica voces, queda el campo de texto con sugerencias.
 - **Local:** el mismo `speaches` de `docker-compose.yml` descarga `speaches-ai/Kokoro-82M-v1.0-ONNX` en el init. La conexión local usa `http://transcription:8000/v1`, modelo Kokoro y voz `ef_dora`; `em_alex` y `em_santa` son alternativas en español.
 - **Ajustes:** el proyecto elige su conexión de voz por defecto en **Ajustes > Voz**.
@@ -254,7 +316,7 @@ Si un run sin origen llega a una aprobación y el proyecto no tiene canal config
 
 ## Política de base de datos y secretos HTTP (P1)
 
-Cada integración de base de datos expone una política visible en **Recursos**:
+Cada integración de base de datos expone una política visible en **Integraciones**:
 
 ```json
 { "access": "read", "maxRows": 1000, "allowDdl": false }

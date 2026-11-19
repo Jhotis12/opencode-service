@@ -283,14 +283,14 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   const telegramCard = page.getByTestId(`integration-card-${telegramBody.integration.id}`);
   await expect(telegramCard).toContainText("E2E Telegram");
   await telegramCard.getByRole("button", { name: "Probar" }).click();
-  await expect(page.getByText(/E2E Telegram: ok/)).toBeVisible();
+  await expect(page.getByText(/E2E Telegram: Operativo/)).toBeVisible();
 
   await telegramCard.getByRole("button", { name: "Editar" }).click();
   await telegramCard.getByLabel("Token del bot (@BotFather)").fill("invalid-token");
   await telegramCard.getByRole("button", { name: "Guardar cambios" }).click();
   await expect(page.getByText(/E2E Telegram guardada/)).toBeVisible();
   await telegramCard.getByRole("button", { name: "Probar" }).click();
-  await expect(page.getByText(/E2E Telegram: error/)).toBeVisible();
+  await expect(page.getByText(/E2E Telegram: Error/)).toBeVisible();
 
   await telegramCard.getByRole("button", { name: "Editar" }).click();
   await telegramCard.getByLabel("Token del bot (@BotFather)").fill("valid-token-2");

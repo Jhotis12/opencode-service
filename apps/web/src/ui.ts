@@ -31,6 +31,25 @@ export const sectionTitle = "text-base font-semibold text-slate-100";
 export const muted = "text-sm text-muted";
 export const smallMuted = "text-xs text-muted";
 
+export const pageHeader = "flex flex-col gap-3";
+export const pageHeaderRow = "flex flex-wrap items-end justify-between gap-4";
+export const pageHeaderContent = "flex min-w-0 flex-col gap-1";
+export const pageHeaderActions = "flex flex-wrap items-center gap-2";
+
+export const emptyState =
+  "flex flex-col items-center gap-3 rounded-xl border border-dashed border-line bg-panel/60 px-6 py-12 text-center";
+export const emptyStateIcon = "text-accent [&>svg]:h-8 [&>svg]:w-8";
+
+export const field = "flex flex-col gap-1.5";
+export const fieldLabel = "text-xs font-medium text-slate-300";
+export const fieldError = "text-xs text-danger";
+
+export const tabList = "flex w-full gap-1 overflow-x-auto border-b border-line";
+export const tab = `inline-flex min-h-10 shrink-0 items-center justify-center whitespace-nowrap rounded-t-lg border border-transparent px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-panel-2 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-45 ${focusRing}`;
+export const tabActive = "border-line bg-panel-2 text-slate-100";
+
+export const skeleton = "shrink-0 animate-pulse bg-panel-2 motion-reduce:animate-none";
+
 type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
 
 const STATUS_LABELS: Record<string, { label: string; tone: StatusTone }> = {

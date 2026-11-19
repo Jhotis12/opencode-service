@@ -13,6 +13,38 @@ const SIZE_CLASS: Record<ModalSize, string> = {
 
 const EXIT_MS = 140;
 
+// Render order defines the stack: a dialog rendered later (a confirmation over an
+// inspector) gets a higher id and is the one that owns Escape and the focus trap.
+let nextModalId = 0;
+const openModalIds = new Set<number>();
+
+// Page locking is reference-counted so nested dialogs restore the body scroll and the
+// root inert state only once, instead of leaving them locked when the inner one closes.
+let pageLockCount = 0;
+let previousBodyOverflow = "";
+let previousRootInert = false;
+let lockedRoot: HTMLElement | null = null;
+
+function acquirePageLock(): void {
+  const root = document.getElementById("root");
+  if (pageLockCount === 0) {
+    previousBodyOverflow = document.body.style.overflow;
+    previousRootInert = root?.hasAttribute("inert") ?? false;
+    lockedRoot = root;
+  }
+  pageLockCount += 1;
+  root?.setAttribute("inert", "");
+  document.body.style.overflow = "hidden";
+}
+
+function releasePageLock(): void {
+  pageLockCount = Math.max(0, pageLockCount - 1);
+  if (pageLockCount > 0) return;
+  if (lockedRoot && !previousRootInert) lockedRoot.removeAttribute("inert");
+  document.body.style.overflow = previousBodyOverflow;
+  lockedRoot = null;
+}
+
 export function Modal({
   title,
   onClose,
@@ -42,6 +74,7 @@ export function Modal({
   const [state, setState] = useState<"closed" | "open" | "closing">("closed");
   const stateRef = useRef(state);
   const titleId = useId();
+  const [modalId] = useState(() => ++nextModalId);
 
   stateRef.current = state;
 
@@ -50,18 +83,13 @@ export function Modal({
   }, [onClose]);
 
   useEffect(() => {
-    const root = document.getElementById("root");
-    const previousOverflow = document.body.style.overflow;
-    const rootWasInert = root?.hasAttribute("inert") ?? false;
-    root?.setAttribute("inert", "");
-    document.body.style.overflow = "hidden";
+    acquirePageLock();
     const frame = requestAnimationFrame(() => setState("open"));
     closeRef.current?.focus();
     return () => {
       cancelAnimationFrame(frame);
       clearTimeout(closeTimer.current);
-      if (root && !rootWasInert) root.removeAttribute("inert");
-      document.body.style.overflow = previousOverflow;
+      releasePageLock();
       if (trigger?.isConnected && !trigger.hasAttribute("disabled")) trigger.focus();
     };
   }, [trigger]);
@@ -73,14 +101,23 @@ export function Modal({
   }, []);
 
   useEffect(() => {
+    openModalIds.add(modalId);
+    return () => {
+      openModalIds.delete(modalId);
+    };
+  }, [modalId]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      const panel = panelRef.current;
+      // Only the dialog on top of the stack reacts: with a nested confirmation open,
+      // Escape must not close the dialog underneath and Tab must not leave the top one.
+      if (!panel || modalId !== Math.max(...openModalIds)) return;
       if (event.key === "Escape") {
         requestClose();
         return;
       }
       if (event.key !== "Tab") return;
-      const panel = panelRef.current;
-      if (!panel) return;
       const focusable = Array.from(
         panel.querySelectorAll<HTMLElement>(
           'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
@@ -104,7 +141,7 @@ export function Modal({
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [requestClose]);
+  }, [requestClose, modalId]);
 
   return createPortal(
     <div className={modalBackdrop} data-state={state === "open" ? "open" : "closed"} onClick={requestClose}>

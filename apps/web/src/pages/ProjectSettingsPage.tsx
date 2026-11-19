@@ -1,3 +1,4 @@
+import { PageHeader } from "../components/PageHeader.tsx";
 import { ProjectConfigurationPanel } from "../components/ProjectConfigurationPanel.tsx";
 import { ProjectSectionBody, useProjectWorkspace } from "./project-workspace.tsx";
 
@@ -6,6 +7,10 @@ export function ProjectSettingsPage() {
 
   return (
     <ProjectSectionBody>
+      <PageHeader
+        title="Ajustes"
+        description="Identidad del proyecto, modelo por defecto, conexiones de transcripción y voz, y preparación para ejecutar el flujo."
+      />
       <ProjectConfigurationPanel
         projectSlug={workspace.slug}
         navigationBlocked={workspace.dirty}

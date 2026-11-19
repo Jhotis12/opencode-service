@@ -1,4 +1,5 @@
 import { Suspense, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Outlet, useLocation, useParams } from "react-router-dom";
 import { api } from "../api.ts";
 import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
@@ -8,7 +9,8 @@ import { ProjectTopBar, activeProjectTab, projectTabPath } from "../components/P
 import { RunDetailModal } from "../components/RunDetailModal.tsx";
 import { RunLaunchModal } from "../components/RunLaunchModal.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
-import { buttonGhost } from "../ui.ts";
+import { qk } from "../query.ts";
+import { buttonGhost, friendlyError } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
 import { ProjectWorkspaceProvider, useProjectWorkspace } from "./project-workspace.tsx";
 
@@ -35,6 +37,13 @@ function ProjectWorkspaceShell() {
   const workspace = useProjectWorkspace();
   const location = useLocation();
   const active = activeProjectTab(location.pathname);
+  // The workspace provider already owns this query; subscribing with the same key and
+  // fetcher surfaces its loading/error state to the chat drawer without a second request.
+  const chatHistoryQuery = useQuery({
+    queryKey: qk.chat(workspace.slug),
+    queryFn: () => api.chatHistory(workspace.slug).then((result) => result.data),
+    enabled: Boolean(workspace.slug),
+  });
   useDocumentTitle(workspace.graph?.name ?? "Proyecto");
 
   useEffect(() => {
@@ -161,6 +170,15 @@ function ProjectWorkspaceShell() {
             hint="El canvas se sincroniza en vivo cuando el agente edita archivos. Puede tardar varios minutos."
             initialMessages={workspace.chatHistory}
             storageKey={workspace.slug}
+            historyStatus={
+              chatHistoryQuery.isPending ? "loading" : chatHistoryQuery.isError ? "error" : "ready"
+            }
+            historyError={
+              chatHistoryQuery.isError
+                ? friendlyError(chatHistoryQuery.error, "No se pudo cargar el historial del chat.")
+                : undefined
+            }
+            onRetryHistory={() => void chatHistoryQuery.refetch()}
           />
         </div>
       </div>

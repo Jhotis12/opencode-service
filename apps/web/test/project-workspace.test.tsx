@@ -153,18 +153,19 @@ describe("routed project workspace", () => {
   });
 
   it("deep-links to every section by URL", async () => {
-    const sections: Array<[string, () => Promise<HTMLElement>]> = [
-      ["overview", () => screen.findByRole("heading", { name: "Resumen" })],
-      ["flow", () => screen.findByRole("button", { name: "+ Nodo" }, { timeout: 10_000 })],
-      ["runs", () => screen.findByText("abcd1234")],
-      ["agents", () => screen.findByTestId("agent-card-principal-agente")],
-      ["knowledge", () => screen.findByRole("button", { name: "Crear notebook" })],
-      ["integrations", () => screen.findByRole("heading", { name: "Integraciones" })],
-      ["settings", () => screen.findByText("Identidad y modelo")],
+    const sections: Array<[string, string, () => Promise<HTMLElement>]> = [
+      ["overview", "Resumen", () => screen.findByRole("heading", { name: "Resumen" })],
+      ["flow", "Flujo", () => screen.findByRole("button", { name: "+ Nodo" }, { timeout: 10_000 })],
+      ["runs", "Ejecuciones", () => screen.findByText("abcd1234")],
+      ["agents", "Agentes", () => screen.findByTestId("agent-card-principal-agente")],
+      ["knowledge", "Conocimiento", () => screen.findByRole("button", { name: "Crear notebook" })],
+      ["integrations", "Integraciones", () => screen.findByRole("heading", { name: "Integraciones" })],
+      ["settings", "Ajustes", () => screen.findByText("Identidad y modelo")],
     ];
-    for (const [section, find] of sections) {
+    for (const [section, heading, find] of sections) {
       const { unmount } = renderApp(`/projects/demo/${section}`);
       expect(await find()).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1, name: heading })).toBeInTheDocument();
       unmount();
     }
   });

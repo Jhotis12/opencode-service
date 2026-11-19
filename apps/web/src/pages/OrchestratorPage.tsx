@@ -323,6 +323,13 @@ export function OrchestratorPage() {
             onRetryTurn={(turnId) => api.retryControlChatTurn(turnId)}
             hint="Pregunta por fallos, estado de proyectos o conocimiento. El orquestador consulta datos reales y no edita proyectos."
             initialMessages={chatQuery.data ?? []}
+            historyStatus={chatQuery.isPending ? "loading" : chatQuery.isError ? "error" : "ready"}
+            historyError={
+              chatQuery.isError
+                ? friendlyError(chatQuery.error, "No se pudo cargar el historial del chat.")
+                : undefined
+            }
+            onRetryHistory={() => void chatQuery.refetch()}
             title="Orquestador global"
             welcome="Hola. Soy el orquestador global. Puedo reportar fallos, estado de proyectos y conocimiento de toda la plataforma. No modifico proyectos sin confirmación."
             storageKey="global"

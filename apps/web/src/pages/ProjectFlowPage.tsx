@@ -7,6 +7,7 @@ import { NodePaletteModal } from "../components/NodePaletteModal.tsx";
 import { NodeInspectorModal } from "../components/NodeInspectorModal.tsx";
 import { ConfirmDialog } from "../components/ConfirmDialog.tsx";
 import { GraphIssuesSummary } from "../components/GraphIssuesSummary.tsx";
+import { PageHeader } from "../components/PageHeader.tsx";
 import { WorkflowCanvas } from "../components/WorkflowCanvas.tsx";
 import {
   changeEdgeCondition as changeEdgeConditionInGraph,
@@ -297,6 +298,14 @@ export function ProjectFlowPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <div className="shrink-0 px-5 pb-4 pt-6 lg:px-8">
+        <div className="mx-auto w-full max-w-[1200px]">
+          <PageHeader
+            title="Flujo"
+            description="Diseña el recorrido sobre el canvas: nodos, conexiones y ejecución en vivo. Los cambios forman parte del borrador hasta que guardes el flujo."
+          />
+        </div>
+      </div>
       {workspace.graphIssues.length > 0 && dismissedIssueSignature !== issueSignature && (
         <GraphIssuesSummary
           issues={workspace.graphIssues}

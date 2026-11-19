@@ -4,13 +4,12 @@ import type { SubagentProfile } from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { AgentEditorModal } from "./AgentEditorModal.tsx";
-import { Modal } from "./Modal.tsx";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { NodeIcon } from "./nodes/node-icons.tsx";
 import {
   agentModeLabel,
   badge,
   buttonDanger,
-  buttonDangerSolid,
   buttonGhost,
   buttonPrimary,
   card,
@@ -152,13 +151,7 @@ export function AgentCatalog({
   return (
     <section className="flex flex-col gap-5">
       <header className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-page font-semibold tracking-tight text-slate-100">Agentes</h2>
-            <p className="mt-1 max-w-2xl text-sm text-muted">
-              El agente principal conversa con el proyecto. Los sub-agentes se especializan por categoría y rol.
-            </p>
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <button className={buttonPrimary} onClick={() => setEditor({})}>
             Nuevo agente
           </button>
@@ -264,7 +257,13 @@ export function AgentCatalog({
       )}
 
       {deleteTarget && (
-        <Modal title="Eliminar agente" onClose={() => setDeleteTarget(undefined)} size="sm">
+        <ConfirmDialog
+          title="Eliminar agente"
+          confirmLabel={remove.isPending ? "Borrando…" : "Borrar agente"}
+          pending={remove.isPending}
+          onCancel={() => setDeleteTarget(undefined)}
+          onConfirm={() => remove.mutate(deleteTarget)}
+        >
           <p className="text-sm text-muted">
             ¿Eliminar <code>{agentKey(deleteTarget)}</code>? Esta acción borra el perfil del agente y no se puede deshacer.
           </p>
@@ -273,20 +272,7 @@ export function AgentCatalog({
               {removeError}
             </p>
           )}
-          <div className="flex justify-end gap-2">
-            <button type="button" className={buttonGhost} onClick={() => setDeleteTarget(undefined)}>
-              Cancelar
-            </button>
-            <button
-              type="button"
-              className={buttonDangerSolid}
-              disabled={remove.isPending}
-              onClick={() => remove.mutate(deleteTarget)}
-            >
-              {remove.isPending ? "Borrando…" : "Borrar agente"}
-            </button>
-          </div>
-        </Modal>
+        </ConfirmDialog>
       )}
     </section>
   );

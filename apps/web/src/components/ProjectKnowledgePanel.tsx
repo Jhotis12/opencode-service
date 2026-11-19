@@ -13,7 +13,9 @@ import {
   sectionTitle,
 } from "../ui.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { EmptyState } from "./EmptyState.tsx";
 import { Modal } from "./Modal.tsx";
+import { NodeIcon } from "./nodes/node-icons.tsx";
 import { Skeleton } from "./Skeleton.tsx";
 
 function PendingNote({ children }: { children: ReactNode }) {
@@ -187,7 +189,11 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
           <Skeleton shape="block" className="h-32" />
         </div>
       ) : notebooks.length === 0 ? (
-        <p className="text-sm text-muted">Aún no hay notebooks. Crea el primero para subir conocimiento.</p>
+        <EmptyState
+          icon={<NodeIcon type="database" />}
+          title="Aún no hay notebooks"
+          description="Crea el primero con el formulario de arriba para subir documentos o indexar URLs que los agentes y el flujo puedan consultar."
+        />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {notebooks.map((notebook) => (

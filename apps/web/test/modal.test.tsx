@@ -42,6 +42,39 @@ describe("Modal", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(2));
   });
 
+  it("closes only the topmost dialog when dialogs are stacked", async () => {
+    function Stack() {
+      const [outerOpen, setOuterOpen] = useState(true);
+      const [innerOpen, setInnerOpen] = useState(true);
+      return (
+        <>
+          {outerOpen && (
+            <Modal title="Inspector del nodo" onClose={() => setOuterOpen(false)} size="xl">
+              <p>Ficha del nodo</p>
+              {innerOpen && (
+                <Modal title="Eliminar nodo" onClose={() => setInnerOpen(false)} size="sm">
+                  <p>Confirmación</p>
+                </Modal>
+              )}
+            </Modal>
+          )}
+        </>
+      );
+    }
+    render(<Stack />);
+    const inner = screen.getByRole("dialog", { name: "Eliminar nodo" });
+    await waitFor(() => expect(inner).toHaveAttribute("data-state", "open"));
+
+    await userEvent.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Eliminar nodo" })).not.toBeInTheDocument());
+    expect(screen.getByRole("dialog", { name: "Inspector del nodo" })).toHaveAttribute("data-state", "open");
+
+    // Once the inner dialog is gone, Escape belongs to the dialog below it again.
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Inspector del nodo" })).not.toBeInTheDocument());
+  });
+
   it("traps focus inside the dialog and restores it to the trigger", async () => {
     function Harness() {
       const [open, setOpen] = useState(false);

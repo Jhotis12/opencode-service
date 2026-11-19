@@ -87,10 +87,15 @@ describe("orchestrator page", () => {
     vi.mocked(api.controlOverview).mockImplementation(() => new Promise(() => {}));
     const { container } = renderPage();
 
-    expect(screen.getByRole("status").textContent).toBe("Cargando el resumen del orquestador…");
+    expect(screen.getAllByRole("status").map((node) => node.textContent)).toContain(
+      "Cargando el resumen del orquestador…",
+    );
     expect(screen.queryByText("Fallos recientes")).not.toBeInTheDocument();
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThanOrEqual(4);
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText("Cargando el historial del chat…")).not.toBeInTheDocument(),
+    );
     expect(await screen.findByText(/Hola. Soy el orquestador global/)).toBeInTheDocument();
   });
 
@@ -165,6 +170,19 @@ describe("orchestrator page", () => {
     expect(screen.getByText("2 fallos").closest("strong")).toBeInTheDocument();
     expect(screen.getByText("¿Cómo va todo?")).toBeInTheDocument();
     expect(screen.queryByText(/Hola. Soy el orquestador global/)).not.toBeInTheDocument();
+  });
+
+  it("surfaces a chat history failure with a retry action", async () => {
+    vi.mocked(api.controlOverview).mockResolvedValue(emptyOverview);
+    vi.mocked(api.controlChatHistory)
+      .mockRejectedValueOnce(new ApiClientError(500, "HTTP_ERROR", "request failed (500)"))
+      .mockResolvedValueOnce({ data: [] });
+    renderPage();
+
+    expect(await screen.findByText(/request failed \(500\)/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+
+    await waitFor(() => expect(api.controlChatHistory).toHaveBeenCalledTimes(2));
   });
 
   it("sends a message through the control chat and renders the reply", async () => {

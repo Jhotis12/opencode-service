@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type HealthPayload } from "../api.ts";
+import { api, runOriginLabel, type HealthPayload } from "../api.ts";
 import { qk } from "../query.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
@@ -227,7 +227,7 @@ export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Pro
                           <td className="whitespace-nowrap px-4 py-3 text-xs text-muted">
                             <time dateTime={item.createdAt}>{timestampFormatter.format(new Date(item.createdAt))}</time>
                           </td>
-                          <td className="px-4 py-3">{item.entryPoint}</td>
+                          <td className="px-4 py-3">{runOriginLabel(item.entryPoint)}</td>
                           <td className="min-w-64 break-words px-4 py-3">{item.message}</td>
                         </tr>
                       ))}

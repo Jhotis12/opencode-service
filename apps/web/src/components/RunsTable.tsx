@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { runOriginLabel, type RunRecord } from "../api.ts";
+import { EntryPointTypeSchema } from "@platform/shared";
+import { runOriginLabel, runSourceLabel, type RunRecord } from "../api.ts";
 import { buttonGhost, card } from "../ui.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
 
@@ -13,21 +14,7 @@ export const RUN_STATUS_OPTIONS = [
   "cancelled",
 ] as const;
 
-export const RUN_ORIGIN_VALUES = [
-  "web_ui",
-  "global_orchestrator",
-  "schedule",
-  "scheduler",
-  "webhook",
-  "telegram",
-  "whatsapp",
-  "email",
-  "external_chat",
-  "replay",
-  "bootstrap",
-  "worker",
-  "system",
-] as const;
+export const RUN_ORIGIN_VALUES: readonly string[] = EntryPointTypeSchema.options;
 
 export const RUN_ORIGIN_OPTIONS = [...new Set(RUN_ORIGIN_VALUES.map(runOriginLabel))];
 
@@ -301,8 +288,8 @@ export function RunsTable({
                   {runOriginLabel(run.entryPoint)}
                 </span>
                 {run.sourceDetail && (
-                  <small className="block max-w-[16rem] truncate text-[11px] text-faint" title={run.sourceDetail}>
-                    {run.sourceDetail}
+                  <small className="block max-w-[16rem] truncate text-[11px] text-faint" title={runSourceLabel(run.sourceDetail)}>
+                    {runSourceLabel(run.sourceDetail)}
                   </small>
                 )}
               </td>

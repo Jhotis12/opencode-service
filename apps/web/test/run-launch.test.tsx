@@ -19,7 +19,7 @@ const graph: WorkflowGraph = {
       config: {
         kind: "manual",
         inputSchema: {
-          fields: [{ name: "tema", label: "Tema", type: "string", required: true, example: "Otoño" }],
+          fields: [{ name: "tema", label: "Tema", type: "string", required: true, example: "Otoño", description: "Tema de la campaña" }],
         },
       },
       notebookIds: [],
@@ -35,6 +35,7 @@ describe("RunLaunchModal", () => {
   it("generates a form from the trigger input schema and submits typed values", async () => {
     const onLaunch = vi.fn();
     renderWithProviders(<RunLaunchModal graph={graph} onClose={() => undefined} onLaunch={onLaunch} />);
+    expect(screen.getByText("Tema de la campaña")).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText(/Tema/), "Otoño");
     await userEvent.click(screen.getByRole("button", { name: "Ejecutar" }));
     expect(onLaunch).toHaveBeenCalledWith({ tema: "Otoño" });

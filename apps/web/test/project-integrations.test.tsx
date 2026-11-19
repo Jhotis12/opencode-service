@@ -141,6 +141,14 @@ describe("ProjectIntegrationsPage", () => {
     expect(within(groups[3]!).getByTestId("integration-card-http-1")).toBeInTheDocument();
   });
 
+  it("localizes the test result instead of echoing the raw ok/error label", async () => {
+    apiMock.testIntegration.mockResolvedValue({ ok: true });
+    renderPage();
+    const httpCard = await screen.findByTestId("integration-card-http-1");
+    await userEvent.click(within(httpCard).getByRole("button", { name: "Probar" }));
+    expect(await screen.findByText("HTTP pagos: Operativo")).toBeInTheDocument();
+  });
+
   it("shows the localized status badge on each card", async () => {
     renderPage();
     const telegramCard = await screen.findByTestId("integration-card-tg-1");
@@ -304,7 +312,8 @@ describe("ProjectIntegrationsPage", () => {
   it("shows a scoped error with retry instead of the empty state when the list fails", async () => {
     apiMock.listIntegrations.mockRejectedValue(new Error("failed to fetch"));
     renderPage();
-    const alert = await screen.findByRole("alert");
+    const page = await screen.findByTestId("project-tab-content");
+    const alert = await within(page).findByRole("alert");
     expect(alert).toHaveTextContent(/No se pudo conectar con el servidor/);
     expect(screen.queryByText("Sin integraciones todavía")).toBeNull();
 

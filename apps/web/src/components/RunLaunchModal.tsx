@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { InputSchemaSchema, type WorkflowGraph } from "@platform/shared";
 import { Modal } from "./Modal.tsx";
+import { Field } from "./Field.tsx";
 import { buttonPrimary } from "../ui.ts";
 
 export function RunLaunchModal({
@@ -51,17 +52,18 @@ export function RunLaunchModal({
         Completa la entrada documentada por el trigger. El servidor valida el mismo contrato antes de ejecutar cualquier paso.
       </p>
       {schema.fields.length === 0 ? (
-        <label>
-          Entrada JSON
-          <textarea rows={8} value={json} onChange={(event) => setJson(event.target.value)} aria-label="Entrada JSON" />
-        </label>
+        <Field id="run-input-json" label="Entrada JSON" hint="Objeto JSON que recibirá el trigger.">
+          <textarea rows={8} value={json} onChange={(event) => setJson(event.target.value)} />
+        </Field>
       ) : (
         <div className="flex flex-col gap-3">
           {schema.fields.map((field) => (
-            <label key={field.name}>
-              {field.label ?? field.name}
-              {field.required ? " *" : ""}
-              {field.description && <small className="text-xs text-muted">{field.description}</small>}
+            <Field
+              key={field.name}
+              id={`run-input-${field.name}`}
+              label={`${field.label ?? field.name}${field.required ? " *" : ""}`}
+              hint={field.description}
+            >
               {field.type === "boolean" ? (
                 <select value={values[field.name] ?? ""} onChange={(event) => setValues({ ...values, [field.name]: event.target.value })}>
                   <option value="">Sin valor</option>
@@ -83,7 +85,7 @@ export function RunLaunchModal({
                   placeholder={field.example === undefined ? "" : String(field.example)}
                 />
               )}
-            </label>
+            </Field>
           ))}
         </div>
       )}

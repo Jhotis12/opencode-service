@@ -138,6 +138,38 @@ export function runOriginLabel(entryPoint: string): string {
   }
 }
 
+/**
+ * Etiqueta visible para el detalle técnico de origen (`sourceDetail`), que llega del
+ * servidor como `prefijo:detalle`. El detalle conserva el identificador para poder
+ * cruzarlo con el flujo, los nodos o las integraciones.
+ */
+export function runSourceLabel(sourceDetail: string): string {
+  const separator = sourceDetail.indexOf(":");
+  const kind = separator === -1 ? sourceDetail : sourceDetail.slice(0, separator);
+  const detail = separator === -1 ? "" : sourceDetail.slice(separator + 1);
+  const shortId = detail.slice(0, 8);
+  switch (kind) {
+    case "canvas":
+      return "Lienzo web";
+    case "webhook":
+      return `Webhook · ${detail}`;
+    case "replay":
+      return `Re-ejecución de ${shortId}`;
+    case "subworkflow":
+      return `Subflujo ${shortId}`;
+    case "foreach":
+      return `Bucle ${shortId}`;
+    case "integration":
+      return `Integración ${shortId}`;
+    case "cron":
+      return `Programación · ${detail}`;
+    case "once":
+      return "Una vez";
+    default:
+      return sourceDetail;
+  }
+}
+
 /** Filtros de la consulta global de ejecuciones (`/api/control/runs`). */
 export interface RunListFilters {
   status?: string;
@@ -587,8 +619,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ alias, value, kind }),
     }),
-  deleteProjectSecret: (slug: string, alias: string) =>
-    request<{ ok: boolean }>(`/api/projects/${slug}/secrets/${alias}`, { method: "DELETE" }),
+  /** La bóveda borra el secreto del proyecto con el mismo endpoint y `?project=`. */
+  deleteProjectSecret: (slug: string, alias: string) => api.deleteSecret(alias, slug),
 
   listModels: () => request<{ data: ModelInfo[] }>("/api/models"),
   connectProvider: (apiKey: string) =>
@@ -597,7 +629,11 @@ export const api = {
   listSecrets: () => request<{ data: Array<{ alias: string; kind: string; createdAt: string }> }>("/api/vault/secrets"),
   saveSecret: (alias: string, value: string, kind = "generic") =>
     request<{ ok: boolean }>("/api/vault/secrets", { method: "POST", body: JSON.stringify({ alias, value, kind }) }),
-  deleteSecret: (alias: string) => request<{ ok: boolean }>(`/api/vault/secrets/${alias}`, { method: "DELETE" }),
+  deleteSecret: (alias: string, project?: string) =>
+    request<{ ok: boolean }>(
+      `/api/vault/secrets/${encodeURIComponent(alias)}${project ? `?project=${encodeURIComponent(project)}` : ""}`,
+      { method: "DELETE" },
+    ),
 
   listNotebooks: (slug: string) => request<{ data: NotebookSummary[] }>(`/api/projects/${slug}/notebooks`),
   createNotebook: (slug: string, input: { slug: string; name: string; description?: string }) =>

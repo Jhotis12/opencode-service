@@ -14,7 +14,7 @@ import { DatabasePolicyEditor } from "../components/ProjectResourcesPanel.tsx";
 import { QrDisplay } from "../components/QrDisplay.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
 import { StatusBadge } from "../components/StatusBadge.tsx";
-import { badge, buttonGhost, buttonPrimary, card, friendlyError, sectionTitle } from "../ui.ts";
+import { badge, buttonGhost, buttonPrimary, card, friendlyError, sectionTitle, statusLabel } from "../ui.ts";
 import { ProjectSectionBody, useProjectWorkspace } from "./project-workspace.tsx";
 
 const KIND_ORDER: readonly IntegrationKind[] = [
@@ -164,7 +164,7 @@ export function ProjectIntegrationsPage() {
       ),
     onSuccess: (result, integration) =>
       setStatus(
-        integration.name + ": " + (result.ok ? "ok" : "error") + (result.detail ? " · " + result.detail : "") +
+        integration.name + ": " + statusLabel(result.ok ? "ok" : "error") + (result.detail ? " · " + result.detail : "") +
         (result.models && result.models.length > 0 ? " · modelos: " + result.models.slice(0, 6).join(", ") : "") +
         (result.voices && result.voices.length > 0 ? " · voces: " + result.voices.slice(0, 6).join(", ") : ""),
       ),
@@ -180,7 +180,7 @@ export function ProjectIntegrationsPage() {
       setStatus(
         result.status === "error"
           ? "No se pudo conectar: " + (result.lastError ?? "error desconocido")
-          : "Integración " + result.name + ": " + result.status,
+          : "Integración " + result.name + ": " + statusLabel(result.status),
       );
       await refresh();
     },

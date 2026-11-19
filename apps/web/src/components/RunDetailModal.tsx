@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { RunRecord } from "../api.ts";
-import { api } from "../api.ts";
+import { api, runOriginLabel, runSourceLabel } from "../api.ts";
 import { qk } from "../query.ts";
 import { Modal } from "./Modal.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
@@ -69,7 +69,7 @@ export function RunDetailModal({
         <span>
           Iniciado por: <strong className="text-slate-200">{run.launchedBy ?? "sistema"}</strong>
         </span>
-        <span>Origen: {run.sourceDetail ?? run.entryPoint}</span>
+        <span>Origen: {run.sourceDetail ? runSourceLabel(run.sourceDetail) : runOriginLabel(run.entryPoint)}</span>
         {run.graphHash && <span>Versión: {run.graphHash.slice(0, 8)}</span>}
         <span className="w-full break-all">ID: {run.id}</span>
       </div>

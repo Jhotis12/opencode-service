@@ -81,5 +81,17 @@ describe("RunDetailModal approvals", () => {
       <RunDetailModal run={run()} onClose={vi.fn()} onReplay={vi.fn()} />,
     );
     expect(await screen.findByText(/No hay una aprobación pendiente/)).toBeInTheDocument();
+    expect(screen.getByText(/Origen: Programado/)).toBeInTheDocument();
+  });
+
+  it("localizes the technical origin detail instead of echoing the raw source", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ data: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+    renderWithProviders(
+      <RunDetailModal run={run({ sourceDetail: "replay:abcdef123456" })} onClose={vi.fn()} onReplay={vi.fn()} />,
+    );
+    expect(screen.getByText(/Origen: Re-ejecución de abcdef12/)).toBeInTheDocument();
   });
 });

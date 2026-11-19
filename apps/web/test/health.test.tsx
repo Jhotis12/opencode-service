@@ -47,6 +47,7 @@ describe("HealthPage", () => {
     expect(screen.getByRole("heading", { name: "Rendimiento" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Errores recientes" })).toBeInTheDocument();
     expect(screen.getByLabelText("Severidad: Crítico")).toHaveTextContent("Crítico");
+    expect(screen.getByText("Interfaz web")).toBeInTheDocument();
     expect(screen.getByLabelText("Estado: Caído")).toHaveTextContent("Caído");
 
     const timestamps = screen.getAllByRole("time");

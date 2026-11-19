@@ -89,7 +89,7 @@ El rail lateral fija las cinco páginas globales: **Proyectos**, **Ejecuciones**
 
 El menú de la barra superior del proyecto abre **Biblioteca del flujo**. Exportar descarga un archivo `.workflow.json`; importar reemplaza el borrador y no lo guarda, así que conviene revisar el canvas y pulsar **Guardar flujo** después.
 
-El contrato es la envoltura `WorkflowDefinitionSchema` de `apps/web/src/workflow-transfer.ts` (el plan la nombra `WorkflowExportEnvelopeSchema`; es el mismo contrato):
+El contrato es la envoltura `WorkflowExportEnvelopeSchema` de `packages/shared/src/workflow.ts` (la web la reexporta como `WorkflowDefinitionSchema` desde `apps/web/src/workflow-transfer.ts`):
 
 ```json
 {

@@ -146,6 +146,13 @@ describe("GET /api/control/runs", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
+  it("rejects an unknown entry point with 400 VALIDATION_ERROR", async () => {
+    const response = await controlGet("/api/control/runs?entryPoint=bogus");
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
   it("rejects malformed date filters with 400 VALIDATION_ERROR", async () => {
     const response = await controlGet("/api/control/runs?from=nonsense");
     expect(response.status).toBe(400);

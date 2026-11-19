@@ -274,6 +274,14 @@ export const WorkflowGraphSchema = z.object({
 });
 export type WorkflowGraph = z.infer<typeof WorkflowGraphSchema>;
 
+/** Envoltura portable de un flujo exportado: versión de formato, fecha y grafo. */
+export const WorkflowExportEnvelopeSchema = z.object({
+  version: z.literal(1),
+  exportedAt: z.string().datetime(),
+  graph: WorkflowGraphSchema,
+});
+export type WorkflowExportEnvelope = z.infer<typeof WorkflowExportEnvelopeSchema>;
+
 export const WorkflowRunStatusSchema = z.enum([
   "queued",
   "running",

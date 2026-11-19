@@ -42,6 +42,10 @@ const apiMock = vi.hoisted(() => ({
   saveProjectSecret: vi.fn(),
   listProjectSecrets: vi.fn(),
   deleteProjectSecret: vi.fn(),
+  listRuns: vi.fn(),
+  listApprovals: vi.fn(),
+  decideApproval: vi.fn(),
+  listSchedules: vi.fn(),
 }));
 
 vi.mock("../src/api.ts", () => ({ api: apiMock }));
@@ -70,6 +74,9 @@ function mockQueries() {
   apiMock.listIntegrations.mockResolvedValue({ data: [integration] });
   apiMock.listDestinations.mockResolvedValue({ data: [destination] });
   apiMock.listProjectSecrets.mockResolvedValue({ data: [] });
+  apiMock.listRuns.mockResolvedValue({ data: [] });
+  apiMock.listApprovals.mockResolvedValue({ data: [] });
+  apiMock.listSchedules.mockResolvedValue({ data: [] });
 }
 
 function LocationProbe() {
@@ -100,12 +107,12 @@ describe("ProjectConfigurationPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the general section by default with only the four addressable sections", async () => {
+  it("renders the general section by default with the six addressable sections", async () => {
     mockQueries();
     renderPanel();
     expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
 
-    for (const label of ["General", "Destinos", "Secretos", "Preparación"]) {
+    for (const label of ["General", "Aprobaciones", "Programaciones", "Destinos", "Secretos", "Preparación"]) {
       expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
     }
     expect(screen.queryByRole("tab", { name: "Conexiones" })).not.toBeInTheDocument();
@@ -119,12 +126,16 @@ describe("ProjectConfigurationPanel", () => {
     mockQueries();
     const markers: Array<[string, string]> = [
       ["general", "Identidad y modelo"],
+      ["approvals", "Sin aprobaciones pendientes"],
+      ["schedules", "Sin programaciones"],
       ["destinations", "Crear destino"],
       ["secrets", "Secretos del proyecto"],
       ["readiness", "Preparación del proyecto"],
     ];
     const labels: Record<string, string> = {
       general: "General",
+      approvals: "Aprobaciones",
+      schedules: "Programaciones",
       destinations: "Destinos",
       secrets: "Secretos",
       readiness: "Preparación",
@@ -287,6 +298,56 @@ describe("ProjectConfigurationPanel", () => {
     expect(await screen.findByText("El nombre es obligatorio.")).toBeInTheDocument();
     expect(screen.getByLabelText("Nombre")).toHaveAttribute("aria-invalid", "true");
     expect(apiMock.updateProjectSettings).not.toHaveBeenCalled();
+  });
+
+  it("lists pending approvals from paused runs and resolves them", async () => {
+    mockQueries();
+    apiMock.listRuns.mockResolvedValue({
+      data: [
+        {
+          id: "run-1",
+          projectSlug: "ventas",
+          workflowId: "wf",
+          status: "paused",
+          entryPoint: "web_ui",
+          startedAt: now,
+          steps: [],
+        },
+      ],
+    });
+    apiMock.listApprovals.mockResolvedValue({
+      data: [{ id: "ap-1", runId: "run-1", nodeId: "review", status: "pending", createdAt: now }],
+    });
+    apiMock.decideApproval.mockResolvedValue({});
+    renderPanel("approvals");
+
+    expect(await screen.findByText("Nodo review")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Aprobar" }));
+
+    await waitFor(() => expect(apiMock.decideApproval).toHaveBeenCalledWith("ventas", "run-1", "review", "approve"));
+  });
+
+  it("lists schedule states from the workflow schedule endpoint", async () => {
+    mockQueries();
+    apiMock.listSchedules.mockResolvedValue({
+      data: [
+        {
+          nodeId: "cron",
+          workflowId: "wf",
+          timezone: "UTC",
+          enabled: true,
+          overlapPolicy: "skip",
+          catchUp: false,
+          catchUpWindowMinutes: 60,
+          nextWindowAt: now,
+        },
+      ],
+    });
+    renderPanel("schedules");
+
+    expect(await screen.findByText("Nodo cron")).toBeInTheDocument();
+    expect(screen.getByText("Activa")).toBeInTheDocument();
+    expect(screen.getByText(/Solapamiento: omitir/)).toBeInTheDocument();
   });
 
   it("offers destinations in the approval recipient picker", async () => {

@@ -1,15 +1,21 @@
 import { z } from "zod";
-import { WorkflowGraphSchema, type WorkflowGraph } from "@platform/shared";
+import {
+  WorkflowExportEnvelopeSchema,
+  type WorkflowExportEnvelope,
+  type WorkflowGraph,
+} from "@platform/shared";
 import { getGraphIssues } from "./components/canvas/graph-edits.ts";
 
 export const WORKFLOW_DEFINITION_VERSION = 1;
 
-export const WorkflowDefinitionSchema = z.object({
-  version: z.literal(WORKFLOW_DEFINITION_VERSION),
-  exportedAt: z.string().datetime(),
-  graph: WorkflowGraphSchema,
-});
-export type WorkflowDefinition = z.infer<typeof WorkflowDefinitionSchema>;
+/**
+ * La envoltura vive en `packages/shared/src/workflow.ts` como contrato común
+ * del servidor y la web. Este alias mantiene las importaciones existentes.
+ */
+export { WorkflowExportEnvelopeSchema };
+export type { WorkflowExportEnvelope };
+export const WorkflowDefinitionSchema = WorkflowExportEnvelopeSchema;
+export type WorkflowDefinition = WorkflowExportEnvelope;
 
 export interface WorkflowImportSuccess {
   ok: true;

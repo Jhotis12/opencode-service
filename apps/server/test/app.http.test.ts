@@ -138,6 +138,39 @@ describe("application HTTP surface", () => {
     expect(graph.nodes[0]?.type).toBe("trigger");
   });
 
+  it("deletes a project vault secret through the shared vault alias route", async () => {
+    const slug = "vault-alias-bot";
+    await json("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ slug, name: "Vault Alias Bot" }),
+    });
+    await json(`/api/projects/${slug}/secrets`, {
+      method: "POST",
+      body: JSON.stringify({ alias: "api_key", value: "project-value" }),
+    });
+    await json("/api/vault/secrets", {
+      method: "POST",
+      body: JSON.stringify({ alias: "api_key", value: "global-value" }),
+    });
+
+    const blank = await json("/api/vault/secrets/api_key?project=%20", { method: "DELETE" });
+    expect(blank.status).toBe(400);
+    const invalid = await json("/api/vault/secrets/api_key?project=Bad_Slug", { method: "DELETE" });
+    expect(invalid.status).toBe(400);
+    const missing = await json("/api/vault/secrets/api_key?project=missing-bot", { method: "DELETE" });
+    expect(missing.status).toBe(404);
+
+    const removed = await json(`/api/vault/secrets/api_key?project=${slug}`, { method: "DELETE" });
+    expect(removed.status).toBe(200);
+    expect((await removed.json()) as { ok: boolean }).toEqual({ ok: true });
+
+    const projectSecrets = await json(`/api/projects/${slug}/secrets`);
+    expect(((await projectSecrets.json()) as { data: unknown[] }).data).toEqual([]);
+    const globalSecrets = await json("/api/vault/secrets");
+    const global = (await globalSecrets.json()) as { data: Array<{ alias: string }> };
+    expect(global.data.some((secret) => secret.alias === "api_key")).toBe(true);
+  });
+
   it("manages project destinations and keeps them scoped", async () => {
     const project = await json("/api/projects", {
       method: "POST",

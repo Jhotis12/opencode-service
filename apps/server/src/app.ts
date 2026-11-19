@@ -6,6 +6,7 @@ import { serveStatic } from "hono/bun";
 import { streamSSE } from "hono/streaming";
 import {
   apiError,
+  EntryPointTypeSchema,
   evaluateToolPermission,
   PLATFORM_DEFAULT_MODEL,
   WorkflowRunStatusSchema,
@@ -1632,9 +1633,24 @@ export async function createApplication(config: AppConfig): Promise<Application>
     });
     return c.json({ ok: true }, 201);
   });
-  app.delete("/api/vault/secrets/:alias", (c) =>
-    c.json({ ok: store.vault.remove({ scope: "global", alias: c.req.param("alias") }) }),
-  );
+  app.delete("/api/vault/secrets/:alias", (c) => {
+    const alias = c.req.param("alias");
+    const scopeQuery = c.req.query("project");
+    if (scopeQuery === undefined) {
+      return c.json({ ok: store.vault.remove({ scope: "global", alias }) });
+    }
+    const projectSlug = scopeQuery.trim();
+    if (!projectSlug) {
+      return c.json(apiError("VALIDATION_ERROR", "project must not be empty"), 400);
+    }
+    if (!WORKSPACE_SLUG_PATTERN.test(projectSlug)) {
+      return c.json(apiError("VALIDATION_ERROR", "invalid project slug"), 400);
+    }
+    if (!store.projects.findBySlug(projectSlug)) {
+      return c.json(apiError("NOT_FOUND", "project not found"), 404);
+    }
+    return c.json({ ok: store.vault.remove({ scope: "project", projectSlug, alias }) });
+  });
 
   // External database test/query through integration IDs.
   app.post("/api/control/integrations/:id/database/test", async (c) => {
@@ -1716,7 +1732,11 @@ export async function createApplication(config: AppConfig): Promise<Application>
     const project = c.req.query("project");
     if (project !== undefined) filters.project = project;
     const rawEntryPoint = c.req.query("entryPoint");
-    if (rawEntryPoint !== undefined) filters.entryPoint = rawEntryPoint as RunListFilters["entryPoint"];
+    if (rawEntryPoint !== undefined) {
+      const entryPoint = EntryPointTypeSchema.safeParse(rawEntryPoint);
+      if (!entryPoint.success) return c.json(apiError("VALIDATION_ERROR", "invalid entryPoint filter"), 400);
+      filters.entryPoint = entryPoint.data;
+    }
     if (from) filters.from = from;
     if (to) filters.to = to;
     const limit = Math.min(Math.max(Math.floor(Number(c.req.query("limit") ?? 20) || 20), 1), 200);

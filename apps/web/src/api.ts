@@ -246,6 +246,7 @@ export interface ModelInfo {
   modelID: string;
   name: string;
   input?: string[];
+  cost?: { input?: number; output?: number };
 }
 
 export interface NotebookSummary {

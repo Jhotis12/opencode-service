@@ -232,25 +232,25 @@ import { api } from "../src/api.ts";
 import { renderWithProviders } from "./render.tsx";
 
 describe("SettingsPage", () => {
-  it("renders platform settings and global orchestrator channels", async () => {
+  it("renders the addressable platform settings sections and global orchestrator channels", async () => {
     renderWithProviders(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={["/settings#boveda"]}>
         <SettingsPage />
       </MemoryRouter>,
     );
     expect(await screen.findByRole("heading", { name: "Ajustes de plataforma" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "OpenCode Go" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Bóveda de plataforma" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Canales del orquestador global" })).toBeInTheDocument();
-    expect(await screen.findByText("Alertas admin")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Bóveda" })).toBeInTheDocument();
+    expect(await screen.findByText("setting:sentry_dsn")).toBeInTheDocument();
     expect(screen.getByText(/Datos persistentes/)).toBeInTheDocument();
-    expect(await screen.findByText("Configuración efectiva")).toBeInTheDocument();
-    expect(screen.getByText("http…/1")).toBeInTheDocument();
-    expect(screen.getByText("solo lectura")).toBeInTheDocument();
 
-    await userEvent.click(screen.getAllByRole("button", { name: "Elegir modelo" })[0]!);
-    expect(await screen.findByRole("dialog", { name: "Modelo por defecto" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Modelo")).toHaveValue("opencode-go/fast");
+    await userEvent.click(screen.getByRole("tab", { name: "Canales globales" }));
+    expect(screen.getByRole("heading", { name: "Canales globales" })).toBeInTheDocument();
+    expect(await screen.findByText("Alertas admin")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Configuración efectiva" }));
+    expect(screen.getByRole("heading", { name: "Configuración efectiva" })).toBeInTheDocument();
+    expect(await screen.findByText("Configurado")).toBeInTheDocument();
+    expect(screen.getByText("Solo lectura")).toBeInTheDocument();
   });
 });
 

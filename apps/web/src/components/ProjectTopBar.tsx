@@ -1,18 +1,33 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { Link } from "react-router-dom";
 import type { WorkflowGraph, WorkflowVersion } from "@platform/shared";
 import { Modal } from "./Modal.tsx";
 import { badge, button, buttonGhost, buttonPrimary, focusRing, statusBadge } from "../ui.ts";
 
-export type ProjectTab = "canvas" | "runs" | "agents" | "knowledge" | "configuration";
+export type ProjectTab = "overview" | "flow" | "runs" | "agents" | "knowledge" | "integrations" | "settings";
 
 const TABS: Array<[ProjectTab, string]> = [
-  ["canvas", "Canvas"],
+  ["overview", "Resumen"],
+  ["flow", "Flujo"],
   ["runs", "Ejecuciones"],
   ["agents", "Agentes"],
   ["knowledge", "Conocimiento"],
-  ["configuration", "Configuración"],
+  ["integrations", "Integraciones"],
+  ["settings", "Ajustes"],
 ];
+
+export function isProjectTab(value: string): value is ProjectTab {
+  return TABS.some(([key]) => key === value);
+}
+
+export function projectTabPath(slug: string, tab: ProjectTab): string {
+  return `/projects/${slug}/${tab}`;
+}
+
+export function activeProjectTab(pathname: string): ProjectTab {
+  const section = pathname.split("/").pop() ?? "";
+  return isProjectTab(section) ? section : "overview";
+}
 
 export function ProjectTopBar({
   slug,
@@ -26,7 +41,8 @@ export function ProjectTopBar({
   chatBusy,
   chatUnread,
   versions = [],
-  onTab,
+  navigationBlocked = false,
+  onNavigateBlocked,
   onChange,
   onSave,
   onRun,
@@ -44,7 +60,8 @@ export function ProjectTopBar({
   chatBusy?: boolean;
   chatUnread?: boolean;
   versions?: WorkflowVersion[];
-  onTab(tab: ProjectTab): void;
+  navigationBlocked?: boolean;
+  onNavigateBlocked?(target: string): void;
   onChange(patch: Partial<WorkflowGraph>): void;
   onSave(): void;
   onRun(): void;
@@ -137,11 +154,24 @@ export function ProjectTopBar({
     menuButtonRef.current?.focus();
   }
 
+  function guardNavigation(event: ReactMouseEvent<HTMLAnchorElement>, target: string) {
+    if (!navigationBlocked) return;
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    event.preventDefault();
+    onNavigateBlocked?.(target);
+  }
+
   return (
     <>
       <header className="flex h-14 items-center gap-2 border-b border-line bg-ink/90 px-3 lg:px-4">
         <div className="flex min-w-0 shrink-0 items-center gap-2">
-          <Link className="shrink-0 text-xs text-accent hover:underline" to="/projects">
+          <Link
+            className="shrink-0 text-xs text-accent hover:underline"
+            to="/projects"
+            onClick={(event) => guardNavigation(event, "/projects")}
+          >
             ← Proyectos
           </Link>
           <span className="text-xs text-muted">/</span>
@@ -158,23 +188,25 @@ export function ProjectTopBar({
             aria-label="Secciones del proyecto"
           >
             {TABS.map(([key, label]) => {
-              const count = key === "runs" ? counts.runs : key === "agents" ? counts.agents : key === "configuration" ? counts.integrations : undefined;
+              const count =
+                key === "runs" ? counts.runs : key === "agents" ? counts.agents : key === "integrations" ? counts.integrations : undefined;
               const showCount = count !== undefined && count > 0;
               return (
-                <button
+                <Link
                   key={key}
-                  type="button"
+                  to={projectTabPath(slug, key)}
                   data-active={tab === key}
-                  className={`shrink-0 rounded-md border px-2 py-1.5 text-xs transition ${
+                  aria-current={tab === key ? "page" : undefined}
+                  className={`shrink-0 rounded-md border px-2 py-1.5 text-xs transition ${focusRing} ${
                     tab === key
                       ? "border-line bg-panel-2 text-slate-100"
                       : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
                   }`}
-                  onClick={() => onTab(key)}
+                  onClick={(event) => guardNavigation(event, projectTabPath(slug, key))}
                 >
                   {label}
                   {showCount ? ` (${count})` : ""}
-                </button>
+                </Link>
               );
             })}
           </nav>

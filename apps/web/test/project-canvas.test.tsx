@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
 import type { WorkflowGraph } from "@platform/shared";
 import { renderWithProviders } from "./render.tsx";
 
@@ -36,7 +36,14 @@ vi.mock("../src/components/CodeEditor.tsx", () => ({
 }));
 
 import { ApiClientError } from "../src/api.ts";
-import { ProjectPage } from "../src/pages/ProjectPage.tsx";
+import { ProjectLayout } from "../src/pages/ProjectLayout.tsx";
+import { ProjectOverviewPage } from "../src/pages/ProjectOverviewPage.tsx";
+import { ProjectFlowPage } from "../src/pages/ProjectFlowPage.tsx";
+import { ProjectRunsPage } from "../src/pages/ProjectRunsPage.tsx";
+import { ProjectAgentsPage } from "../src/pages/ProjectAgentsPage.tsx";
+import { ProjectKnowledgePage } from "../src/pages/ProjectKnowledgePage.tsx";
+import { ProjectIntegrationsPage } from "../src/pages/ProjectIntegrationsPage.tsx";
+import { ProjectSettingsPage } from "../src/pages/ProjectSettingsPage.tsx";
 
 const graph: WorkflowGraph = {
   version: 1,
@@ -75,15 +82,24 @@ function setupApi() {
 
 function renderPage() {
   return renderWithProviders(
-    <MemoryRouter initialEntries={["/projects/demo"]}>
+    <MemoryRouter initialEntries={["/projects/demo/flow"]}>
       <Routes>
-        <Route path="/projects/:slug" element={<ProjectPage />} />
+        <Route path="/projects/:slug" element={<ProjectLayout />}>
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview" element={<ProjectOverviewPage />} />
+          <Route path="flow" element={<ProjectFlowPage />} />
+          <Route path="runs" element={<ProjectRunsPage />} />
+          <Route path="agents" element={<ProjectAgentsPage />} />
+          <Route path="knowledge" element={<ProjectKnowledgePage />} />
+          <Route path="integrations" element={<ProjectIntegrationsPage />} />
+          <Route path="settings" element={<ProjectSettingsPage />} />
+        </Route>
       </Routes>
     </MemoryRouter>,
   );
 }
 
-describe("ProjectPage canvas workspace", () => {
+describe("ProjectLayout flow section", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupApi();
@@ -120,11 +136,12 @@ describe("ProjectPage canvas workspace", () => {
     expect(saved.nodes.some((node) => node.type === "http" && node.label === "Mi HTTP")).toBe(true);
   });
 
-  it("keeps non-canvas tabs inside a readable centered container", async () => {
+  it("keeps non-canvas sections inside a readable centered container", async () => {
     renderPage();
     expect(await screen.findByText("Demo")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Agentes" }));
-    expect(screen.getByTestId("project-tab-content").className).toContain("max-w-[1200px]");
+    await userEvent.click(screen.getByRole("link", { name: "Agentes" }));
+    const content = await screen.findByTestId("project-tab-content");
+    expect(content.className).toContain("max-w-[1200px]");
   });
 
   it("duplicates a code node with its own code file", async () => {

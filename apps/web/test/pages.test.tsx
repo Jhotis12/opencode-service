@@ -229,7 +229,7 @@ import { ProjectKnowledgePanel } from "../src/components/ProjectKnowledgePanel.t
 import { ProjectSettingsPanel } from "../src/components/ProjectSettingsPanel.tsx";
 import { ProjectResourcesPanel } from "../src/components/ProjectResourcesPanel.tsx";
 import { api } from "../src/api.ts";
-import { renderWithProviders } from "./render.tsx";
+import { findToast, renderWithProviders } from "./render.tsx";
 
 describe("SettingsPage", () => {
   it("renders the addressable platform settings sections and global orchestrator channels", async () => {
@@ -311,7 +311,7 @@ describe("ProjectResourcesPanel", () => {
     renderWithProviders(<ProjectResourcesPanel projectSlug="ventas" />);
     await screen.findByText("ASR local");
     await userEvent.click(screen.getAllByRole("button", { name: "Probar" })[0]!);
-    expect(await screen.findByText(/modelos: small, base/)).toBeInTheDocument();
+    expect(await findToast(/modelos: small, base/)).toBeVisible();
   });
 });
 

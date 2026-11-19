@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
-import { buttonDanger, fieldError, friendlyError, smallMuted } from "../ui.ts";
+import { buttonDanger, fieldError, friendlyError, notify, smallMuted } from "../ui.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Skeleton } from "./Skeleton.tsx";
 import {
@@ -32,7 +32,6 @@ export function PlatformSettingsVaultSection({
   const [alias, setAlias] = useState("");
   const [secretValue, setSecretValue] = useState("");
   const [aliasToDelete, setAliasToDelete] = useState<string>();
-  const [status, setStatus] = useState<string>();
   const aliasValidation = usePlatformFieldValidation(validatePlatformSecretAlias);
   const valueValidation = usePlatformFieldValidation(validatePlatformSecret);
   const hasLoadError = secretsError !== undefined && secretsError !== null;
@@ -42,7 +41,7 @@ export function PlatformSettingsVaultSection({
     onSuccess: async () => {
       setAlias("");
       setSecretValue("");
-      setStatus("Secreto guardado en la bóveda.");
+      notify.success("Secreto guardado en la bóveda.");
       await queryClient.invalidateQueries({ queryKey: qk.secrets });
     },
   });
@@ -50,7 +49,7 @@ export function PlatformSettingsVaultSection({
   const remove = useMutation({
     mutationFn: (secretAlias: string) => api.deleteSecret(secretAlias),
     onSuccess: async (_result, secretAlias) => {
-      setStatus(`Secreto ${secretAlias} eliminado.`);
+      notify.success(`Secreto ${secretAlias} eliminado.`);
       setAliasToDelete(undefined);
       await queryClient.invalidateQueries({ queryKey: qk.secrets });
     },
@@ -58,7 +57,6 @@ export function PlatformSettingsVaultSection({
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setStatus(undefined);
     const aliasError = aliasValidation.validate(alias);
     const valueError = valueValidation.validate(secretValue);
     if (aliasError || valueError) {
@@ -114,7 +112,6 @@ export function PlatformSettingsVaultSection({
         <div className="md:col-span-2">
           <PlatformSettingsFormActions
             pending={save.isPending}
-            status={status}
             error={save.error ? friendlyError(save.error, "No se pudo guardar el secreto.") : undefined}
             submitLabel="Guardar secreto"
           />
@@ -149,7 +146,6 @@ export function PlatformSettingsVaultSection({
                   title={`Eliminar ${secret.alias}`}
                   aria-label={`Eliminar ${secret.alias}`}
                   onClick={() => {
-                    setStatus(undefined);
                     setAliasToDelete(secret.alias);
                   }}
                 >

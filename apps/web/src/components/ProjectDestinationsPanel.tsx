@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DestinationKind, ProjectDestination } from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
-import { badge, button, buttonDanger, buttonGhost, card, friendlyError } from "../ui.ts";
+import { badge, button, buttonDanger, buttonGhost, card, friendlyError, notify } from "../ui.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
 
@@ -28,7 +28,6 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
   const [valueError, setValueError] = useState<string>();
   const [editing, setEditing] = useState<ProjectDestination>();
   const [pendingDelete, setPendingDelete] = useState<ProjectDestination>();
-  const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const destinations = query.data ?? [];
 
@@ -42,7 +41,7 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
     onSuccess: async () => {
       setLabel("");
       setValue("");
-      setStatus("Destino creado");
+      notify.success("Destino creado");
       setError(undefined);
       await refresh();
     },
@@ -58,7 +57,7 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
       }),
     onSuccess: async () => {
       setEditing(undefined);
-      setStatus("Destino actualizado");
+      notify.success("Destino actualizado");
       setError(undefined);
       await refresh();
     },
@@ -69,7 +68,7 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
     mutationFn: (id: string) => api.deleteDestination(projectSlug, id),
     onSuccess: async () => {
       setPendingDelete(undefined);
-      setStatus("Destino eliminado");
+      notify.success("Destino eliminado");
       setError(undefined);
       await refresh();
     },
@@ -86,7 +85,6 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
     setLabelError(nextLabel ? undefined : "La etiqueta es obligatoria.");
     setValueError(nextValue ? undefined : "El valor es obligatorio.");
     if (!nextLabel || !nextValue) {
-      setStatus(undefined);
       return;
     }
     create.mutate({ kind, label: nextLabel, value: nextValue });
@@ -99,7 +97,6 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
         usando un chat ID o email crudo; adoptar un valor existente no rompe las referencias actuales.
       </p>
       {error && <p className="text-sm text-danger">{error}</p>}
-      {status && <p className="text-sm text-ok">{status}</p>}
       <form className={`${card} !grid gap-3 md:grid-cols-3`} onSubmit={submit} aria-label="Crear destino" noValidate>
         <label>
           Tipo

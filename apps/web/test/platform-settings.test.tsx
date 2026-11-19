@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { api } from "../src/api.ts";
 import { PlatformSettingsPage as SettingsPage } from "../src/pages/PlatformSettingsPage.tsx";
-import { renderWithProviders } from "./render.tsx";
+import { findToast, renderWithProviders } from "./render.tsx";
 
 vi.mock("../src/api.ts", () => ({
   api: {
@@ -138,6 +138,15 @@ describe("PlatformSettingsPage", () => {
       within(panel).getByText("Usa el formato proveedor/modelo#variante. La variante es opcional."),
     ).toBeInTheDocument();
     expect(api.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("announces a saved platform setting with a toast", async () => {
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    await userEvent.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "opencode-go/fast" }));
+    expect(await findToast("Modelo por defecto guardado.")).toBeVisible();
   });
 
   it("preselects DeepSeek V4.1 Flash when no platform override is stored", async () => {

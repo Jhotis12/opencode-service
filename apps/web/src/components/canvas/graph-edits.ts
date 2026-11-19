@@ -1,4 +1,11 @@
-import { validateNodeConfig, type Edge, type NodeSpec, type WorkflowGraph } from "@platform/shared";
+import {
+  getGraphInvariantIssues,
+  getGraphTraversalIssues,
+  validateNodeConfig,
+  type Edge,
+  type GraphInvariantIssue,
+  type WorkflowGraph,
+} from "@platform/shared";
 
 export interface GraphIssue {
   id: string;
@@ -122,43 +129,82 @@ function issue(
   });
 }
 
-function cycleNodes(graph: WorkflowGraph): Set<string> {
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const inCycle = new Set<string>();
-
-  function visit(id: string): void {
-    if (visiting.has(id)) {
-      inCycle.add(id);
-      return;
-    }
-    if (visited.has(id)) return;
-    visiting.add(id);
-    for (const edge of outgoing(graph, id)) visit(edge.target);
-    visiting.delete(id);
-    visited.add(id);
+function describeInvariant(issue: GraphInvariantIssue): string {
+  const id = issue.nodeId ?? issue.edgeId ?? "";
+  switch (issue.code) {
+    case "node.duplicate-id":
+      return `Identificador de nodo duplicado: ${id}.`;
+    case "trigger.missing":
+      return "El flujo necesita un nodo trigger.";
+    case "trigger.duplicate":
+      return "Solo puede existir un trigger en el flujo.";
+    case "trigger.kind-unsupported":
+      return "Este tipo de trigger todavía no tiene un ejecutor activo.";
+    case "trigger.cron-invalid":
+      return "El trigger programado necesita una expresión cron válida.";
+    case "trigger.run-at-invalid":
+      return "El trigger programado necesita una fecha válida para ejecutarse una sola vez.";
+    case "trigger.secret-alias-missing":
+      return "El trigger webhook necesita un alias de secreto.";
+    case "trigger.integration-id-missing":
+      return "El trigger de integración necesita una integración asignada.";
+    case "trigger.event-unsupported":
+      return `El trigger de integración no admite el evento ${issue.detail}.`;
+    case "trigger.event-duplicate":
+      return "Ya existe otro trigger para esa integración y evento.";
+    case "node.code-file-missing":
+      return "El nodo de código necesita un archivo TypeScript.";
+    case "node.agent-id-missing":
+      return "El nodo de agente necesita un agente asignado.";
+    case "node.subworkflow-version-missing":
+      return "El nodo de subflujo necesita una versión del flujo.";
+    case "node.foreach-version-missing":
+      return "El nodo de lote necesita una versión del flujo.";
+    case "node.foreach-items-path-missing":
+      return "El nodo de lote necesita una ruta de elementos en el input.";
+    case "node.on-error-target-missing":
+      return "Elige el nodo que recibe los errores de este paso.";
+    case "node.on-error-target-self":
+      return "Un nodo no puede enviar sus errores a sí mismo.";
+    case "node.on-error-target-unknown":
+      return "La ruta de errores apunta a un nodo que ya no existe.";
+    case "node.on-error-target-trigger":
+      return "La ruta de errores no puede apuntar al trigger.";
+    case "node.delay-invalid":
+      return "El nodo de espera necesita una duración positiva.";
+    case "node.validate-rules-missing":
+      return "El nodo de validación necesita al menos una regla.";
+    case "node.transform-target-missing":
+      return "El nodo de transformación necesita una plantilla o mapeo.";
+    case "node.transcribe-media-path-missing":
+      return "El nodo Transcribir necesita una ruta de audios en el input.";
+    case "node.decision-condition-missing":
+      return "La condición necesita una regla visual o un archivo de código.";
+    case "node.decision-branches":
+      return "La condición necesita exactamente una salida sí y una salida no.";
+    case "node.decision-edge-condition":
+      return "La rama de la condición debe ser sí o no.";
+    case "node.branching":
+      return "Este nodo solo puede tener una salida; usa una condición para bifurcar.";
+    case "edge.duplicate-id":
+      return `Identificador de conexión duplicado: ${id}.`;
+    case "edge.unknown-source":
+      return `La conexión ${id} apunta desde un nodo inexistente.`;
+    case "edge.unknown-target":
+      return `La conexión ${id} apunta a un nodo inexistente.`;
+    case "edge.self-loop":
+      return "Una conexión no puede apuntar al mismo nodo.";
+    case "edge.target-trigger":
+      return "El trigger no puede recibir conexiones.";
+    case "graph.cycle":
+      return "Este nodo forma parte de un ciclo.";
+    case "node.unreachable":
+      return "Este nodo no es alcanzable desde el trigger.";
   }
-
-  for (const node of graph.nodes) visit(node.id);
-  return inCycle;
 }
 
 export function getGraphIssues(graph: WorkflowGraph): GraphIssue[] {
   const issues: GraphIssue[] = [];
-  const ids = new Set<string>();
-  for (const node of graph.nodes) {
-    if (ids.has(node.id)) issue(issues, { nodeId: node.id, message: `Identificador de nodo duplicado: ${node.id}.` });
-    ids.add(node.id);
-  }
-
-  const triggers = graph.nodes.filter((node) => node.type === "trigger");
-  if (triggers.length === 0) issue(issues, { message: "El flujo necesita un nodo trigger." });
-  if (triggers.length > 1) {
-    for (const trigger of triggers.slice(1)) {
-      issue(issues, { nodeId: trigger.id, message: "Solo puede existir un trigger en el flujo." });
-    }
-  }
-
   for (const node of graph.nodes) {
     const validation = validateNodeConfig(node.type, node.config);
     if (!validation.success) {
@@ -170,108 +216,27 @@ export function getGraphIssues(graph: WorkflowGraph): GraphIssue[] {
         });
       }
     }
-    if (node.type === "trigger") {
-      const kind = String(node.config.kind ?? "manual");
-      if (!["manual", "integration", "schedule", "webhook"].includes(kind)) {
-        issue(issues, { nodeId: node.id, message: "Este tipo de trigger todavía no tiene un ejecutor activo." });
-      } else if (kind === "schedule" && !String(node.config.cron ?? "").trim()) {
-        issue(issues, { nodeId: node.id, message: "El trigger programado necesita una expresión cron." });
-      } else if (kind === "webhook" && !String(node.config.secretAlias ?? "").trim()) {
-        issue(issues, { nodeId: node.id, message: "El trigger webhook necesita un alias de secreto." });
-      }
-    }
-    if (node.type === "code" && !node.codeFile) {
-      issue(issues, { nodeId: node.id, message: "El nodo de código necesita un archivo TypeScript." });
-    }
-    if (node.type === "agent" && !node.agentId) {
-      issue(issues, { nodeId: node.id, message: "El nodo de agente necesita un agente asignado." });
-    }
-    if (node.type === "http" && typeof node.config.url !== "string") {
-      issue(issues, { nodeId: node.id, message: "El nodo HTTP necesita una URL." });
-    }
-    if (node.type === "delay" && !(Number(node.config.ms) > 0)) {
-      issue(issues, { nodeId: node.id, message: "El nodo de espera necesita una duración positiva." });
-    }
-    if (node.type === "validate" && (!Array.isArray(node.config.rules) || node.config.rules.length === 0)) {
-      issue(issues, { nodeId: node.id, message: "El nodo de validación necesita al menos una regla." });
-    }
-    if (node.type === "transcribe" && !String(node.config.mediaPath ?? "attachments").trim()) {
-      issue(issues, { nodeId: node.id, message: "El nodo Transcribir necesita una ruta de audios en el input." });
-    }
-    if (node.type === "trigger" && node.config.kind === "integration") {
-      const accepts = Array.isArray(node.config.accepts) ? node.config.accepts : ["text"];
-      if (accepts.includes("audio") && !graph.nodes.some((candidate) => candidate.type === "transcribe")) {
-        issue(issues, {
-          nodeId: node.id,
-          message: "El trigger acepta audio pero el flujo no tiene un nodo Transcribir.",
-        });
-      }
-    }
-    if (
-      node.type === "transform" &&
-      typeof node.config.template !== "string" &&
-      (typeof node.config.mapping !== "object" || node.config.mapping === null)
-    ) {
-      issue(issues, { nodeId: node.id, message: "El nodo de transformación necesita una plantilla o mapeo." });
-    }
-
-    const edges = outgoing(graph, node.id);
-    if (node.type === "decision") {
-      const conditions = new Set(edges.map((edge) => edge.condition));
-      if (edges.length !== 2 || !conditions.has("true") || !conditions.has("false")) {
-        issue(issues, {
-          nodeId: node.id,
-          message: "La condición necesita exactamente una salida sí y una salida no.",
-        });
-      }
-      if (!node.codeFile && (typeof node.config.condition !== "object" || node.config.condition === null)) {
-        issue(issues, { nodeId: node.id, message: "La condición necesita una regla visual o un archivo de código." });
-      }
-      for (const edge of edges) {
-        if (edge.condition !== "true" && edge.condition !== "false") {
-          issue(issues, {
-            nodeId: node.id,
-            edgeId: edge.id,
-            message: "La rama de la condición debe ser sí o no.",
-          });
-        }
-      }
-    } else if (edges.length > 1) {
-      issue(issues, { nodeId: node.id, message: "Este nodo solo puede tener una salida; usa una condición para bifurcar." });
-    }
   }
 
-  const edgeIds = new Set<string>();
-  for (const edge of graph.edges) {
-    if (edgeIds.has(edge.id)) issue(issues, { edgeId: edge.id, message: `Identificador de conexión duplicado: ${edge.id}.` });
-    edgeIds.add(edge.id);
-    const source = graph.nodes.find((node) => node.id === edge.source);
-    const target = graph.nodes.find((node) => node.id === edge.target);
-    if (!source) issue(issues, { edgeId: edge.id, message: `La conexión ${edge.id} apunta desde un nodo inexistente.` });
-    if (!target) issue(issues, { edgeId: edge.id, message: `La conexión ${edge.id} apunta a un nodo inexistente.` });
-    if (edge.source === edge.target) issue(issues, { edgeId: edge.id, message: "Una conexión no puede apuntar al mismo nodo." });
-    if (target?.type === "trigger") issue(issues, { edgeId: edge.id, message: "El trigger no puede recibir conexiones." });
+  const invariants = [...getGraphInvariantIssues(graph), ...getGraphTraversalIssues(graph)];
+  for (const invariant of invariants) {
+    issue(issues, {
+      nodeId: invariant.nodeId,
+      edgeId: invariant.edgeId,
+      message: describeInvariant(invariant),
+    });
   }
 
-  const cyclic = cycleNodes(graph);
-  for (const nodeId of cyclic) {
-    issue(issues, { nodeId, message: "Este nodo forma parte de un ciclo." });
-  }
-
-  if (triggers.length > 0) {
-    const start = triggers[0]!.id;
-    const reachable = new Set<string>();
-    const stack = [start];
-    while (stack.length > 0) {
-      const current = stack.pop()!;
-      if (reachable.has(current)) continue;
-      reachable.add(current);
-      for (const edge of outgoing(graph, current)) stack.push(edge.target);
-    }
-    for (const node of graph.nodes) {
-      if (!reachable.has(node.id)) {
-        issue(issues, { nodeId: node.id, message: "Este nodo no es alcanzable desde el trigger." });
-      }
+  // UI-only precheck: the executor accepts audio attachments without a transcribe
+  // node, so the server must not enforce this.
+  for (const node of graph.nodes) {
+    if (node.type !== "trigger" || node.config.kind !== "integration") continue;
+    const accepts = Array.isArray(node.config.accepts) ? node.config.accepts : ["text"];
+    if (accepts.includes("audio") && !graph.nodes.some((candidate) => candidate.type === "transcribe")) {
+      issue(issues, {
+        nodeId: node.id,
+        message: "El trigger acepta audio pero el flujo no tiene un nodo Transcribir.",
+      });
     }
   }
 

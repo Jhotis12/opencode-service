@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { renderWithProviders } from "./render.tsx";
+import { findToast, renderWithProviders } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
   listNotebooks: vi.fn(),
@@ -82,9 +82,7 @@ describe("ProjectKnowledgePanel", () => {
     expect(apiMock.uploadSource).toHaveBeenCalledWith("demo", "manual-ventas", file);
 
     resolveUpload({ source: { title: "garantias.md" }, chunks: 7 });
-    await waitFor(() =>
-      expect(screen.getByText(/Fuente indexada: garantias\.md \(7 fragmentos\)/)).toBeInTheDocument(),
-    );
+    expect(await findToast(/Fuente indexada: garantias\.md \(7 fragmentos\)/)).toBeVisible();
     await waitFor(() => expect(screen.queryByText(/Subiendo garantias\.md…/)).not.toBeInTheDocument());
   });
 
@@ -106,9 +104,7 @@ describe("ProjectKnowledgePanel", () => {
 
     expect(await screen.findByText(/Indexando https:\/\/example\.com\/politica…/)).toBeInTheDocument();
     resolveIngest({ source: { title: "Política de garantías" }, chunks: 4 });
-    await waitFor(() =>
-      expect(screen.getByText(/URL indexada: Política de garantías \(4 fragmentos\)/)).toBeInTheDocument(),
-    );
+    expect(await findToast(/URL indexada: Política de garantías \(4 fragmentos\)/)).toBeVisible();
 
     await userEvent.click(screen.getAllByRole("button", { name: "Vista previa" })[0]!);
     const dialog = await screen.findByRole("dialog");
@@ -139,7 +135,7 @@ describe("ProjectKnowledgePanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Eliminar fuente" }));
     await waitFor(() => expect(apiMock.deleteSource).toHaveBeenCalledWith("demo", "manual-ventas", "source-a"));
     await waitFor(() => expect(screen.queryByText("devoluciones.md")).not.toBeInTheDocument());
-    expect(screen.getByText(/Fuente eliminada: devoluciones\.md/)).toBeInTheDocument();
+    expect(await findToast(/Fuente eliminada: devoluciones\.md/)).toBeVisible();
   });
 
   it("deletes a notebook after confirmation and clears the selection", async () => {
@@ -160,7 +156,7 @@ describe("ProjectKnowledgePanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Eliminar notebook" }));
     await waitFor(() => expect(apiMock.deleteNotebook).toHaveBeenCalledWith("demo", "manual-ventas"));
     await waitFor(() => expect(screen.queryByText("Fuentes de manual-ventas")).not.toBeInTheDocument());
-    expect(await screen.findByText(/Notebook eliminado: Manual de ventas/)).toBeInTheDocument();
+    expect(await findToast(/Notebook eliminado: Manual de ventas/)).toBeVisible();
     await waitFor(() => expect(screen.getByText(/Aún no hay notebooks/)).toBeInTheDocument());
   });
 
@@ -173,7 +169,7 @@ describe("ProjectKnowledgePanel", () => {
     const file = new File(["# Roto"], "error.md", { type: "text/markdown" });
     await userEvent.upload(screen.getByLabelText("Subir documento"), file);
 
-    expect(await screen.findByText(/No se pudo conectar con el servidor/)).toBeInTheDocument();
+    expect(await findToast(/No se pudo conectar con el servidor/)).toBeVisible();
     await waitFor(() => expect(screen.queryByText(/Subiendo error\.md…/)).not.toBeInTheDocument());
   });
 });

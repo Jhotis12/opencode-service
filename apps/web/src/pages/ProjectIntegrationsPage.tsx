@@ -14,7 +14,7 @@ import { DatabasePolicyEditor } from "../components/ProjectResourcesPanel.tsx";
 import { QrDisplay } from "../components/QrDisplay.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
 import { StatusBadge } from "../components/StatusBadge.tsx";
-import { badge, buttonGhost, buttonPrimary, card, friendlyError, sectionTitle, statusLabel } from "../ui.ts";
+import { badge, buttonGhost, buttonPrimary, card, friendlyError, notify, sectionTitle, statusLabel } from "../ui.ts";
 import { ProjectSectionBody, useProjectWorkspace } from "./project-workspace.tsx";
 
 const KIND_ORDER: readonly IntegrationKind[] = [
@@ -137,8 +137,6 @@ export function ProjectIntegrationsPage() {
     enabled: Boolean(slug),
   });
 
-  const [status, setStatus] = useState<string>();
-  const [error, setError] = useState<string>();
   const [rawError, setRawError] = useState<string>();
   const [created, setCreated] = useState<SavedIntegration>();
   const [editingId, setEditingId] = useState<string>();
@@ -162,38 +160,42 @@ export function ProjectIntegrationsPage() {
           ? integration.config.alertRecipient
           : undefined,
       ),
-    onSuccess: (result, integration) =>
-      setStatus(
+    onSuccess: (result, integration) => {
+      const detail =
         integration.name + ": " + statusLabel(result.ok ? "ok" : "error") + (result.detail ? " · " + result.detail : "") +
         (result.models && result.models.length > 0 ? " · modelos: " + result.models.slice(0, 6).join(", ") : "") +
-        (result.voices && result.voices.length > 0 ? " · voces: " + result.voices.slice(0, 6).join(", ") : ""),
-      ),
+        (result.voices && result.voices.length > 0 ? " · voces: " + result.voices.slice(0, 6).join(", ") : "");
+      if (result.ok) notify.success(detail);
+      else notify.error(detail, { description: "Revisa la configuración de la integración y vuelve a probarla." });
+    },
     onError: (cause) => {
       setRawError(cause instanceof Error ? cause.message : undefined);
-      setError(friendlyError(cause, "No se pudo probar la integración."));
+      notify.error(friendlyError(cause, "No se pudo probar la integración."));
     },
   });
 
   const connect = useMutation({
     mutationFn: (id: string) => api.connectIntegration(slug, id),
     onSuccess: async (result) => {
-      setStatus(
-        result.status === "error"
-          ? "No se pudo conectar: " + (result.lastError ?? "error desconocido")
-          : "Integración " + result.name + ": " + statusLabel(result.status),
-      );
+      if (result.status === "error") {
+        notify.error("No se pudo conectar: " + (result.lastError ?? "error desconocido"), {
+          description: "Revisa las credenciales del canal y vuelve a intentarlo.",
+        });
+      } else {
+        notify.success("Integración " + result.name + ": " + statusLabel(result.status));
+      }
       await refresh();
     },
     onError: (cause) => {
       setRawError(cause instanceof Error ? cause.message : undefined);
-      setError(friendlyError(cause, "No se pudo conectar la integración."));
+      notify.error(friendlyError(cause, "No se pudo conectar la integración."));
     },
   });
 
   const disconnect = useMutation({
     mutationFn: (id: string) => api.disconnectIntegration(slug, id),
     onSuccess: async () => {
-      setStatus("Integración desconectada");
+      notify.success("Integración desconectada");
       setConfirmAction(undefined);
       setConfirmError(undefined);
       await refresh();
@@ -207,7 +209,7 @@ export function ProjectIntegrationsPage() {
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteIntegration(slug, id),
     onSuccess: async () => {
-      setStatus("Integración eliminada");
+      notify.success("Integración eliminada");
       setConfirmAction(undefined);
       setConfirmError(undefined);
       setEditingId(undefined);
@@ -222,18 +224,18 @@ export function ProjectIntegrationsPage() {
   const clearWebhook = useMutation({
     mutationFn: (id: string) => api.clearIntegrationWebhook(slug, id),
     onSuccess: async () => {
-      setStatus("Webhook de Telegram limpiado; vuelve a conectar el bot");
+      notify.success("Webhook de Telegram limpiado; vuelve a conectar el bot");
       await refresh();
     },
     onError: (cause) => {
       setRawError(cause instanceof Error ? cause.message : undefined);
-      setError(friendlyError(cause, "No se pudo limpiar el webhook."));
+      notify.error(friendlyError(cause, "No se pudo limpiar el webhook."));
     },
   });
 
   function saved(result: SavedIntegration) {
     setCreated(result);
-    setStatus("Integración " + result.integration.name + " guardada");
+    notify.success("Integración " + result.integration.name + " guardada");
     setCreateOpen(false);
     setEditingId(undefined);
     setEditorKey((current) => current + 1);
@@ -266,17 +268,6 @@ export function ProjectIntegrationsPage() {
           </button>
         }
       />
-
-      {error && (
-        <p className="text-sm text-danger" role="alert" title={rawError}>
-          {error}
-        </p>
-      )}
-      {status && (
-        <p className="text-sm text-ok" role="status">
-          {status}
-        </p>
-      )}
 
       {createOpen && (
         <IntegrationEditor

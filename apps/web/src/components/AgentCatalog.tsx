@@ -14,6 +14,7 @@ import {
   buttonPrimary,
   card,
   input,
+  notify,
 } from "../ui.ts";
 
 function deniedTools(agent: SubagentProfile): string[] {
@@ -108,7 +109,6 @@ export function AgentCatalog({
   const queryClient = useQueryClient();
   const [editor, setEditor] = useState<{ agent?: SubagentProfile } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SubagentProfile>();
-  const [status, setStatus] = useState<string>();
   const [removeError, setRemoveError] = useState<string>();
   const [query, setQuery] = useState("");
 
@@ -139,7 +139,7 @@ export function AgentCatalog({
         queryClient.invalidateQueries({ queryKey: qk.agents(projectSlug) }),
         queryClient.invalidateQueries({ queryKey: qk.projectSettings(projectSlug) }),
       ]);
-      setStatus(`Agente ${agentKey(agent)} eliminado`);
+      notify.success(`Agente ${agentKey(agent)} eliminado`);
       setRemoveError(undefined);
       setDeleteTarget(undefined);
     },
@@ -176,11 +176,6 @@ export function AgentCatalog({
         </div>
       </header>
 
-      {status && (
-        <p className="text-sm text-ok" aria-live="polite">
-          {status}
-        </p>
-      )}
       {removeError && (
         <p className="text-sm text-danger" role="alert">
           {removeError}
@@ -261,7 +256,7 @@ export function AgentCatalog({
           modelOptions={modelOptions}
           onClose={() => setEditor(null)}
           onSaved={(saved) => {
-            setStatus(`Agente ${agentKey(saved)} guardado`);
+            notify.success(`Agente ${agentKey(saved)} guardado`);
             setRemoveError(undefined);
           }}
         />

@@ -14,6 +14,50 @@ export function ZoomReadout() {
   );
 }
 
+export function AgentFlowUpdateNotice({
+  summary,
+  onDismiss,
+  onOpenChat,
+}: {
+  summary: string;
+  onDismiss?(): void;
+  onOpenChat?(): void;
+}) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="agent-update-banner"
+      className="flex min-w-[230px] items-start gap-2.5 rounded-xl border border-violet/40 bg-well/95 px-3 py-2 text-xs shadow-xl"
+    >
+      <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-violet" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <strong className="block text-[11px] text-slate-100">Actualización del agente</strong>
+        <span className="block text-[11px] text-muted">{summary}</span>
+      </div>
+      {onOpenChat && (
+        <button
+          type="button"
+          className={`shrink-0 text-[11px] text-accent hover:underline ${focusRing}`}
+          onClick={onOpenChat}
+        >
+          Abrir chat
+        </button>
+      )}
+      {onDismiss && (
+        <button
+          type="button"
+          aria-label="Descartar actualización del agente"
+          className={`shrink-0 text-[11px] text-muted transition hover:text-slate-200 ${focusRing}`}
+          onClick={onDismiss}
+        >
+          Descartar
+        </button>
+      )}
+    </div>
+  );
+}
+
 const SHORTCUTS: ReadonlyArray<{ keys: readonly string[]; description: string }> = [
   { keys: ["Ctrl/Cmd", "S"], description: "Guardar el flujo" },
   { keys: ["Supr / Retroceso"], description: "Eliminar el nodo seleccionado" },

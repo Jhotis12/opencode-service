@@ -113,22 +113,20 @@ export function PlatformSettingsSection({
   );
 }
 
-export function PlatformSettingsFeedback({ status, error }: { readonly status?: string; readonly error?: string }) {
+export function PlatformSettingsFeedback({ error }: { readonly error?: string }) {
   return (
-    <div className="min-h-5" aria-live="polite">
-      {error ? <p className={fieldError}>{error}</p> : status ? <p className="text-sm text-ok">{status}</p> : null}
+    <div className="min-h-5">
+      {error ? <p className={fieldError}>{error}</p> : null}
     </div>
   );
 }
 
 export function PlatformSettingsFormActions({
   pending,
-  status,
   error,
   submitLabel = "Guardar cambios",
 }: {
   readonly pending: boolean;
-  readonly status?: string;
   readonly error?: string;
   readonly submitLabel?: string;
 }) {
@@ -140,7 +138,7 @@ export function PlatformSettingsFormActions({
         </button>
         {pending && <span className={smallMuted}>Guardando…</span>}
       </div>
-      <PlatformSettingsFeedback status={status} error={error} />
+      <PlatformSettingsFeedback error={error} />
     </>
   );
 }

@@ -54,6 +54,10 @@ describe("workflow graph validation", () => {
     badSchedule.nodes[0] = { ...badSchedule.nodes[0]!, config: { kind: "schedule", cron: "bad cron" } };
     expect(() => validateWorkflowGraph(badSchedule)).toThrow(/config.cron/);
 
+    const outOfRange = graph();
+    outOfRange.nodes[0] = { ...outOfRange.nodes[0]!, config: { kind: "schedule", cron: "60 9 * * *" } };
+    expect(() => validateWorkflowGraph(outOfRange)).toThrow(/config.cron/);
+
     const webhook = graph();
     webhook.nodes[0] = { ...webhook.nodes[0]!, config: { kind: "webhook", secretAlias: "wh-secret" } };
     expect(() => validateWorkflowGraph(webhook)).not.toThrow();
@@ -129,6 +133,14 @@ describe("workflow graph validation", () => {
     const self = graph();
     self.nodes[1] = { ...self.nodes[1]!, onError: { strategy: "route", target: "fetch" } };
     expect(() => validateWorkflowGraph(self)).toThrow(/itself/);
+
+    const toTrigger = graph();
+    toTrigger.nodes[1] = { ...toTrigger.nodes[1]!, onError: { strategy: "route", target: "start" } };
+    expect(() => validateWorkflowGraph(toTrigger)).toThrow(/trigger node/);
+
+    const missing = graph();
+    missing.nodes[1] = { ...missing.nodes[1]!, onError: { strategy: "route" } };
+    expect(() => validateWorkflowGraph(missing)).toThrow(/onError target/);
 
     const cyclic = graph();
     cyclic.nodes.push({
@@ -209,6 +221,35 @@ describe("workflow graph validation", () => {
     });
     bad.edges = [{ id: "e1", source: "start", target: "check" }];
     expect(() => validateWorkflowGraph(bad)).toThrow(/true.*false|two outgoing/);
+  });
+
+  it("validates subworkflow and foreach version references", () => {
+    const subworkflow = graph();
+    subworkflow.nodes[1] = { ...subworkflow.nodes[1]!, type: "subworkflow", codeFile: undefined, config: {} };
+    expect(() => validateWorkflowGraph(subworkflow)).toThrow(/config\.versionId/);
+
+    const foreach = graph();
+    foreach.nodes[1] = { ...foreach.nodes[1]!, type: "foreach", codeFile: undefined, config: { versionId: "v1" } };
+    expect(() => validateWorkflowGraph(foreach)).toThrow(/config\.itemsPath/);
+
+    const ok = graph();
+    ok.nodes[1] = {
+      ...ok.nodes[1]!,
+      type: "foreach",
+      codeFile: undefined,
+      config: { versionId: "v1", itemsPath: "input.items" },
+    };
+    expect(() => validateWorkflowGraph(ok)).not.toThrow();
+  });
+
+  it("requires a non-blank transcribe mediaPath", () => {
+    const blank = graph();
+    blank.nodes[1] = { ...blank.nodes[1]!, type: "transcribe", codeFile: undefined, config: { mediaPath: "   " } };
+    expect(() => validateWorkflowGraph(blank)).toThrow(/mediaPath/);
+
+    const withDefault = graph();
+    withDefault.nodes[1] = { ...withDefault.nodes[1]!, type: "transcribe", codeFile: undefined, config: {} };
+    expect(() => validateWorkflowGraph(withDefault)).not.toThrow();
   });
 
   it("rejects unreachable nodes", () => {

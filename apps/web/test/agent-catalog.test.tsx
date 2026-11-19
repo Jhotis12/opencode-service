@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { useQuery } from "@tanstack/react-query";
 import type { SubagentProfile } from "@platform/shared";
 import { qk } from "../src/query.ts";
-import { renderWithProviders } from "./render.tsx";
+import { findToast, renderWithProviders } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
   upsertAgent: vi.fn(),
@@ -133,6 +133,7 @@ describe("AgentCatalog", () => {
       }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Nuevo agente" })).not.toBeInTheDocument());
+    expect(await findToast("Agente ventas/calificador guardado")).toBeVisible();
   });
 
   it("prefills the editor for an existing agent and locks its identifier", async () => {
@@ -160,6 +161,7 @@ describe("AgentCatalog", () => {
     await userEvent.click(within(subCard).getByRole("button", { name: "Borrar" }));
     await userEvent.click(within(screen.getByRole("dialog", { name: "Eliminar agente" })).getByRole("button", { name: "Borrar agente" }));
     await waitFor(() => expect(apiMock.deleteAgent).toHaveBeenCalledWith("demo", "ventas", "calificador"));
+    expect(await findToast("Agente ventas/calificador eliminado")).toBeVisible();
   });
 
   it("round-trips per-tool permission rules through the visual editor", async () => {

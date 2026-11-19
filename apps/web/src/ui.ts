@@ -1,3 +1,6 @@
+import type { CSSProperties } from "react";
+import { toast, type ToasterProps } from "sonner";
+
 export const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
 export const card =
@@ -49,6 +52,61 @@ export const tab = `inline-flex min-h-10 shrink-0 items-center justify-center wh
 export const tabActive = "border-line bg-panel-2 text-slate-100";
 
 export const skeleton = "shrink-0 animate-pulse bg-panel-2 motion-reduce:animate-none";
+
+const toastVars = {
+  "--normal-bg": "var(--color-panel)",
+  "--normal-border": "var(--color-line)",
+  "--normal-text": "var(--color-text)",
+  "--border-radius": "0.5rem",
+  "--width": "22rem",
+} as CSSProperties;
+
+export const toasterProps: ToasterProps = {
+  theme: "dark",
+  position: "bottom-right",
+  visibleToasts: 3,
+  closeButton: true,
+  offset: 16,
+  gap: 10,
+  containerAriaLabel: "Notificaciones",
+  customAriaLabel: "Notificaciones",
+  style: toastVars,
+  toastOptions: {
+    closeButtonAriaLabel: "Cerrar notificación",
+    duration: 5000,
+    style: {
+      fontSize: "0.875rem",
+      padding: "0.875rem 1rem",
+      boxShadow: "0 12px 32px rgba(3, 7, 18, 0.55)",
+    },
+    classNames: {
+      title: "text-sm font-medium text-slate-100",
+      description: "text-xs text-muted",
+      closeButton: "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+      success: "[&_[data-icon]]:text-ok",
+      error: "[&_[data-icon]]:text-danger",
+      info: "[&_[data-icon]]:text-accent",
+      warning: "[&_[data-icon]]:text-warn",
+    },
+  },
+};
+
+export type NotifyOptions = {
+  readonly description?: string;
+  readonly duration?: number;
+};
+
+export type Notify = {
+  readonly success: (message: string, options?: NotifyOptions) => void;
+  readonly error: (message: string, options?: NotifyOptions) => void;
+  readonly info: (message: string, options?: NotifyOptions) => void;
+};
+
+export const notify: Notify = {
+  success: (message, options) => toast.success(message, options),
+  error: (message, options) => toast.error(message, options),
+  info: (message, options) => toast.info(message, options),
+};
 
 type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
 

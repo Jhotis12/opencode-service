@@ -25,6 +25,7 @@ import {
   WorkflowGraphSchema,
   WorkflowVersionSchema,
   apiError,
+  evaluateToolPermission,
   modelRefToString,
   parseModelRef,
 } from "../src/index.ts";
@@ -237,5 +238,39 @@ describe("api and event contracts", () => {
     expect(ProjectTemplateSchema.parse("triaje-operativo")).toBe("triaje-operativo");
     expect(CreateProjectRequestSchema.parse({ slug: "p1", name: "P1" }).template).toBe("blank");
     expect(AgentExecutionContextSchema.parse("workflow")).toBe("workflow");
+  });
+});
+
+describe("platform tool permissions", () => {
+  it("lets a deny rule beat an allow rule", () => {
+    const verdict = evaluateToolPermission({
+      tool: "db_query",
+      permissions: [
+        { action: "tool", resource: "db_query", effect: "allow" },
+        { action: "tool", resource: "db_query", effect: "deny" },
+      ],
+    });
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.reason).toContain("denied");
+  });
+
+  it("fails closed on an ask rule because platform tool calls have no interactive approver", () => {
+    const verdict = evaluateToolPermission({
+      tool: "notify",
+      permissions: [{ action: "tool", resource: "notify", effect: "ask" }],
+    });
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.reason).toContain("approval");
+  });
+
+  it("blocks upserts in workflow context unless explicitly allowed", () => {
+    expect(evaluateToolPermission({ tool: "workflow_upsert", context: "workflow" }).allowed).toBe(false);
+    expect(
+      evaluateToolPermission({
+        tool: "workflow_upsert",
+        context: "workflow",
+        permissions: [{ action: "tool", resource: "workflow_upsert", effect: "allow" }],
+      }).allowed,
+    ).toBe(true);
   });
 });

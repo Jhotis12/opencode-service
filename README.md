@@ -464,6 +464,8 @@ packages/opencode-plugin/  # herramientas platform_* dentro de OpenCode V2
 - Bóveda AES-256-GCM con scope de proyecto; el LLM nunca recibe secretos, solo alias.
 - Observabilidad: logs JSON con `requestId`/`entryPoint`/`projectSlug`/`integrationId`, métricas RED, panel `/system/health`, Sentry/GlitchTip opcional.
 
+Para saber si el motor aguanta tipos de nodo nuevos, qué archivos toca cada uno y qué refactor conviene antes de crecer: `docs/architecture-workflows.md`.
+
 ## Migración desde el modelo anterior
 
 El modelo global de canales, bases y notebooks se elimina; no hay capa de compatibilidad. Si hay datos reales, ejecuta el backup y la migración legacy con un mapa explícito antes de arrancar la versión nueva:

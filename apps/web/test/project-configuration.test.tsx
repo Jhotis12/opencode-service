@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { renderWithProviders } from "./render.tsx";
+import { findToast, renderWithProviders } from "./render.tsx";
 
 const now = new Date().toISOString();
 const integration = {
@@ -195,6 +195,7 @@ describe("ProjectConfigurationPanel", () => {
       }),
     );
     expect(apiMock.updateDestination).not.toHaveBeenCalled();
+    expect(await findToast("Destino creado")).toBeVisible();
   });
 
   it("blocks an invalid destination and shows inline validation without a request", async () => {
@@ -225,6 +226,19 @@ describe("ProjectConfigurationPanel", () => {
     expect(screen.getByText("Admin")).toBeInTheDocument();
   });
 
+  it("deletes a destination after confirming and announces it with a toast", async () => {
+    mockQueries();
+    apiMock.deleteDestination.mockResolvedValue({ ok: true });
+    renderPanel("destinations");
+    expect(await screen.findByText("Admin")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Borrar el destino Admin" }));
+    await userEvent.click(screen.getByRole("button", { name: "Eliminar" }));
+
+    await waitFor(() => expect(apiMock.deleteDestination).toHaveBeenCalledWith("ventas", "d1"));
+    expect(await findToast("Destino eliminado")).toBeVisible();
+  });
+
   it("saves a secret and clears the form", async () => {
     mockQueries();
     apiMock.saveProjectSecret.mockResolvedValue({ ok: true });
@@ -238,6 +252,19 @@ describe("ProjectConfigurationPanel", () => {
     await waitFor(() => expect(apiMock.saveProjectSecret).toHaveBeenCalledWith("ventas", "openai_key", "secret-value"));
     await waitFor(() => expect(screen.getByLabelText("Alias")).toHaveValue(""));
     expect(screen.getByLabelText("Valor")).toHaveValue("");
+    expect(await findToast("Secreto guardado en la bóveda del proyecto")).toBeVisible();
+  });
+
+  it("announces a saved project configuration with a toast", async () => {
+    mockQueries();
+    apiMock.updateProjectSettings.mockResolvedValue({ ok: true });
+    renderPanel();
+    expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+
+    await waitFor(() => expect(apiMock.updateProjectSettings).toHaveBeenCalledTimes(1));
+    expect(await findToast("Ajustes del proyecto guardados")).toBeVisible();
   });
 
   it("blocks an invalid secret alias and shows inline validation without a request", async () => {
@@ -283,7 +310,7 @@ describe("ProjectConfigurationPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Eliminar" }));
 
     await waitFor(() => expect(apiMock.deleteProjectSecret).toHaveBeenCalledWith("ventas", "api_key"));
-    expect(await screen.findByText("Secreto eliminado")).toBeInTheDocument();
+    expect(await findToast("Secreto eliminado")).toBeVisible();
     await waitFor(() => expect(screen.queryByText("api_key")).not.toBeInTheDocument());
   });
 

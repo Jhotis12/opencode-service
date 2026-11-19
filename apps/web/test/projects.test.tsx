@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { renderWithProviders } from "./render.tsx";
+import { renderWithProviders, findToast } from "./render.tsx";
 
 const { project, secondProject } = vi.hoisted(() => ({
   project: {
@@ -100,6 +100,7 @@ describe("ProjectsPage", () => {
       description: "Atiende leads",
     });
     expect(await screen.findByText("proyecto abierto")).toBeInTheDocument();
+    expect(await findToast("Proyecto Bot de ventas creado")).toBeVisible();
   });
 
   it("shows both templates in the gallery and creates from the triaje-operativo template", async () => {
@@ -173,6 +174,7 @@ describe("ProjectsPage", () => {
     await userEvent.type(confirm, "bot-ventas");
     await userEvent.click(screen.getByRole("button", { name: "Eliminar definitivamente" }));
     expect(api.deleteProject).toHaveBeenCalledWith("bot-ventas");
+    expect(await findToast("Proyecto Bot de ventas eliminado")).toBeVisible();
   });
 });
 

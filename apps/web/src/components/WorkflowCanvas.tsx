@@ -22,7 +22,7 @@ import { PlatformEdge, type PlatformFlowEdge } from "./PlatformEdge.tsx";
 import { CanvasActionsContext } from "./nodes/canvas-actions.ts";
 import { NODE_META } from "./nodes/node-catalog.ts";
 import { getConnectionIssue, resolveConnection, type GraphIssue } from "./canvas/graph-edits.ts";
-import { ShortcutsHelp, ZoomReadout } from "./canvas/canvas-overlays.tsx";
+import { AgentFlowUpdateNotice, ShortcutsHelp, ZoomReadout } from "./canvas/canvas-overlays.tsx";
 import { focusRing } from "../ui.ts";
 
 const nodeTypes = { platform: PlatformNode };
@@ -171,6 +171,8 @@ export interface WorkflowCanvasProps {
   runProgress?: RunProgress;
   agentStatus?: { busy: boolean; activity?: string };
   agentTouchedNodeIds?: string[];
+  agentUpdate?: { summary: string; at?: number };
+  onDismissAgentUpdate?(): void;
   className?: string;
   connecting?: { sourceId: string; condition?: "true" | "false" } | null;
   issues?: GraphIssue[];
@@ -197,6 +199,8 @@ export function WorkflowCanvas({
   runProgress,
   agentStatus,
   agentTouchedNodeIds,
+  agentUpdate,
+  onDismissAgentUpdate,
   className,
   connecting,
   issues = EMPTY_ISSUES,
@@ -266,6 +270,14 @@ export function WorkflowCanvas({
   function fitOverview() {
     flow?.fitView({ padding: 0.1, duration: 300, minZoom: 0.25, maxZoom: 1.2 });
   }
+
+  useEffect(() => {
+    if (!flow || !agentUpdate?.at) return;
+    const timer = setTimeout(() => {
+      flow.fitView({ padding: 0.18, duration: 300, minZoom: 0.4, maxZoom: 1.2 });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [flow, agentUpdate?.at]);
 
   useEffect(() => {
     setNodes(toNodes(graph, selectedId, runningNodeId, nodeStatuses, issues, validity, agentTouchedNodeIds));
@@ -407,9 +419,16 @@ export function WorkflowCanvas({
               </div>
             </Panel>
           )}
-          {(runProgress || agentStatus?.busy) && (
+          {(runProgress || agentStatus?.busy || agentUpdate) && (
             <Panel position="top-right">
               <div className="flex flex-col gap-2">
+                {agentUpdate && (
+                  <AgentFlowUpdateNotice
+                    summary={agentUpdate.summary}
+                    onDismiss={onDismissAgentUpdate}
+                    onOpenChat={onOpenChat}
+                  />
+                )}
                 {agentStatus?.busy && (
                   <div
                     className="flex min-w-[230px] items-center gap-2.5 rounded-xl border border-violet/40 bg-well/95 px-3 py-2 text-xs shadow-xl"

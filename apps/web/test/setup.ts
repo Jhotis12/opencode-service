@@ -1,8 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
+import { toast } from "sonner";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // Sonner keeps its queue in module state, so a toast from one test would
+  // reappear in the next one after a new Toaster mounts.
+  toast.dismiss();
+});
 
 class ResizeObserverStub {
   observe() {}

@@ -24,6 +24,7 @@ const apiMock = vi.hoisted(() => ({
   getProjectSettings: vi.fn(),
   listWorkflowVersions: vi.fn(),
   listProjects: vi.fn(),
+  listGlobalRuns: vi.fn(),
   readNode: vi.fn(),
 }));
 
@@ -91,7 +92,10 @@ describe("Breadcrumbs", () => {
 });
 
 describe("global runs route", () => {
-  it("renders the /runs stub with the nav item active", () => {
+  it("renders the global runs page with the nav item active", async () => {
+    apiMock.listProjects.mockResolvedValue({ data: [] });
+    apiMock.listGlobalRuns.mockResolvedValue({ data: [], total: 0, limit: 50, offset: 0 });
+
     renderWithProviders(
       <MemoryRouter initialEntries={["/runs"]}>
         <App />
@@ -103,7 +107,7 @@ describe("global runs route", () => {
     expect(navItem).toHaveAttribute("href", "/runs");
     expect(navItem).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Proyectos" })).not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("heading", { name: "Sin ejecuciones todavía" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sin ejecuciones todavía" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ir a proyectos" })).toHaveAttribute("href", "/projects");
     expect(document.title).toBe("Ejecuciones · Agentic Platform");
   });

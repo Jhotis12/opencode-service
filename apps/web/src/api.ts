@@ -91,6 +91,7 @@ export interface RunRecord {
   workflowId: string;
   status: string;
   entryPoint: string;
+  parentRunId?: string;
   launchedBy?: string;
   graphHash?: string;
   integrationId?: string;
@@ -100,6 +101,74 @@ export interface RunRecord {
   startedAt: string;
   finishedAt?: string;
   steps: StepRun[];
+}
+
+export const RUNS_LIST_LIMIT = 100;
+
+/** Etiquetas visibles en español para el campo "Origen" (`entryPoint`). */
+export function runOriginLabel(entryPoint: string): string {
+  switch (entryPoint) {
+    case "web_ui":
+      return "Interfaz web";
+    case "global_orchestrator":
+      return "Orquestador global";
+    case "schedule":
+    case "scheduler":
+      return "Programado";
+    case "webhook":
+      return "Webhook";
+    case "telegram":
+      return "Telegram";
+    case "whatsapp":
+      return "WhatsApp";
+    case "email":
+      return "Correo";
+    case "external_chat":
+      return "Chat externo";
+    case "replay":
+      return "Re-ejecución";
+    case "bootstrap":
+      return "Arranque";
+    case "worker":
+      return "Proceso interno";
+    case "system":
+      return "Sistema";
+    default:
+      return entryPoint;
+  }
+}
+
+/** Filtros de la consulta global de ejecuciones (`/api/control/runs`). */
+export interface RunListFilters {
+  status?: string;
+  project?: string;
+  entryPoint?: string;
+  /** ISO date or datetime; a date-only value starts at 00:00:00.000Z. */
+  from?: string;
+  /** ISO date or datetime; a date-only value covers the whole day in UTC. */
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface RunListPage {
+  data: RunRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+function runListQuery(filters: RunListFilters): string {
+  const params = new URLSearchParams();
+  if (filters.status) params.set("status", filters.status);
+  if (filters.project) params.set("project", filters.project);
+  if (filters.entryPoint) params.set("entryPoint", filters.entryPoint);
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  if (filters.limit !== undefined) params.set("limit", String(filters.limit));
+  if (filters.offset !== undefined) params.set("offset", String(filters.offset));
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 export interface ScheduleState {
@@ -591,6 +660,10 @@ export const api = {
     request<{ ok: boolean }>(`/api/control/integrations/${id}/telegram/clear-webhook`, { method: "POST" }),
   controlIntegrationQr: (id: string) => request<{ qr: string }>(`/api/control/integrations/${id}/qr`),
   controlOverview: () => request<OrchestratorOverview>("/api/control/overview"),
+  listGlobalRuns: (filters: RunListFilters = {}) =>
+    request<RunListPage>(`/api/control/runs${runListQuery(filters)}`),
+  getGlobalRun: (runId: string) =>
+    request<RunRecord>(`/api/control/runs/${encodeURIComponent(runId)}`),
   controlChat: (message: string, onEvent?: (event: ChatTurnEvent) => void, clientMessageId?: string) =>
     chatStream("/api/control/chat", message, onEvent, clientMessageId),
   controlChatHistory: () => request<{ data: ChatHistoryMessage[] }>("/api/control/chat?limit=200"),

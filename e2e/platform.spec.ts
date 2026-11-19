@@ -215,7 +215,7 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await flowSettings.getByRole("button", { name: "Cerrar" }).click();
 
   await projectNav.getByRole("link", { name: /^Agentes/ }).click();
-  await expect(page.getByRole("heading", { name: "Agentes", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Agentes", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: "Nuevo agente" }).click();
   const newAgent = page.getByRole("dialog", { name: "Nuevo agente" });
   await expect(newAgent).toBeVisible();
@@ -575,8 +575,8 @@ test("P0: scheduled notification delivers once and is visible in the run detail"
 
     await page.goto(`/projects/${slug}`);
     await page.getByRole("navigation", { name: "Secciones del proyecto" }).getByRole("link", { name: /^Ejecuciones/ }).click();
-    const runArticle = page.locator("article").filter({ hasText: String(run.id).slice(0, 8) });
-    await runArticle.getByRole("button", { name: "Ver detalle" }).click();
+    const runRow = page.locator("tr").filter({ hasText: String(run.id).slice(0, 8) });
+    await runRow.getByRole("button", { name: "Ver detalle" }).click();
     const detail = page.getByRole("dialog", { name: /Ejecución/ });
     await expect(detail.getByRole("heading", { name: "Entregas" })).toBeVisible();
     await expect(detail.getByText("Entregado")).toBeVisible();

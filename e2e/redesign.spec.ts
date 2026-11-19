@@ -125,7 +125,7 @@ test("projects onboarding creates a project and every section has its own route"
 
   await nav.getByRole("link", { name: /^Agentes/ }).click();
   await expect(page).toHaveURL(/\/projects\/rediseno-e2e\/agents$/);
-  await expect(page.getByRole("heading", { name: "Agentes", level: 2 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Agentes", level: 1 })).toBeVisible();
   await expect(page.getByRole("button", { name: "Nuevo agente" })).toBeVisible();
 
   await nav.getByRole("link", { name: /^Conocimiento$/ }).click();

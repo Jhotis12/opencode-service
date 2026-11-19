@@ -8,7 +8,7 @@ import { OverflowMenu, type OverflowMenuItem } from "./OverflowMenu.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { IntegrationEditor, type SavedIntegration } from "./IntegrationEditor.tsx";
 import { QrDisplay } from "./QrDisplay.tsx";
-import { badge, button, buttonGhost, card, friendlyError } from "../ui.ts";
+import { badge, button, buttonGhost, card, friendlyError, notify } from "../ui.ts";
 
 const DATABASE_KINDS = new Set<IntegrationRecord["kind"]>(["postgres", "mysql", "mssql", "sqlite"]);
 const CHANNEL_KINDS = new Set<IntegrationRecord["kind"]>(["telegram", "whatsapp", "external_chat"]);
@@ -34,7 +34,11 @@ export function DatabasePolicyEditor({
       api.updateIntegration(projectSlug, integration.id, {
         config: { ...integration.config, access, maxRows, allowDdl },
       }),
-    onSuccess: onSaved,
+    onSuccess: () => {
+      notify.success("Política de base de datos guardada");
+      onSaved();
+    },
+    onError: (cause) => notify.error(friendlyError(cause, "No se pudo guardar la política de base de datos.")),
   });
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-line bg-well p-2">
@@ -63,7 +67,6 @@ export function DatabasePolicyEditor({
       <button className={buttonGhost} disabled={save.isPending} onClick={() => save.mutate()}>
         Guardar política
       </button>
-      {save.error && <small className="text-danger">{save.error instanceof Error ? save.error.message : "Error"}</small>}
     </div>
   );
 }
@@ -89,8 +92,6 @@ export function ProjectResourcesPanel({
   const [editorKey, setEditorKey] = useState(0);
   const [secretAlias, setSecretAlias] = useState("");
   const [secretValue, setSecretValue] = useState("");
-  const [status, setStatus] = useState<string>();
-  const [error, setError] = useState<string>();
   const [rawError, setRawError] = useState<string>();
   const [qrFor, setQrFor] = useState<IntegrationRecord>();
   const [confirmAction, setConfirmAction] = useState<{ kind: "delete" | "disconnect"; integration: IntegrationRecord }>();
@@ -120,32 +121,35 @@ export function ProjectResourcesPanel({
           ? integration.config.alertRecipient
           : undefined,
       ),
-    onSuccess: (result, integration) =>
-      setStatus(
-        `${integration.name}: ${result.ok ? "ok" : "error"}${result.detail ? ` · ${result.detail}` : ""}${
-          result.models?.length ? ` · modelos: ${result.models.slice(0, 6).join(", ")}` : ""
-        }${result.voices?.length ? ` · voces: ${result.voices.slice(0, 6).join(", ")}` : ""}`,
-      ),
-    onError: (cause) => setError(friendlyError(cause, "No se pudo probar la integración.")),
+    onSuccess: (result, integration) => {
+      const detail = `${integration.name}: ${result.ok ? "Operativo" : "Error"}${result.detail ? ` · ${result.detail}` : ""}${
+        result.models?.length ? ` · modelos: ${result.models.slice(0, 6).join(", ")}` : ""
+      }${result.voices?.length ? ` · voces: ${result.voices.slice(0, 6).join(", ")}` : ""}`;
+      if (result.ok) notify.success(detail);
+      else notify.error(detail, { description: "Revisa la configuración de la conexión y vuelve a probarla." });
+    },
+    onError: (cause) => notify.error(friendlyError(cause, "No se pudo probar la integración.")),
   });
 
   const connect = useMutation({
     mutationFn: (id: string) => api.connectIntegration(projectSlug, id),
     onSuccess: async (result) => {
-      setStatus(
-        result.status === "error"
-          ? `No se pudo conectar: ${result.lastError ?? "error desconocido"}`
-          : `Integración ${result.name}: ${result.status}`,
-      );
+      if (result.status === "error") {
+        notify.error(`No se pudo conectar: ${result.lastError ?? "error desconocido"}`, {
+          description: "Revisa las credenciales de la conexión y vuelve a intentarlo.",
+        });
+      } else {
+        notify.success(`Integración ${result.name}: ${result.status}`);
+      }
       await refresh();
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo conectar la integración.")),
+    onError: (cause) => notify.error(friendlyError(cause, "No se pudo conectar la integración.")),
   });
 
   const disconnect = useMutation({
     mutationFn: (id: string) => api.disconnectIntegration(projectSlug, id),
     onSuccess: async () => {
-      setStatus("Integración desconectada");
+      notify.success("Integración desconectada");
       setConfirmAction(undefined);
       setConfirmError(undefined);
       await refresh();
@@ -159,7 +163,7 @@ export function ProjectResourcesPanel({
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteIntegration(projectSlug, id),
     onSuccess: async () => {
-      setStatus("Integración eliminada");
+      notify.success("Integración eliminada");
       setConfirmAction(undefined);
       setConfirmError(undefined);
       setEditingId(undefined);
@@ -174,10 +178,10 @@ export function ProjectResourcesPanel({
   const clearWebhook = useMutation({
     mutationFn: (id: string) => api.clearIntegrationWebhook(projectSlug, id),
     onSuccess: async () => {
-      setStatus("Webhook de Telegram limpiado; vuelve a conectar el bot");
+      notify.success("Webhook de Telegram limpiado; vuelve a conectar el bot");
       await refresh();
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo limpiar el webhook.")),
+    onError: (cause) => notify.error(friendlyError(cause, "No se pudo limpiar el webhook.")),
   });
 
   const addSecret = useMutation({
@@ -185,18 +189,15 @@ export function ProjectResourcesPanel({
     onSuccess: async () => {
       setSecretAlias("");
       setSecretValue("");
-      setStatus("Secreto guardado en la bóveda del proyecto");
+      notify.success("Secreto guardado en la bóveda del proyecto");
       await queryClient.invalidateQueries({ queryKey: qk.projectSecrets(projectSlug) });
     },
-    onError: (cause) => {
-      setRawError(cause instanceof Error ? cause.message : undefined);
-      setError(friendlyError(cause, "No se pudo guardar el secreto."));
-    },
+    onError: (cause) => notify.error(friendlyError(cause, "No se pudo guardar el secreto.")),
   });
 
   function saved(result: SavedIntegration) {
     setCreated(result);
-    setStatus(`Integración ${result.integration.name} guardada`);
+    notify.success(`Integración ${result.integration.name} guardada`);
     setEditingId(undefined);
     setEditorKey((current) => current + 1);
     void refresh();
@@ -225,12 +226,6 @@ export function ProjectResourcesPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      {error && (
-        <p className="text-sm text-danger" role="alert" title={rawError}>
-          {error}
-        </p>
-      )}
-      {status && <p className="text-sm text-ok">{status}</p>}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {integrations.map((integration) => (
           <article className={card} key={integration.id}>

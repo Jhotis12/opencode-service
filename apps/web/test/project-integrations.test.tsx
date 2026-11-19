@@ -3,7 +3,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { IntegrationRecord, WorkflowGraph } from "@platform/shared";
-import { renderWithProviders } from "./render.tsx";
+import { renderWithProviders, findToast, toastRegion } from "./render.tsx";
 
 vi.mock("qrcode", () => ({
   default: { toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,stub") },
@@ -146,7 +146,10 @@ describe("ProjectIntegrationsPage", () => {
     renderPage();
     const httpCard = await screen.findByTestId("integration-card-http-1");
     await userEvent.click(within(httpCard).getByRole("button", { name: "Probar" }));
-    expect(await screen.findByText("HTTP pagos: Operativo")).toBeInTheDocument();
+    const toast = await findToast("HTTP pagos: Operativo");
+    expect(toast).toBeVisible();
+    expect(toastRegion()).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByRole("button", { name: "Cerrar notificación" })).toBeInTheDocument();
   });
 
   it("shows the localized status badge on each card", async () => {
@@ -256,7 +259,7 @@ describe("ProjectIntegrationsPage", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Eliminar" }));
     await waitFor(() => expect(apiMock.deleteIntegration).toHaveBeenCalledWith("demo", "tg-1"));
-    expect(await screen.findByText("Integración eliminada")).toBeInTheDocument();
+    expect(await findToast("Integración eliminada")).toBeVisible();
   });
 
   it("keeps the confirmation open with the error when delete fails", async () => {
@@ -294,7 +297,19 @@ describe("ProjectIntegrationsPage", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Desconectar" }));
     await waitFor(() => expect(apiMock.disconnectIntegration).toHaveBeenCalledWith("demo", "tg-1"));
-    expect(await screen.findByText("Integración desconectada")).toBeInTheDocument();
+    expect(await findToast("Integración desconectada")).toBeVisible();
+  });
+
+  it("announces a test failure as an actionable error toast", async () => {
+    apiMock.testIntegration.mockResolvedValue({ ok: false, detail: "token inválido" });
+    renderPage();
+    const httpCard = await screen.findByTestId("integration-card-http-1");
+    await userEvent.click(within(httpCard).getByRole("button", { name: "Probar" }));
+
+    const toast = await findToast("HTTP pagos: Error · token inválido");
+    expect(toast).toBeVisible();
+    expect(toast).toHaveTextContent("Revisa la configuración de la integración y vuelve a probarla.");
+    expect(screen.queryByText("HTTP pagos: Operativo")).not.toBeInTheDocument();
   });
 
   it("shows the empty state when the project has no integrations", async () => {

@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { WorkflowGraph } from "@platform/shared";
-import { button, buttonGhost, smallMuted } from "../ui.ts";
+import { button, buttonGhost, notify, smallMuted } from "../ui.ts";
 import {
   buildWorkflowDefinition,
   downloadWorkflowDefinition,
@@ -35,26 +35,24 @@ export function WorkflowLibraryPanel({
 }) {
   const fileId = useId();
   const [errors, setErrors] = useState<string[]>([]);
-  const [status, setStatus] = useState<string>();
   const [pending, setPending] = useState<PendingImport>();
 
   function exportFlow() {
     setErrors([]);
     const fileName = workflowFileName(graph);
     downloadWorkflowDefinition(buildWorkflowDefinition(graph), fileName);
-    setStatus(`Descargado ${fileName} con ${graph.nodes.length} nodo${graph.nodes.length === 1 ? "" : "s"}.`);
+    notify.success(`Descargado ${fileName} con ${graph.nodes.length} nodo${graph.nodes.length === 1 ? "" : "s"}.`);
   }
 
   function applyImport(next: WorkflowGraph, fileName: string) {
     onImport(next);
     setPending(undefined);
-    setStatus(`"${fileName}" importado como borrador. Revisa el flujo y usa Guardar flujo para conservarlo.`);
+    notify.success(`"${fileName}" importado como borrador. Revisa el flujo y usa Guardar flujo para conservarlo.`);
   }
 
   async function importFlow(file: File | undefined) {
     if (!file) return;
     setErrors([]);
-    setStatus(undefined);
     let text: string;
     try {
       text = await readFileText(file);
@@ -68,7 +66,7 @@ export function WorkflowLibraryPanel({
       return;
     }
     if (isSameGraph(result.graph, graph)) {
-      setStatus(`"${file.name}" ya coincide con el flujo actual. No hay cambios que aplicar.`);
+      notify.info(`"${file.name}" ya coincide con el flujo actual. No hay cambios que aplicar.`);
       return;
     }
     if (result.stale) {
@@ -155,12 +153,6 @@ export function WorkflowLibraryPanel({
             ))}
           </ul>
         </div>
-      )}
-
-      {status && (
-        <p role="status" className="text-xs text-ok">
-          {status}
-        </p>
       )}
     </Modal>
   );

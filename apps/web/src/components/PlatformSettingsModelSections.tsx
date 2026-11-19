@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PLATFORM_DEFAULT_MODEL } from "@platform/shared";
 import { api, type ModelInfo } from "../api.ts";
 import { qk } from "../query.ts";
-import { friendlyError, smallMuted } from "../ui.ts";
+import { friendlyError, notify, smallMuted } from "../ui.ts";
 import { Skeleton } from "./Skeleton.tsx";
 import {
   PlatformSettingsFormActions,
@@ -50,7 +50,6 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
   const inputId = `${copy.id}-value`;
   const selectedValue = initialValue ?? PLATFORM_DEFAULT_MODEL;
   const [draft, setDraft] = useState(selectedValue);
-  const [status, setStatus] = useState<string>();
   const validation = usePlatformFieldValidation(validatePlatformModel);
 
   useEffect(() => setDraft(selectedValue), [selectedValue]);
@@ -59,7 +58,7 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
     mutationFn: () => saveModel(kind, draft.trim() || null),
     onSuccess: async () => {
       setDraft(draft.trim());
-      setStatus(copy.success);
+      notify.success(copy.success);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: qk.settings }),
         queryClient.invalidateQueries({ queryKey: qk.effectiveConfig() }),
@@ -69,7 +68,6 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setStatus(undefined);
     if (validation.validate(draft)) {
       document.getElementById(inputId)?.focus();
       return;
@@ -109,7 +107,6 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
         )}
         <PlatformSettingsFormActions
           pending={save.isPending}
-          status={status}
           error={save.error ? friendlyError(save.error, "No se pudo guardar el modelo.") : undefined}
         />
       </form>

@@ -2,6 +2,7 @@ import { lazy } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useAuth } from "./auth.tsx";
 import { Layout } from "./components/Layout.tsx";
+import { PlatformToaster } from "./components/Toaster.tsx";
 import { LoginPage } from "./pages/LoginPage.tsx";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage.tsx";
 import { ProjectsPage } from "./pages/ProjectsPage.tsx";
@@ -49,30 +50,33 @@ function ProjectSectionRedirect() {
 
 export function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route element={<RequireAuth />}>
-        <Route path="/change-password" element={<ChangePasswordPage />} />
-        <Route element={<Layout />}>
-          <Route path="/projects" element={<ProjectsPage />} />
-          <Route path="/projects/:slug" element={<ProjectLayout />}>
-            <Route index element={<ProjectSectionRedirect />} />
-            <Route path="overview" element={<ProjectOverviewPage />} />
-            <Route path="flow" element={<ProjectFlowPage />} />
-            <Route path="runs" element={<ProjectRunsPage />} />
-            <Route path="agents" element={<ProjectAgentsPage />} />
-            <Route path="knowledge" element={<ProjectKnowledgePage />} />
-            <Route path="integrations" element={<ProjectIntegrationsPage />} />
-            <Route path="settings" element={<ProjectSettingsPage />} />
-            <Route path="*" element={<ProjectSectionRedirect />} />
+    <>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<RequireAuth />}>
+          <Route path="/change-password" element={<ChangePasswordPage />} />
+          <Route element={<Layout />}>
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/projects/:slug" element={<ProjectLayout />}>
+              <Route index element={<ProjectSectionRedirect />} />
+              <Route path="overview" element={<ProjectOverviewPage />} />
+              <Route path="flow" element={<ProjectFlowPage />} />
+              <Route path="runs" element={<ProjectRunsPage />} />
+              <Route path="agents" element={<ProjectAgentsPage />} />
+              <Route path="knowledge" element={<ProjectKnowledgePage />} />
+              <Route path="integrations" element={<ProjectIntegrationsPage />} />
+              <Route path="settings" element={<ProjectSettingsPage />} />
+              <Route path="*" element={<ProjectSectionRedirect />} />
+            </Route>
+            <Route path="/runs" element={<GlobalRunsPage />} />
+            <Route path="/orchestrator" element={<OrchestratorPage />} />
+            <Route path="/settings" element={<PlatformSettingsPage />} />
+            <Route path="/system/health" element={<HealthPage />} />
           </Route>
-          <Route path="/runs" element={<GlobalRunsPage />} />
-          <Route path="/orchestrator" element={<OrchestratorPage />} />
-          <Route path="/settings" element={<PlatformSettingsPage />} />
-          <Route path="/system/health" element={<HealthPage />} />
         </Route>
-      </Route>
-      <Route path="*" element={<Navigate to="/projects" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/projects" replace />} />
+      </Routes>
+      <PlatformToaster />
+    </>
   );
 }

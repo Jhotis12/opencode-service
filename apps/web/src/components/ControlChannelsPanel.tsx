@@ -8,7 +8,7 @@ import { OverflowMenu, type OverflowMenuItem } from "./OverflowMenu.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { IntegrationEditor, type SavedIntegration } from "./IntegrationEditor.tsx";
 import { QrDisplay } from "./QrDisplay.tsx";
-import { buttonGhost, friendlyError } from "../ui.ts";
+import { buttonGhost, friendlyError, notify } from "../ui.ts";
 
 export function ControlChannelsPanel() {
   const queryClient = useQueryClient();
@@ -16,8 +16,6 @@ export function ControlChannelsPanel() {
   const [created, setCreated] = useState<SavedIntegration>();
   const [editingId, setEditingId] = useState<string>();
   const [editorKey, setEditorKey] = useState(0);
-  const [status, setStatus] = useState<string>();
-  const [error, setError] = useState<string>();
   const [qrFor, setQrFor] = useState<IntegrationRecord>();
   const [confirmAction, setConfirmAction] = useState<{ kind: "delete" | "disconnect"; integration: IntegrationRecord }>();
   const [confirmError, setConfirmError] = useState<string>();
@@ -36,30 +34,33 @@ export function ControlChannelsPanel() {
           ? integration.config.alertRecipient
           : undefined,
       ),
-    onSuccess: (result, integration) =>
-      setStatus(
-        `${integration.name}: ${result.ok ? "ok" : "error"}${result.detail ? ` · ${result.detail}` : ""}`,
-      ),
-    onError: (cause) => setError(friendlyError(cause, "No se pudo probar el canal.")),
+    onSuccess: (result, integration) => {
+      const detail = `${integration.name}: ${result.ok ? "Operativo" : "Error"}${result.detail ? ` · ${result.detail}` : ""}`;
+      if (result.ok) notify.success(detail);
+      else notify.error(detail, { description: "Revisa la configuración del canal y vuelve a probarlo." });
+    },
+    onError: (cause) => notify.error(friendlyError(cause, "No se pudo probar el canal.")),
   });
 
   const connect = useMutation({
     mutationFn: (id: string) => api.connectControlIntegration(id),
     onSuccess: async (result) => {
-      setStatus(
-        result.status === "error"
-          ? `No se pudo conectar: ${result.lastError ?? "error desconocido"}`
-          : `Canal ${result.name}: ${result.status}`,
-      );
+      if (result.status === "error") {
+        notify.error(`No se pudo conectar: ${result.lastError ?? "error desconocido"}`, {
+          description: "Revisa las credenciales del canal y vuelve a intentarlo.",
+        });
+      } else {
+        notify.success(`Canal ${result.name}: ${result.status}`);
+      }
       await refresh();
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo conectar el canal.")),
+    onError: (cause) => notify.error(friendlyError(cause, "No se pudo conectar el canal.")),
   });
 
   const disconnect = useMutation({
     mutationFn: (id: string) => api.disconnectControlIntegration(id),
     onSuccess: async () => {
-      setStatus("Canal desconectado");
+      notify.success("Canal desconectado");
       setConfirmAction(undefined);
       setConfirmError(undefined);
       await refresh();
@@ -72,7 +73,7 @@ export function ControlChannelsPanel() {
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteControlIntegration(id),
     onSuccess: async () => {
-      setStatus("Canal eliminado");
+      notify.success("Canal eliminado");
       setConfirmAction(undefined);
       setConfirmError(undefined);
       setEditingId(undefined);
@@ -86,15 +87,15 @@ export function ControlChannelsPanel() {
   const clearWebhook = useMutation({
     mutationFn: (id: string) => api.clearControlIntegrationWebhook(id),
     onSuccess: async () => {
-      setStatus("Webhook de Telegram limpiado; vuelve a conectar el bot");
+      notify.success("Webhook de Telegram limpiado; vuelve a conectar el bot");
       await refresh();
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo limpiar el webhook.")),
+    onError: (cause) => notify.error(friendlyError(cause, "No se pudo limpiar el webhook.")),
   });
 
   function saved(result: SavedIntegration) {
     setCreated(result);
-    setStatus(`Canal ${result.integration.name} guardado`);
+    notify.success(`Canal ${result.integration.name} guardado`);
     setEditingId(undefined);
     setEditorKey((current) => current + 1);
     void refresh();
@@ -127,8 +128,6 @@ export function ControlChannelsPanel() {
         Estos canales son exclusivos del orquestador global: sirven para preguntar por el estado de todos los proyectos y
         recibir alertas de fallos. Los canales de cada proyecto se configuran dentro del proyecto.
       </p>
-      {error && <p className="text-sm text-danger">{error}</p>}
-      {status && <p className="text-sm text-ok">{status}</p>}
       <div className="flex flex-col gap-2">
         {integrations.map((integration) => (
           <article className="flex flex-col gap-2 rounded-lg border border-line bg-well p-3" key={integration.id}>

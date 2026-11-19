@@ -178,3 +178,74 @@ describe("server issue mapping", () => {
     expect(mapped).toEqual({ message: "workflow requires a trigger node" });
   });
 });
+
+describe("shared graph invariants", () => {
+  it("reports missing subworkflow and foreach versions", () => {
+    const g = graph(
+      [
+        node("start", "trigger"),
+        node("sub", "subworkflow"),
+        node("each", "foreach", { config: { itemsPath: "input.items" } }),
+      ],
+      [edge("e1", "start", "sub"), edge("e2", "sub", "each")],
+    );
+    const issues = getGraphIssues(g);
+    expect(issues.some((item) => item.nodeId === "sub" && /versión del flujo/.test(item.message))).toBe(true);
+    expect(issues.some((item) => item.nodeId === "each" && /versión del flujo/.test(item.message))).toBe(true);
+  });
+
+  it("accepts subworkflow and foreach nodes with a version", () => {
+    const g = graph(
+      [
+        node("start", "trigger"),
+        node("sub", "subworkflow", { config: { versionId: "v1" } }),
+        node("each", "foreach", { config: { versionId: "v1", itemsPath: "input.items" } }),
+      ],
+      [edge("e1", "start", "sub"), edge("e2", "sub", "each")],
+    );
+    expect(getGraphIssues(g)).toEqual([]);
+  });
+
+  it("reports invalid onError targets", () => {
+    const g = graph(
+      [
+        node("start", "trigger"),
+        node("fetch", "code", { onError: { strategy: "route", target: "ghost" } }),
+        node("fallback", "code"),
+      ],
+      [edge("e1", "start", "fetch"), edge("e2", "fetch", "fallback")],
+    );
+    expect(getGraphIssues(g).some((item) => item.nodeId === "fetch" && /nodo que ya no existe/.test(item.message))).toBe(
+      true,
+    );
+
+    const routed = graph(
+      [
+        node("start", "trigger"),
+        node("fetch", "code", { onError: { strategy: "route", target: "fallback" } }),
+        node("fallback", "code"),
+      ],
+      [edge("e1", "start", "fetch"), edge("e2", "fetch", "fallback")],
+    );
+    expect(getGraphIssues(routed)).toEqual([]);
+  });
+
+  it("rejects an invalid cron expression", () => {
+    const g = graph(
+      [node("start", "trigger", { config: { kind: "schedule", cron: "bad cron" } }), node("a", "code")],
+      [edge("e1", "start", "a")],
+    );
+    expect(getGraphIssues(g).some((item) => item.nodeId === "start" && /cron válida/.test(item.message))).toBe(true);
+  });
+
+  it("reports a blank transcribe media path and accepts the default", () => {
+    const blank = graph(
+      [node("start", "trigger"), node("asr", "transcribe", { config: { mediaPath: "   " } })],
+      [edge("e1", "start", "asr")],
+    );
+    expect(getGraphIssues(blank).some((item) => item.nodeId === "asr" && /ruta de audios/.test(item.message))).toBe(true);
+
+    const withDefault = graph([node("start", "trigger"), node("asr", "transcribe")], [edge("e1", "start", "asr")]);
+    expect(getGraphIssues(withDefault)).toEqual([]);
+  });
+});

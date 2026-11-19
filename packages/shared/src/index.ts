@@ -1,5 +1,6 @@
 export * from "./api.ts";
 export * from "./workflow.ts";
+export * from "./workflow-graph.ts";
 export * from "./agents.ts";
 export * from "./integrations.ts";
 export * from "./destinations.ts";

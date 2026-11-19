@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import type { Edge, NodeSpec, WorkflowGraph } from "@platform/shared";
-import { CHANNEL_EVENTS, validateNodeConfig } from "@platform/shared";
-import { isValidCronExpression } from "./cron.ts";
-
-const SUPPORTED_CHANNEL_EVENTS = new Set(Object.values(CHANNEL_EVENTS).flat());
+import {
+  getGraphInvariantIssues,
+  getGraphTraversalIssues,
+  graphReachableFrom,
+  graphTopologicalOrder,
+  validateNodeConfig,
+  type GraphInvariantIssue,
+} from "@platform/shared";
 
 export class WorkflowValidationError extends Error {
   constructor(public readonly issues: string[]) {
@@ -33,12 +37,84 @@ export function normalizeNodeConfig(node: NodeSpec): void {
   }
 }
 
+function describeIssue(issue: GraphInvariantIssue): string {
+  const id = issue.nodeId ?? issue.edgeId ?? "";
+  const detail = issue.detail ?? "";
+  switch (issue.code) {
+    case "node.duplicate-id":
+      return `duplicate node id: ${id}`;
+    case "trigger.missing":
+      return "workflow requires a trigger node";
+    case "trigger.duplicate":
+      return "workflow supports exactly one trigger node; use an integration channel to choose how it is invoked";
+    case "trigger.kind-unsupported":
+      return `trigger ${id} uses ${detail}, which has no active executor yet`;
+    case "trigger.cron-invalid":
+      return `schedule trigger ${id} requires a valid 5-field config.cron expression`;
+    case "trigger.run-at-invalid":
+      return `schedule trigger ${id} requires a valid config.runAt for once mode`;
+    case "trigger.secret-alias-missing":
+      return `webhook trigger ${id} requires config.secretAlias`;
+    case "trigger.integration-id-missing":
+      return `integration trigger ${id} requires config.integrationId`;
+    case "trigger.event-unsupported":
+      return `trigger ${id} uses unsupported event: ${detail}`;
+    case "trigger.event-duplicate":
+      return `duplicate trigger for integration ${detail}`;
+    case "node.code-file-missing":
+      return `code node ${id} requires codeFile`;
+    case "node.agent-id-missing":
+      return `agent node ${id} requires agentId`;
+    case "node.subworkflow-version-missing":
+      return `subworkflow node ${id} requires config.versionId`;
+    case "node.foreach-version-missing":
+      return `foreach node ${id} requires config.versionId`;
+    case "node.foreach-items-path-missing":
+      return `foreach node ${id} requires config.itemsPath`;
+    case "node.on-error-target-missing":
+      return `node ${id} requires an onError target for the route strategy`;
+    case "node.on-error-target-self":
+      return `node ${id} cannot route its error to itself`;
+    case "node.on-error-target-unknown":
+      return `node ${id} routes its error to an unknown node: ${detail}`;
+    case "node.on-error-target-trigger":
+      return `node ${id} cannot route its error to the trigger node`;
+    case "node.delay-invalid":
+      return `delay node ${id} requires a positive config.ms or a valid config.waitUntil`;
+    case "node.validate-rules-missing":
+      return `validate node ${id} requires config.rules`;
+    case "node.transform-target-missing":
+      return `transform node ${id} requires config.template or config.mapping`;
+    case "node.transcribe-media-path-missing":
+      return `transcribe node ${id} requires a non-empty config.mediaPath`;
+    case "node.decision-condition-missing":
+      return `decision node ${id} requires codeFile or config.condition`;
+    case "node.decision-branches":
+      return `decision node ${id} requires exactly two outgoing edges with conditions "true" and "false"`;
+    case "node.decision-edge-condition":
+      return `decision node ${id} has an edge ${issue.edgeId ?? ""} without a "true" or "false" condition`;
+    case "node.branching":
+      return `node ${id} has multiple outgoing edges; only decision nodes may branch`;
+    case "edge.duplicate-id":
+      return `duplicate edge id: ${id}`;
+    case "edge.unknown-source":
+      return `edge ${id} references unknown source: ${detail}`;
+    case "edge.unknown-target":
+      return `edge ${id} references unknown target: ${detail}`;
+    case "edge.self-loop":
+      return `edge ${id} is a self-loop`;
+    case "edge.target-trigger":
+      return `edge ${id} targets the trigger node, which cannot receive connections`;
+    case "graph.cycle":
+      return "workflow contains a cycle";
+    case "node.unreachable":
+      return `node ${id} is not reachable from trigger ${detail}`;
+  }
+}
+
 export function validateWorkflowGraph(graph: WorkflowGraph, options: { strictEvents?: boolean } = {}): void {
   const issues: string[] = [];
-  const ids = new Set<string>();
   for (const node of graph.nodes) {
-    if (ids.has(node.id)) issues.push(`duplicate node id: ${node.id}`);
-    ids.add(node.id);
     normalizeNodeConfig(node);
     const parsed = validateNodeConfig(node.type, node.config);
     if (!parsed.success) {
@@ -48,129 +124,15 @@ export function validateWorkflowGraph(graph: WorkflowGraph, options: { strictEve
       }
     }
   }
-  const triggers = graph.nodes.filter((node) => node.type === "trigger");
-  if (triggers.length === 0) issues.push("workflow requires a trigger node");
-  if (triggers.length > 1) {
-    issues.push("workflow supports exactly one trigger node; use an integration channel to choose how it is invoked");
-  }
 
-  const edgeIds = new Set<string>();
-  const outgoing = new Map<string, Edge[]>();
-  for (const edge of graph.edges) {
-    if (edgeIds.has(edge.id)) issues.push(`duplicate edge id: ${edge.id}`);
-    edgeIds.add(edge.id);
-    if (!ids.has(edge.source)) issues.push(`edge ${edge.id} references unknown source: ${edge.source}`);
-    if (!ids.has(edge.target)) issues.push(`edge ${edge.id} references unknown target: ${edge.target}`);
-    if (edge.source === edge.target) issues.push(`edge ${edge.id} is a self-loop`);
-    outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge]);
-  }
-
-  const integrationTriggers = new Set<string>();
-  for (const node of graph.nodes) {
-    const edges = outgoing.get(node.id) ?? [];
-    if (node.type === "trigger" && node.config.kind === "integration") {
-      if (typeof node.config.integrationId !== "string" || !node.config.integrationId) {
-        issues.push(`integration trigger ${node.id} requires config.integrationId`);
-      }
-      const event = String(node.config.event ?? "message.received");
-      if (options.strictEvents !== false && !SUPPORTED_CHANNEL_EVENTS.has(event)) {
-        issues.push(`trigger ${node.id} uses unsupported event: ${event}`);
-      }
-      const binding = `${node.config.integrationId}:${event}`;
-      if (integrationTriggers.has(binding)) {
-        issues.push(`duplicate trigger for integration ${node.config.integrationId} and event ${event}`);
-      }
-      integrationTriggers.add(binding);
-    }
-    if (node.type === "trigger") {
-      const kind = String(node.config.kind ?? "manual");
-      if (!["manual", "integration", "schedule", "webhook"].includes(kind)) {
-        issues.push(`trigger ${node.id} uses ${kind}, which has no active executor yet`);
-      } else if (kind === "schedule") {
-        const mode = String(node.config.mode ?? "cron");
-        if (mode === "once") {
-          const runAt = typeof node.config.runAt === "string" ? node.config.runAt.trim() : "";
-          if (!runAt || Number.isNaN(Date.parse(runAt))) {
-            issues.push(`schedule trigger ${node.id} requires a valid config.runAt for once mode`);
-          }
-        } else {
-          const cron = typeof node.config.cron === "string" ? node.config.cron.trim() : "";
-          if (!cron || !isValidCronExpression(cron)) {
-            issues.push(`schedule trigger ${node.id} requires a valid 5-field config.cron expression`);
-          }
-        }
-      } else if (kind === "webhook") {
-        const secretAlias = typeof node.config.secretAlias === "string" ? node.config.secretAlias.trim() : "";
-        if (!secretAlias) {
-          issues.push(`webhook trigger ${node.id} requires config.secretAlias`);
-        }
-      }
-    }
-    if (node.type === "code" && !node.codeFile) issues.push(`code node ${node.id} requires codeFile`);
-    if (node.type === "agent" && !node.agentId) issues.push(`agent node ${node.id} requires agentId`);
-    if (node.type === "subworkflow" && typeof node.config.versionId !== "string") {
-      issues.push(`subworkflow node ${node.id} requires config.versionId`);
-    }
-    if (node.type === "foreach") {
-      if (typeof node.config.versionId !== "string") issues.push(`foreach node ${node.id} requires config.versionId`);
-      if (typeof node.config.itemsPath !== "string") issues.push(`foreach node ${node.id} requires config.itemsPath`);
-    }
-    if (node.onError?.strategy === "route") {
-      const target = node.onError.target;
-      if (!target) {
-        issues.push(`node ${node.id} requires an onError target for the route strategy`);
-      } else if (target === node.id) {
-        issues.push(`node ${node.id} cannot route its error to itself`);
-      } else if (!ids.has(target)) {
-        issues.push(`node ${node.id} routes its error to an unknown node: ${target}`);
-      } else if (graph.nodes.find((candidate) => candidate.id === target)?.type === "trigger") {
-        issues.push(`node ${node.id} cannot route its error to the trigger node`);
-      }
-    }
-    if (node.type === "delay") {
-      const waitUntil = typeof node.config.waitUntil === "string" ? Date.parse(node.config.waitUntil) : Number.NaN;
-      if (!(Number(node.config.ms) > 0) && Number.isNaN(waitUntil)) {
-        issues.push(`delay node ${node.id} requires a positive config.ms or a valid config.waitUntil`);
-      }
-    }
-    if (node.type === "validate") {
-      const rules = node.config.rules;
-      if (!Array.isArray(rules) || rules.length === 0) {
-        issues.push(`validate node ${node.id} requires config.rules`);
-      }
-    }
-    if (
-      node.type === "transform" &&
-      typeof node.config.template !== "string" &&
-      (typeof node.config.mapping !== "object" || node.config.mapping === null)
-    ) {
-      issues.push(`transform node ${node.id} requires config.template or config.mapping`);
-    }
-    if (node.type === "decision") {
-      const hasCondition =
-        typeof node.config.condition === "object" && node.config.condition !== null;
-      if (!node.codeFile && !hasCondition) {
-        issues.push(`decision node ${node.id} requires codeFile or config.condition`);
-      }
-      const conditions = new Set(edges.map((edge) => edge.condition));
-      if (edges.length !== 2 || !conditions.has("true") || !conditions.has("false")) {
-        issues.push(`decision node ${node.id} requires exactly two outgoing edges with conditions "true" and "false"`);
-      }
-    } else if (edges.length > 1) {
-      issues.push(`node ${node.id} has multiple outgoing edges; only decision nodes may branch`);
-    }
+  for (const invariant of getGraphInvariantIssues(graph, { strictEvents: options.strictEvents })) {
+    issues.push(describeIssue(invariant));
   }
 
   if (issues.length === 0) {
-    const order = topologicalOrder(graph);
-    if (order.length !== graph.nodes.length) {
-      issues.push("workflow contains a cycle");
-    } else {
-      const start = triggers[0]!.id;
-      const reachable = reachableFrom(graph, start);
-      for (const node of graph.nodes) {
-        if (!reachable.has(node.id)) issues.push(`node ${node.id} is not reachable from trigger ${start}`);
-      }
+    for (const traversal of getGraphTraversalIssues(graph)) {
+      const message = describeIssue(traversal);
+      if (!issues.includes(message)) issues.push(message);
     }
   }
 
@@ -178,47 +140,11 @@ export function validateWorkflowGraph(graph: WorkflowGraph, options: { strictEve
 }
 
 export function topologicalOrder(graph: WorkflowGraph): string[] {
-  const edges = effectiveEdges(graph);
-  const indegree = new Map<string, number>();
-  for (const node of graph.nodes) indegree.set(node.id, 0);
-  for (const edge of edges) indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
-  const queue = graph.nodes.filter((node) => indegree.get(node.id) === 0).map((node) => node.id);
-  const order: string[] = [];
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    order.push(id);
-    for (const edge of edges.filter((item) => item.source === id)) {
-      const remaining = (indegree.get(edge.target) ?? 0) - 1;
-      indegree.set(edge.target, remaining);
-      if (remaining === 0) queue.push(edge.target);
-    }
-  }
-  return order;
+  return graphTopologicalOrder(graph);
 }
 
 export function reachableFrom(graph: WorkflowGraph, start: string): Set<string> {
-  const seen = new Set<string>();
-  const stack = [start];
-  const edges = effectiveEdges(graph);
-  while (stack.length > 0) {
-    const id = stack.pop()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    for (const edge of edges.filter((item) => item.source === id)) stack.push(edge.target);
-  }
-  return seen;
-}
-
-function effectiveEdges(graph: WorkflowGraph): Edge[] {
-  const errorEdges: Edge[] = graph.nodes
-    .filter((node) => node.onError?.strategy === "route" && node.onError.target)
-    .map((node) => ({
-      id: `error:${node.id}:${node.onError!.target}`,
-      source: node.id,
-      target: node.onError!.target!,
-      condition: "error",
-    }));
-  return [...graph.edges, ...errorEdges];
+  return graphReachableFrom(graph, start);
 }
 
 export function startNode(graph: WorkflowGraph): NodeSpec {

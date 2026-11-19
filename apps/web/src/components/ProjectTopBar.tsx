@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKe
 import { Link } from "react-router-dom";
 import type { WorkflowGraph, WorkflowVersion } from "@platform/shared";
 import { Modal } from "./Modal.tsx";
+import { WorkflowLibraryPanel } from "./WorkflowLibraryPanel.tsx";
 import { badge, button, buttonGhost, buttonPrimary, focusRing, statusBadge } from "../ui.ts";
 
 export type ProjectTab = "canvas" | "runs" | "agents" | "knowledge" | "configuration";
@@ -53,6 +54,7 @@ export function ProjectTopBar({
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
   const menuRef = useRef<HTMLDivElement>(null);
@@ -134,6 +136,11 @@ export function ProjectTopBar({
 
   function closeSettings() {
     setSettingsOpen(false);
+    menuButtonRef.current?.focus();
+  }
+
+  function closeLibrary() {
+    setLibraryOpen(false);
     menuButtonRef.current?.focus();
   }
 
@@ -246,6 +253,17 @@ export function ProjectTopBar({
                   className={`rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 ${focusRing}`}
                   onClick={() => {
                     setMenuOpen(false);
+                    setLibraryOpen(true);
+                  }}
+                >
+                  Biblioteca del flujo
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 ${focusRing}`}
+                  onClick={() => {
+                    setMenuOpen(false);
                     setSettingsOpen(true);
                   }}
                 >
@@ -312,6 +330,14 @@ export function ProjectTopBar({
             </button>
           </div>
         </Modal>
+      )}
+
+      {libraryOpen && (
+        <WorkflowLibraryPanel
+          graph={graph}
+          onImport={(next) => onChange(next)}
+          onClose={closeLibrary}
+        />
       )}
 
       {versionsOpen && (

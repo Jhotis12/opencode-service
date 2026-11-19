@@ -6,7 +6,11 @@ export function ProjectSettingsPage() {
 
   return (
     <ProjectSectionBody>
-      <ProjectConfigurationPanel projectSlug={workspace.slug} />
+      <ProjectConfigurationPanel
+        projectSlug={workspace.slug}
+        navigationBlocked={workspace.dirty}
+        onNavigateBlocked={(target) => workspace.requestNavigate(target)}
+      />
     </ProjectSectionBody>
   );
 }

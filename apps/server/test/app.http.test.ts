@@ -338,6 +338,28 @@ describe("application HTTP surface", () => {
     expect(bad.status).toBe(422);
   });
 
+  it("answers 422 when a workflow node omits notebookIds or the payload is malformed", async () => {
+    const graph = (await (await json("/api/projects/ventas-bot/workflow")).json()) as WorkflowGraph;
+    const missingNotebooks = structuredClone(graph);
+    delete (missingNotebooks.nodes[0] as Partial<WorkflowGraph["nodes"][number]>).notebookIds;
+    const rejected = await json("/api/projects/ventas-bot/workflow", {
+      method: "PUT",
+      body: JSON.stringify(missingNotebooks),
+    });
+    expect(rejected.status).toBe(422);
+    expect(((await rejected.json()) as { error: { code: string } }).error.code).toBe("INVALID_WORKFLOW");
+
+    const malformed = await json("/api/projects/ventas-bot/workflow", {
+      method: "PUT",
+      body: JSON.stringify({ ...graph, version: 2 }),
+    });
+    expect(malformed.status).toBe(422);
+    expect(((await malformed.json()) as { error: { code: string } }).error.code).toBe("INVALID_WORKFLOW");
+
+    const stillThere = await json("/api/projects/ventas-bot/workflow");
+    expect(stillThere.status).toBe(200);
+  });
+
   it("runs a workflow through the HTTP API", async () => {
     const response = await json("/api/projects/ventas-bot/runs", {
       method: "POST",

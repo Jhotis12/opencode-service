@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useQuery } from "@tanstack/react-query";
 import type { SubagentProfile } from "@platform/shared";
+import { qk } from "../src/query.ts";
 import { renderWithProviders } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
   upsertAgent: vi.fn(),
   deleteAgent: vi.fn(),
+  listAgents: vi.fn(),
 }));
 
 vi.mock("../src/api.ts", async (importOriginal) => {
@@ -74,6 +77,34 @@ describe("AgentCatalog", () => {
     expect(screen.getByText("Sin sub-agentes todavía")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Crear sub-agente" }));
     expect(screen.getByRole("dialog", { name: "Nuevo agente" })).toBeInTheDocument();
+  });
+
+  it("never pairs the query error with the empty state and retries the catalog query", async () => {
+    apiMock.listAgents
+      .mockRejectedValueOnce(new Error("No se pudieron cargar los agentes"))
+      .mockResolvedValue({ data: [subagent, primary] });
+    function CatalogWithAgentsQuery() {
+      const agentsQuery = useQuery({ queryKey: qk.agents("demo"), queryFn: () => apiMock.listAgents() });
+      return (
+        <AgentCatalog
+          projectSlug="demo"
+          agents={agentsQuery.data?.data ?? []}
+          modelOptions={[]}
+          isLoading={agentsQuery.isLoading}
+          error={agentsQuery.error}
+        />
+      );
+    }
+    renderWithProviders(<CatalogWithAgentsQuery />);
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("No se pudieron cargar los agentes")).toBeInTheDocument();
+    expect(screen.queryByText("Sin sub-agentes todavía")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Crear sub-agente" })).not.toBeInTheDocument();
+
+    await userEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
+    expect(await screen.findByTestId("agent-card-ventas-calificador")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("validates and saves a new agent through the focused editor", async () => {

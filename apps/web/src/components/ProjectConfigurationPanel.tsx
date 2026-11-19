@@ -144,7 +144,7 @@ function ProjectApprovalsSection({ projectSlug }: { projectSlug: string }) {
     : undefined;
   const recipient = settings?.project.approvalRecipient;
   const pending = pendingQuery.data ?? [];
-  const error = pendingQuery.error ?? settingsQuery.error ?? decide.error;
+  const loadError = pendingQuery.error ?? settingsQuery.error;
 
   return (
     <div className="flex flex-col gap-4">
@@ -162,53 +162,79 @@ function ProjectApprovalsSection({ projectSlug }: { projectSlug: string }) {
         </div>
       </section>
 
-      {error ? (
+      {loadError ? (
         <div className={`${card} items-start`} role="alert">
-          <p className="text-sm text-danger">{friendlyError(error, "No se pudieron cargar las aprobaciones.")}</p>
-          <button type="button" className={buttonGhost} onClick={() => void pendingQuery.refetch()}>
+          <p className="text-sm text-danger">{friendlyError(loadError, "No se pudieron cargar las aprobaciones.")}</p>
+          <button
+            type="button"
+            className={buttonGhost}
+            onClick={() => {
+              void pendingQuery.refetch();
+              if (settingsQuery.error) void settingsQuery.refetch();
+            }}
+          >
             Reintentar
           </button>
         </div>
       ) : pendingQuery.isLoading ? (
         <p className={smallMuted}>Cargando aprobaciones pendientes…</p>
-      ) : pending.length === 0 ? (
-        <EmptyState
-          icon={<ApprovalsIcon />}
-          title="Sin aprobaciones pendientes"
-          description="Las ejecuciones pausadas esperando una decisión aparecerán aquí. Para pedir aprobación, añade un nodo Aprobación al flujo."
-        />
       ) : (
-        <ul className="flex flex-col gap-2" aria-label="Aprobaciones pendientes">
-          {pending.map(({ run, approval }) => (
-            <li key={approval.id} className={`${card} flex-row flex-wrap items-center justify-between gap-3`}>
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <p className="text-sm text-slate-200">Nodo {approval.nodeId}</p>
-                <p className={smallMuted}>
-                  Ejecución {run.id} · solicitada {new Date(approval.createdAt).toLocaleString()}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={statusBadge(approval.status)}>{approval.status}</span>
-                <button
-                  type="button"
-                  className={buttonPrimary}
-                  disabled={decide.isPending}
-                  onClick={() => decide.mutate({ run, approval, decision: "approve" })}
-                >
-                  Aprobar
-                </button>
-                <button
-                  type="button"
-                  className={buttonGhost}
-                  disabled={decide.isPending}
-                  onClick={() => decide.mutate({ run, approval, decision: "reject" })}
-                >
-                  Rechazar
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          {decide.error && (
+            <div className={`${card} flex-row flex-wrap items-center justify-between gap-3`} role="alert">
+              <p className="text-sm text-danger">{friendlyError(decide.error, "No se pudo registrar la decisión.")}</p>
+              <button
+                type="button"
+                className={buttonGhost}
+                onClick={() => {
+                  decide.reset();
+                  void pendingQuery.refetch();
+                }}
+              >
+                Descartar
+              </button>
+            </div>
+          )}
+          {pending.length === 0 ? (
+            <EmptyState
+              icon={<ApprovalsIcon />}
+              title="Sin aprobaciones pendientes"
+              description="Las ejecuciones pausadas esperando una decisión aparecerán aquí. Para pedir aprobación, añade un nodo Aprobación al flujo."
+            />
+          ) : (
+            <ul className="flex flex-col gap-2" aria-label="Aprobaciones pendientes">
+              {pending.map(({ run, approval }) => (
+                <li key={approval.id} className={`${card} flex-row flex-wrap items-center justify-between gap-3`}>
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <p className="text-sm text-slate-200">Nodo {approval.nodeId}</p>
+                    <p className={smallMuted}>
+                      Ejecución {run.id} · solicitada {new Date(approval.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={statusBadge(approval.status)}>{approval.status}</span>
+                    <button
+                      type="button"
+                      className={buttonPrimary}
+                      disabled={decide.isPending}
+                      onClick={() => decide.mutate({ run, approval, decision: "approve" })}
+                    >
+                      Aprobar
+                    </button>
+                    <button
+                      type="button"
+                      className={buttonGhost}
+                      disabled={decide.isPending}
+                      onClick={() => decide.mutate({ run, approval, decision: "reject" })}
+                    >
+                      Rechazar
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );

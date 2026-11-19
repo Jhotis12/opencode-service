@@ -246,4 +246,39 @@ describe("routed project workspace", () => {
     window.dispatchEvent(dirty);
     expect(dirty.defaultPrevented).toBe(true);
   });
+
+  it("shows a retryable error instead of an empty project when the workflow fails to load", async () => {
+    apiMock.getWorkflow.mockRejectedValueOnce(new Error("No se pudo cargar el flujo"));
+    renderApp("/projects/demo/overview");
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("No se pudo cargar el flujo")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Secciones del proyecto" })).not.toBeInTheDocument();
+
+    await userEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
+    expect(await screen.findByRole("heading", { name: "Resumen" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("describes the pending readiness item instead of repeating its positive label", async () => {
+    apiMock.getProjectSettings.mockResolvedValue({
+      project: { id: "p1", slug: "demo", name: "Demo", description: "", createdAt: new Date().toISOString() },
+      integrations: [],
+      notebooks: [],
+      readiness: [
+        {
+          id: "approval-channel",
+          label: "Canal de aprobación configurado",
+          ready: false,
+          detail: "El flujo tiene aprobaciones y no hay un canal de origen ni un canal de aprobación del proyecto.",
+        },
+      ],
+    });
+    renderApp("/projects/demo/overview");
+
+    expect(
+      await screen.findByText(/Configuración pendiente: El flujo tiene aprobaciones/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Configuración pendiente: Canal de aprobación configurado/)).not.toBeInTheDocument();
+  });
 });

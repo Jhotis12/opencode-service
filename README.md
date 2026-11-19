@@ -75,7 +75,7 @@ El rail lateral fija las cinco páginas globales: **Proyectos**, **Ejecuciones**
 | `/projects/:slug/agents` | **Agentes**: catálogo del agente principal y los sub-agentes. |
 | `/projects/:slug/knowledge` | **Conocimiento**: notebooks, fuentes y búsqueda híbrida. |
 | `/projects/:slug/integrations` | **Integraciones**: canales, bases, HTTP, transcripción y voz. |
-| `/projects/:slug/settings` | **Ajustes** del proyecto: General, Destinos, Secretos y Preparación. |
+| `/projects/:slug/settings` | **Ajustes** del proyecto: General, Aprobaciones, Programaciones, Destinos, Secretos y Preparación. |
 | `/projects/:slug/*` | Redirige a `/overview`. |
 | `/runs` | **Ejecuciones** globales de todos los proyectos. |
 | `/orchestrator` | **Orquestador global**: chat de control y estado cross-project. |
@@ -141,7 +141,7 @@ La configuración no secreta de integraciones vive en la base con `project_slug`
 
 ## Configuración centralizada
 
-Cada proyecto tiene una sola pestaña **Ajustes** con secciones de General, Destinos, Secretos y Preparación. Las conexiones y los canales viven en **Integraciones**, con el mismo editor para canales de proyecto y canales globales del orquestador: permite crear y editar sin recrear la integración, rotar el token de Telegram y conservar el `integrationId` y sus referencias.
+Cada proyecto tiene una sola pestaña **Ajustes** con seis secciones: General, Aprobaciones, Programaciones, Destinos, Secretos y Preparación. Las conexiones y los canales viven en **Integraciones**, con el mismo editor para canales de proyecto y canales globales del orquestador: permite crear y editar sin recrear la integración, rotar el token de Telegram y conservar el `integrationId` y sus referencias.
 
 Los **destinos** son etiquetas reutilizables (chat de Telegram/WhatsApp, email, webhook) para allowlists, alertas, aprobaciones y nodos `notify`. Los valores crudos existentes siguen funcionando; adoptar un valor como destino no reescribe las referencias actuales.
 

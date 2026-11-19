@@ -1,5 +1,5 @@
 import { Suspense, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useParams } from "react-router-dom";
 import { api } from "../api.ts";
 import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
@@ -10,7 +10,7 @@ import { RunDetailModal } from "../components/RunDetailModal.tsx";
 import { RunLaunchModal } from "../components/RunLaunchModal.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
 import { qk } from "../query.ts";
-import { buttonGhost, friendlyError } from "../ui.ts";
+import { buttonGhost, card, friendlyError } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
 import { ProjectWorkspaceProvider, useProjectWorkspace } from "./project-workspace.tsx";
 
@@ -35,6 +35,7 @@ function SectionFallback() {
 
 function ProjectWorkspaceShell() {
   const workspace = useProjectWorkspace();
+  const queryClient = useQueryClient();
   const location = useLocation();
   const active = activeProjectTab(location.pathname);
   // The workspace provider already owns this query; subscribing with the same key and
@@ -57,9 +58,23 @@ function ProjectWorkspaceShell() {
   }, [workspace.dirty]);
 
   if (!workspace.graph) {
+    if (workspace.displayError) {
+      return (
+        <section className={`${card} m-4 items-start`} role="alert">
+          <p className="text-sm text-danger">{workspace.displayError}</p>
+          <button
+            type="button"
+            className={buttonGhost}
+            onClick={() => void queryClient.refetchQueries({ queryKey: qk.workflow(workspace.slug) })}
+          >
+            Reintentar
+          </button>
+        </section>
+      );
+    }
     return (
       <section>
-        <p className="text-sm text-muted">{workspace.displayError ?? "Cargando proyecto…"}</p>
+        <p className="text-sm text-muted">Cargando proyecto…</p>
       </section>
     );
   }
@@ -107,7 +122,9 @@ function ProjectWorkspaceShell() {
           {workspace.status && <p className="text-xs text-ok">{workspace.status}</p>}
           {workspace.displayError && <p className="text-xs text-danger">{workspace.displayError}</p>}
           {notReady.length > 0 && (
-            <p className="text-xs text-warn">Configuración pendiente: {notReady.map((item) => item.label).join(", ")}.</p>
+            <p className="text-xs text-warn">
+              Configuración pendiente: {notReady.map((item) => item.detail ?? item.label).join(" ")}
+            </p>
           )}
         </div>
       )}

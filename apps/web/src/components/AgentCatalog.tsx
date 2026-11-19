@@ -181,13 +181,24 @@ export function AgentCatalog({
           {status}
         </p>
       )}
-      {(queryError || removeError) && (
+      {removeError && (
         <p className="text-sm text-danger" role="alert">
-          {removeError ?? queryError}
+          {removeError}
         </p>
       )}
 
-      {isLoading && agents.length === 0 ? (
+      {queryError ? (
+        <div className={`${card} items-start`} role="alert">
+          <p className="text-sm text-danger">{queryError}</p>
+          <button
+            type="button"
+            className={buttonGhost}
+            onClick={() => void queryClient.refetchQueries({ queryKey: qk.agents(projectSlug) })}
+          >
+            Reintentar
+          </button>
+        </div>
+      ) : isLoading && agents.length === 0 ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Cargando agentes">
           {[0, 1, 2].map((item) => (
             <div key={item} className={`${card} animate-pulse motion-reduce:animate-none`} aria-hidden>
@@ -215,7 +226,7 @@ export function AgentCatalog({
         </div>
       )}
 
-      {!isLoading && normalizedQuery && visible.length === 0 && (
+      {!queryError && !isLoading && normalizedQuery && visible.length === 0 && (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line bg-panel/60 px-6 py-8 text-center">
           <p className="text-sm text-slate-100">No hay agentes que coincidan con «{query.trim()}».</p>
           <button type="button" className={buttonGhost} onClick={() => setQuery("")}>
@@ -224,7 +235,7 @@ export function AgentCatalog({
         </div>
       )}
 
-      {!isLoading && !normalizedQuery && subAgents.length === 0 && (
+      {!queryError && !isLoading && !normalizedQuery && subAgents.length === 0 && (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line bg-panel/60 px-6 py-10 text-center">
           <span className="grid h-12 w-12 place-items-center rounded-2xl bg-violet/10 text-violet">
             <NodeIcon type="agent" />

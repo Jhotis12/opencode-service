@@ -358,4 +358,51 @@ describe("ProjectConfigurationPanel", () => {
     expect(input).toHaveAttribute("list", "project-approval-destinations");
     expect(document.querySelector("#project-approval-destinations option")?.getAttribute("value")).toBe("d1");
   });
+
+  it("shows a retryable error instead of an endless loading state when settings fail", async () => {
+    mockQueries();
+    apiMock.getProjectSettings.mockRejectedValueOnce(new Error("No se pudieron cargar los ajustes"));
+    renderPanel();
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("No se pudieron cargar los ajustes")).toBeInTheDocument();
+    expect(screen.queryByText("Cargando ajustes del proyecto…")).not.toBeInTheDocument();
+
+    await userEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
+    expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps pending approvals visible when a decision fails and lets the error be dismissed", async () => {
+    mockQueries();
+    apiMock.listRuns.mockResolvedValue({
+      data: [
+        {
+          id: "run-1",
+          projectSlug: "ventas",
+          workflowId: "wf",
+          status: "paused",
+          entryPoint: "web_ui",
+          startedAt: now,
+          steps: [],
+        },
+      ],
+    });
+    apiMock.listApprovals.mockResolvedValue({
+      data: [{ id: "ap-1", runId: "run-1", nodeId: "review", status: "pending", createdAt: now }],
+    });
+    apiMock.decideApproval.mockRejectedValue(new Error("La ejecución ya no está pausada"));
+    renderPanel("approvals");
+
+    expect(await screen.findByText("Nodo review")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Aprobar" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("La ejecución ya no está pausada")).toBeInTheDocument();
+    expect(screen.getByText("Nodo review")).toBeInTheDocument();
+
+    await userEvent.click(within(alert).getByRole("button", { name: "Descartar" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(screen.getByText("Nodo review")).toBeInTheDocument();
+  });
 });

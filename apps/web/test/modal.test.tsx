@@ -143,8 +143,11 @@ describe("Modal", () => {
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cerrar" })).toHaveFocus());
 
     await userEvent.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(trigger).toHaveFocus();
+    // Subscribe to the state the assertion checks: focus and the page lock are restored by
+    // the passive effect cleanup, which React can flush after the dialog node is gone.
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("");
   });
 
   it("returns focus to the trigger after a backdrop click", async () => {
@@ -168,8 +171,9 @@ describe("Modal", () => {
     await userEvent.click(trigger);
     const dialog = screen.getByRole("dialog", { name: "Cierre por fondo" });
     fireEvent.click(dialog.parentElement!);
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("");
   });
 
   it("maps each size to a distinct width", () => {

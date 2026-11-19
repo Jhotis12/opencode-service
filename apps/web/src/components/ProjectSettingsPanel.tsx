@@ -96,7 +96,26 @@ function ProjectSettingsSections({
   const error = settingsQuery.error ?? modelsQuery.error ?? save.error;
 
   if (!settings) {
-    return <p className="text-sm text-muted">{error instanceof Error ? error.message : "Cargando ajustes del proyecto…"}</p>;
+    if (error) {
+      return (
+        <div className={`${card} items-start`} role="alert">
+          <p className="text-sm text-danger">
+            {friendlyError(error, "No se pudieron cargar los ajustes del proyecto.")}
+          </p>
+          <button
+            type="button"
+            className={buttonGhost}
+            onClick={() => {
+              void settingsQuery.refetch();
+              if (modelsQuery.error) void modelsQuery.refetch();
+            }}
+          >
+            Reintentar
+          </button>
+        </div>
+      );
+    }
+    return <p className="text-sm text-muted">Cargando ajustes del proyecto…</p>;
   }
 
   return (
@@ -127,12 +146,10 @@ function ProjectSettingsSections({
             }}
           />
         </Field>
-        <label>
-          Descripción
+        <Field id="project-description" label="Descripción">
           <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
-        </label>
-        <label>
-          Modelo por defecto del proyecto
+        </Field>
+        <Field id="project-default-model" label="Modelo por defecto del proyecto">
           <select value={defaultModel} onChange={(event) => setDefaultModel(event.target.value)}>
             <option value="">Usar el modelo global</option>
             {models.map((model) => (
@@ -142,18 +159,16 @@ function ProjectSettingsSections({
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Agente principal
+        </Field>
+        <Field id="project-primary-agent" label="Agente principal">
           <input
             value={primaryAgent}
             onChange={(event) => setPrimaryAgent(event.target.value)}
             placeholder="principal/agente"
           />
-        </label>
+        </Field>
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Aprobaciones</h3>
-        <label>
-          Canal de aprobación del proyecto
+        <Field id="project-approval-channel" label="Canal de aprobación del proyecto">
           <select
             value={approvalIntegrationId}
             onChange={(event) => setApprovalIntegrationId(event.target.value)}
@@ -167,16 +182,15 @@ function ProjectSettingsSections({
                 </option>
               ))}
           </select>
-        </label>
-        <label>
-          Destinatario de aprobación
+        </Field>
+        <Field id="project-approval-recipient" label="Destinatario de aprobación">
           <input
             value={approvalRecipient}
             onChange={(event) => setApprovalRecipient(event.target.value)}
             placeholder="ID de destino o 123456789"
             list="project-approval-destinations"
           />
-        </label>
+        </Field>
         <datalist id="project-approval-destinations">
           {destinations.map((destination) => (
             <option key={destination.id} value={destination.id}>
@@ -188,8 +202,7 @@ function ProjectSettingsSections({
           Puedes usar un destino etiquetado de la sección Destinos o un valor crudo; los valores existentes siguen siendo válidos.
         </p>
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Transcripción</h3>
-        <label>
-          Conexión de transcripción por defecto
+        <Field id="project-transcription" label="Conexión de transcripción por defecto">
           <select
             value={transcriptionIntegrationId}
             onChange={(event) => setTranscriptionIntegrationId(event.target.value)}
@@ -203,7 +216,7 @@ function ProjectSettingsSections({
                 </option>
               ))}
           </select>
-        </label>
+        </Field>
         <p className="text-xs text-muted">
           Se usa para transcribir audio en modo agente. Los nodos Transcribir pueden elegir otra conexión.
         </p>
@@ -211,8 +224,7 @@ function ProjectSettingsSections({
           <p className="text-xs text-warn">Crea una integración de Transcripción en Integraciones para habilitar audio.</p>
         )}
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Voz</h3>
-        <label>
-          Conexión de voz por defecto
+        <Field id="project-speech" label="Conexión de voz por defecto">
           <select value={speechIntegrationId} onChange={(event) => setSpeechIntegrationId(event.target.value)}>
             <option value="">Sin conexión por defecto</option>
             {settings.integrations
@@ -223,7 +235,7 @@ function ProjectSettingsSections({
                 </option>
               ))}
           </select>
-        </label>
+        </Field>
         <p className="text-xs text-muted">
           Se usa para responder con audio en Telegram y para los nodos Generar voz que no eligen otra conexión.
         </p>

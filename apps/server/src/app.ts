@@ -4,15 +4,17 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { streamSSE } from "hono/streaming";
+import { z } from "zod";
 import {
   apiError,
   EntryPointTypeSchema,
   evaluateToolPermission,
+  NodeSpecSchema,
   PLATFORM_DEFAULT_MODEL,
+  WorkflowGraphSchema,
   WorkflowRunStatusSchema,
   type AgentExecutionContext,
   type EffectiveSetting,
-  type WorkflowGraph,
 } from "@platform/shared";
 import type { RunListFilters } from "./application/ports/store.ts";
 import type { IntegrationRecord, UserRecord } from "./domain/entities.ts";
@@ -136,6 +138,13 @@ type AppEnv = {
     serviceProject?: string;
   };
 };
+
+// The shared graph schema defaults `notebookIds` so legacy files keep loading. An HTTP
+// client that omits it is a contract violation, not a server fault: reject it as 422
+// before the resource validator iterates the array.
+const WorkflowPayloadSchema = WorkflowGraphSchema.extend({
+  nodes: z.array(NodeSpecSchema.extend({ notebookIds: z.array(z.string()) })).min(1),
+});
 
 function resolveProjectRouteTool(method: string, path: string): string | undefined {
   if (method === "PUT" && (/\/workflow$/.test(path) || /\/nodes\//.test(path))) return "workflow_upsert";
@@ -1170,10 +1179,14 @@ export async function createApplication(config: AppConfig): Promise<Application>
   });
 
   app.put("/api/projects/:slug/workflow", async (c) => {
-    const body = (await c.req.json().catch(() => undefined)) as WorkflowGraph | undefined;
+    const body = (await c.req.json().catch(() => undefined)) as unknown;
     if (!body) return c.json(apiError("VALIDATION_ERROR", "workflow body is required"), 422);
+    const parsed = WorkflowPayloadSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json(apiError("INVALID_WORKFLOW", "workflow payload is invalid", parsed.error.issues), 422);
+    }
     try {
-      return c.json(await saveWorkflow.execute(c.req.param("slug"), body, c.get("user")?.username ?? "service"));
+      return c.json(await saveWorkflow.execute(c.req.param("slug"), parsed.data, c.get("user")?.username ?? "service"));
     } catch (error) {
       if (error instanceof WorkflowValidationError) {
         return c.json(apiError("INVALID_WORKFLOW", error.message, error.issues), 422);

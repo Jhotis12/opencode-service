@@ -10,23 +10,30 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
 
   await page.goto("/");
   await expect(page).toHaveURL(/\/login$/);
-  await page.getByLabel("Contraseña").fill("admin123!");
+  await expect(page.getByRole("heading", { name: "Agentic Platform" })).toBeVisible();
+  await page.getByLabel("Usuario", { exact: true }).fill("admin");
+  await page.getByLabel("Contraseña", { exact: true }).fill("admin123!");
   await page.getByRole("button", { name: "Entrar" }).click();
 
   await expect(page.getByRole("heading", { name: "Cambia tu contraseña inicial" })).toBeVisible();
-  await page.getByLabel("Contraseña actual").fill("admin123!");
+  await page.getByLabel("Contraseña actual", { exact: true }).fill("admin123!");
   await page.getByLabel("Nueva contraseña", { exact: true }).fill("plataforma-segura-2026");
-  await page.getByLabel("Confirmar nueva contraseña").fill("plataforma-segura-2026");
+  await page.getByLabel("Confirmar nueva contraseña", { exact: true }).fill("plataforma-segura-2026");
   await page.getByRole("button", { name: "Guardar y continuar" }).click();
 
-  await expect(page.getByRole("heading", { name: "Proyectos y automatizaciones" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Automatizaciones agénticas sobre OpenCode" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Cómo funciona" })).toBeVisible();
   await page.getByRole("button", { name: "Crear primer proyecto" }).click();
   await page.getByLabel(/Nombre del proyecto/).fill("E2E Bot");
   await page.getByLabel(/^Slug/).fill("e2e-bot");
   await page.getByLabel(/^Descripción/).fill("Proyecto de prueba end-to-end");
   await page.getByRole("button", { name: "Crear proyecto" }).click();
-  await expect(page).toHaveURL(/\/projects\/e2e-bot$/);
-  await expect(page.getByText("E2E Bot", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/projects\/e2e-bot\/overview$/);
+  await expect(page.getByText("E2E Bot", { exact: true }).first()).toBeVisible();
+
+  const projectNav = page.getByRole("navigation", { name: "Secciones del proyecto" });
+  await projectNav.getByRole("link", { name: "Flujo" }).click();
+  await expect(page).toHaveURL(/\/projects\/e2e-bot\/flow$/);
 
   // The canvas now uses a full-bleed workspace and the palette is an overlay modal.
   await page.getByRole("button", { name: "+ Nodo" }).click();
@@ -87,17 +94,26 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   expect(minimapColor).not.toBe("rgb(255, 255, 255)");
   expect(controlsColor).not.toBe("rgb(255, 255, 255)");
 
-  // The desktop top bar keeps every tab label inside the strip at 1440 and 1280.
+  // The desktop top bar keeps every tab label reachable inside the strip at 1440 and 1280.
   const assertTabsFit = async () => {
-    const nav = page.locator('nav[aria-label="Secciones del proyecto"]');
+    const nav = page.getByRole("navigation", { name: "Secciones del proyecto" });
     const navBox = await nav.boundingBox();
+    const viewport = page.viewportSize();
     expect(navBox).not.toBeNull();
-    for (const name of [/^Canvas$/, /^Ejecuciones/, /^Agentes/, /^Conocimiento$/, /^Configuración/]) {
-      const box = await page.getByRole("button", { name }).boundingBox();
+    expect(navBox!.x).toBeGreaterThanOrEqual(0);
+    expect(navBox!.x + navBox!.width).toBeLessThanOrEqual(viewport!.width);
+    for (const name of [/^Resumen$/, /^Flujo$/, /^Ejecuciones/, /^Agentes/, /^Conocimiento$/, /^Integraciones$/, /^Ajustes$/]) {
+      const link = nav.getByRole("link", { name });
+      await link.scrollIntoViewIfNeeded();
+      const box = await link.boundingBox();
       expect(box).not.toBeNull();
       expect(box!.x).toBeGreaterThanOrEqual(navBox!.x - 1);
       expect(box!.x + box!.width).toBeLessThanOrEqual(navBox!.x + navBox!.width + 1);
     }
+    await page.getByRole("link", { name: /^Resumen$/ }).scrollIntoViewIfNeeded();
+    const runButton = await page.getByRole("button", { name: "Ejecutar" }).boundingBox();
+    expect(runButton).not.toBeNull();
+    expect(runButton!.x + runButton!.width).toBeLessThanOrEqual(viewport!.width);
   };
   await assertTabsFit();
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -140,11 +156,12 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   // The canvas shows live progress; the run summary is not opened automatically.
   await expect(page.getByTestId("run-progress")).toBeVisible({ timeout: 5_000 });
   await expect(page.getByTestId("run-progress").getByText("Preparar datos")).toBeVisible();
-  await page.waitForTimeout(250);
+  await expect(page.getByTestId("run-progress")).toBeHidden();
   await expect(page.getByRole("dialog", { name: /Ejecución/ })).toHaveCount(0);
 
   // The summary lives in Executions > detail.
-  await page.getByRole("button", { name: /^Ejecuciones/ }).first().click();
+  await projectNav.getByRole("link", { name: /^Ejecuciones/ }).click();
+  await expect(page.getByRole("heading", { name: "Ejecuciones", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: "Ver detalle" }).first().click();
   const runDialog = page.getByRole("dialog", { name: /Ejecución/ });
   await expect(runDialog.getByText("Resultado final")).toBeVisible();
@@ -160,9 +177,13 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   // Chat history survives a full navigation/reload.
   await page.reload();
   await page.getByRole("button", { name: "Agente", exact: true }).click();
-  await expect(page.getByText("¿Cómo va el flujo?", { exact: true })).toBeVisible();
-  await expect(page.getByText(/\[simulado/)).toBeVisible();
+  const chatMessages = page.getByTestId("chat-messages");
+  await expect(chatMessages).toContainText("¿Cómo va el flujo?");
+  await expect(chatMessages).toContainText("[simulado");
   await page.getByRole("button", { name: "Cerrar chat" }).click();
+
+  await projectNav.getByRole("link", { name: "Flujo" }).click();
+  await expect(page.getByTestId("workflow-canvas")).toBeVisible();
 
   // Dragging a node must not open the inspector or make it disappear, and the position persists.
   const box = await codeNode.boundingBox();
@@ -193,7 +214,8 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await expect(flowSettings).toBeVisible();
   await flowSettings.getByRole("button", { name: "Cerrar" }).click();
 
-  await page.getByRole("button", { name: /Agentes/ }).click();
+  await projectNav.getByRole("link", { name: /^Agentes/ }).click();
+  await expect(page.getByRole("heading", { name: "Agentes", level: 2 })).toBeVisible();
   await page.getByRole("button", { name: "Nuevo agente" }).click();
   const newAgent = page.getByRole("dialog", { name: "Nuevo agente" });
   await expect(newAgent).toBeVisible();
@@ -228,18 +250,20 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
     ),
   ).toBe(true);
 
-  // One project configuration surface with guided sections.
-  await page.getByRole("button", { name: /^Configuración/ }).click();
-  await page.getByRole("tab", { name: "Canales" }).click();
-  await expect(page.getByRole("heading", { name: "Nueva integración" })).toBeVisible();
-  await page.getByRole("tab", { name: "Destinos" }).click();
+  // Resources and configuration live in their own routed sections.
+  await projectNav.getByRole("link", { name: "Integraciones" }).click();
+  await expect(page.getByRole("heading", { name: "Integraciones", level: 1 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Nueva integración" }).first()).toBeVisible();
+
+  await projectNav.getByRole("link", { name: "Ajustes" }).click();
+  const projectSettingsTabs = page.getByRole("tablist", { name: "Secciones de configuración" });
+  await projectSettingsTabs.getByRole("tab", { name: "Destinos" }).click();
   await page.getByLabel("Etiqueta").fill("Admin E2E");
   await page.getByLabel("Valor").fill("123456");
   await page.getByRole("button", { name: "Crear destino" }).click();
   await expect(page.getByText("Admin E2E")).toBeVisible();
-  await page.getByRole("tab", { name: "Preparación" }).click();
+  await projectSettingsTabs.getByRole("tab", { name: "Preparación" }).click();
   await expect(page.getByRole("heading", { name: "Preparación del proyecto" })).toBeVisible();
-  await page.getByRole("button", { name: "Canvas" }).click();
 
   // Telegram configuration: real verification, editable token, failure/success and destination reuse.
   const telegram = await page.request.post("/api/projects/e2e-bot/integrations", {
@@ -255,9 +279,9 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   const telegramBody = (await telegram.json()) as { integration: { id: string } };
 
   await page.reload();
-  await page.getByRole("button", { name: /^Configuración/ }).click();
-  await page.getByRole("tab", { name: "Canales" }).click();
-  const telegramCard = page.locator("article").filter({ hasText: "E2E Telegram" });
+  await projectNav.getByRole("link", { name: "Integraciones" }).click();
+  const telegramCard = page.getByTestId(`integration-card-${telegramBody.integration.id}`);
+  await expect(telegramCard).toContainText("E2E Telegram");
   await telegramCard.getByRole("button", { name: "Probar" }).click();
   await expect(page.getByText(/E2E Telegram: ok/)).toBeVisible();
 
@@ -271,7 +295,8 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await telegramCard.getByRole("button", { name: "Editar" }).click();
   await telegramCard.getByLabel("Token del bot (@BotFather)").fill("valid-token-2");
   await telegramCard.getByRole("button", { name: "Guardar cambios" }).click();
-  await telegramCard.getByRole("button", { name: "Conectar", exact: true }).click();
+  await telegramCard.getByRole("button", { name: "Más acciones de E2E Telegram" }).click();
+  await page.getByRole("menuitem", { name: "Conectar" }).click();
   await expect(telegramCard.getByText("Conectado")).toBeVisible();
 
   const telegramAfter = (await (
@@ -315,7 +340,7 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
     nodes: Array<{ config: Record<string, unknown> }>;
   };
   expect(telegramWorkflowReloaded.nodes[0]?.config.integrationId).toBeUndefined();
-  await page.getByRole("button", { name: "Canvas" }).click();
+  await projectNav.getByRole("link", { name: "Flujo" }).click();
 
   // Project-owned resources: create an external chat integration inside the project.
   const createdIntegration = await page.request.post("/api/projects/e2e-bot/integrations", {
@@ -350,8 +375,9 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
 
   await page.goto("/settings");
   await expect(page.getByRole("heading", { name: "Ajustes de plataforma" })).toBeVisible();
+  await page.getByRole("tab", { name: "Canales globales" }).click();
+  await expect(page.getByRole("heading", { name: "Canales globales" })).toBeVisible();
   await expect(page.getByText("E2E Global")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Canales del orquestador global" })).toBeVisible();
 
   await page.goto("/orchestrator");
   await expect(page.getByRole("heading", { name: "Orquestador global", level: 1 })).toBeVisible();
@@ -380,9 +406,12 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await page.goto("/projects");
   await page.getByRole("button", { name: "Nuevo proyecto" }).click();
   await page.getByLabel(/Nombre del proyecto/).fill("Mesa Triaje");
-  await page.getByLabel(/Plantilla inicial/).selectOption("triaje-operativo");
+  await expect(page.getByLabel(/^Slug/)).toHaveValue("mesa-triaje");
+  await page.getByText("Triaje operativo", { exact: true }).click();
+  await expect(page.getByRole("radio", { name: /Triaje operativo/ })).toBeChecked();
   await page.getByRole("button", { name: "Crear proyecto" }).click();
-  await expect(page).toHaveURL(/\/projects\/mesa-triaje$/);
+  await expect(page).toHaveURL(/\/projects\/mesa-triaje\/overview$/);
+  await page.getByRole("navigation", { name: "Secciones del proyecto" }).getByRole("link", { name: "Flujo" }).click();
   await expect(page.getByText("Clasificar caso", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Ejecutar" }).first().click();
@@ -391,7 +420,8 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await triajeLaunch.getByLabel(/Cliente/).fill("Acme Corp");
   await triajeLaunch.getByLabel(/Mensaje/).fill("Caída en producción");
   await triajeLaunch.getByRole("button", { name: "Ejecutar" }).click();
-  await page.getByRole("button", { name: /^Ejecuciones/ }).first().click();
+  await page.getByRole("navigation", { name: "Secciones del proyecto" }).getByRole("link", { name: /^Ejecuciones/ }).click();
+  await expect(page.getByRole("heading", { name: "Ejecuciones", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: "Ver detalle" }).first().click();
   const triajeRunDialog = page.getByRole("dialog", { name: /Ejecución/ });
   await expect(triajeRunDialog.getByTestId("run-status")).toHaveText("Completado", { timeout: 15_000 });
@@ -401,7 +431,13 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   expect(consoleErrors).toEqual([]);
 });
 
+let cachedSession: { name: string; value: string } | undefined;
+
 async function authenticate(page: Page) {
+  if (cachedSession) {
+    await page.context().addCookies([{ ...cachedSession, url: "http://127.0.0.1:3100" }]);
+    return;
+  }
   let login = await page.request.post("/api/auth/login", {
     data: { username: "admin", password: "plataforma-segura-2026" },
   });
@@ -415,6 +451,8 @@ async function authenticate(page: Page) {
     });
     expect(changed.ok()).toBeTruthy();
   }
+  const session = (await page.context().cookies()).find((cookie) => cookie.httpOnly);
+  if (session) cachedSession = { name: session.name, value: session.value };
 }
 
 async function waitForRun(
@@ -423,25 +461,37 @@ async function waitForRun(
   predicate: (run: Record<string, unknown>) => boolean,
   timeoutMs = 75_000,
 ) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const response = await page.request.get(`/api/projects/${slug}/runs?limit=10`);
-    const body = (await response.json()) as { data: Array<Record<string, unknown>> };
-    const found = body.data.find(predicate);
-    if (found) return found;
-    await page.waitForTimeout(1_500);
-  }
-  throw new Error(`run not found for ${slug}`);
+  let found: Record<string, unknown> | undefined;
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(`/api/projects/${slug}/runs?limit=10`);
+        const body = (await response.json()) as { data: Array<Record<string, unknown>> };
+        found = body.data.find(predicate);
+        return Boolean(found);
+      },
+      { timeout: timeoutMs },
+    )
+    .toBe(true);
+  if (!found) throw new Error(`run not found for ${slug}`);
+  return found;
 }
 
 async function waitForApproval(page: Page, slug: string, runId: string) {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    const response = await page.request.get(`/api/projects/${slug}/runs/${runId}/approvals`);
-    const body = (await response.json()) as { data: Array<{ nodeId: string; status: string }> };
-    if (body.data.length > 0) return body.data[0]!;
-    await page.waitForTimeout(100);
-  }
-  throw new Error("approval did not appear");
+  let approval: { nodeId: string; status: string } | undefined;
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(`/api/projects/${slug}/runs/${runId}/approvals`);
+        const body = (await response.json()) as { data: Array<{ nodeId: string; status: string }> };
+        approval = body.data[0];
+        return body.data.length;
+      },
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
+  if (!approval) throw new Error("approval did not appear");
+  return approval;
 }
 
 test("P0: scheduled notification delivers once and is visible in the run detail", async ({ page }) => {
@@ -524,7 +574,7 @@ test("P0: scheduled notification delivers once and is visible in the run detail"
     expect(deliveryBody.data[0]).toMatchObject({ status: "delivered", nodeId: "notify" });
 
     await page.goto(`/projects/${slug}`);
-    await page.getByRole("button", { name: /^Ejecuciones/ }).first().click();
+    await page.getByRole("navigation", { name: "Secciones del proyecto" }).getByRole("link", { name: /^Ejecuciones/ }).click();
     const runArticle = page.locator("article").filter({ hasText: String(run.id).slice(0, 8) });
     await runArticle.getByRole("button", { name: "Ver detalle" }).click();
     const detail = page.getByRole("dialog", { name: /Ejecución/ });

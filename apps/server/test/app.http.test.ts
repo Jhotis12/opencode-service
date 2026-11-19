@@ -68,7 +68,7 @@ beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "platform-http-"));
   application = await createApplication({
     dataDir: dir,
-    env: { ...process.env, OPENCODE_MODE: "fake", ORCHESTRATOR_MODEL: "opencode-go/fast", SENTRY_DSN: "" },
+    env: { ...process.env, OPENCODE_MODE: "fake", DEFAULT_MODEL: "opencode/deepseek-v4.1-flash-free", ORCHESTRATOR_MODEL: "opencode-go/fast", SENTRY_DSN: "" },
     serviceToken,
     globalServiceToken,
     logger: testLogger,
@@ -138,6 +138,39 @@ describe("application HTTP surface", () => {
     expect(graph.nodes[0]?.type).toBe("trigger");
   });
 
+  it("deletes a project vault secret through the shared vault alias route", async () => {
+    const slug = "vault-alias-bot";
+    await json("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ slug, name: "Vault Alias Bot" }),
+    });
+    await json(`/api/projects/${slug}/secrets`, {
+      method: "POST",
+      body: JSON.stringify({ alias: "api_key", value: "project-value" }),
+    });
+    await json("/api/vault/secrets", {
+      method: "POST",
+      body: JSON.stringify({ alias: "api_key", value: "global-value" }),
+    });
+
+    const blank = await json("/api/vault/secrets/api_key?project=%20", { method: "DELETE" });
+    expect(blank.status).toBe(400);
+    const invalid = await json("/api/vault/secrets/api_key?project=Bad_Slug", { method: "DELETE" });
+    expect(invalid.status).toBe(400);
+    const missing = await json("/api/vault/secrets/api_key?project=missing-bot", { method: "DELETE" });
+    expect(missing.status).toBe(404);
+
+    const removed = await json(`/api/vault/secrets/api_key?project=${slug}`, { method: "DELETE" });
+    expect(removed.status).toBe(200);
+    expect((await removed.json()) as { ok: boolean }).toEqual({ ok: true });
+
+    const projectSecrets = await json(`/api/projects/${slug}/secrets`);
+    expect(((await projectSecrets.json()) as { data: unknown[] }).data).toEqual([]);
+    const globalSecrets = await json("/api/vault/secrets");
+    const global = (await globalSecrets.json()) as { data: Array<{ alias: string }> };
+    expect(global.data.some((secret) => secret.alias === "api_key")).toBe(true);
+  });
+
   it("manages project destinations and keeps them scoped", async () => {
     const project = await json("/api/projects", {
       method: "POST",
@@ -174,10 +207,12 @@ describe("application HTTP surface", () => {
     const response = await json("/api/config/effective?project=ventas-bot");
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      platform: Array<{ key: string; source: string; editable: boolean; masked?: string }>;
+      platform: Array<{ key: string; source: string; value: unknown; editable: boolean; masked?: string }>;
       project: Array<{ key: string; source: string; value: unknown }>;
     };
     expect(body.platform.find((item) => item.key === "orchestratorModel")?.source).toBe("environment");
+    expect(body.platform.find((item) => item.key === "defaultModel")?.value).toBe("opencode/deepseek-v4.1-flash-free");
+    expect(body.platform.find((item) => item.key === "defaultModel")?.source).toBe("platform");
     expect(body.platform.find((item) => item.key === "opencodeMode")?.editable).toBe(false);
     expect(body.project.find((item) => item.key === "defaultModel")?.source).toBe("project");
     expect(body.project.find((item) => item.key === "defaultModel")?.value).toBe("opencode-go/vision");
@@ -301,6 +336,28 @@ describe("application HTTP surface", () => {
     badAgent.edges.push({ id: "e-agent", source: "start", target: "agent" });
     const bad = await json("/api/projects/refs-bot/workflow", { method: "PUT", body: JSON.stringify(badAgent) });
     expect(bad.status).toBe(422);
+  });
+
+  it("answers 422 when a workflow node omits notebookIds or the payload is malformed", async () => {
+    const graph = (await (await json("/api/projects/ventas-bot/workflow")).json()) as WorkflowGraph;
+    const missingNotebooks = structuredClone(graph);
+    delete (missingNotebooks.nodes[0] as Partial<WorkflowGraph["nodes"][number]>).notebookIds;
+    const rejected = await json("/api/projects/ventas-bot/workflow", {
+      method: "PUT",
+      body: JSON.stringify(missingNotebooks),
+    });
+    expect(rejected.status).toBe(422);
+    expect(((await rejected.json()) as { error: { code: string } }).error.code).toBe("INVALID_WORKFLOW");
+
+    const malformed = await json("/api/projects/ventas-bot/workflow", {
+      method: "PUT",
+      body: JSON.stringify({ ...graph, version: 2 }),
+    });
+    expect(malformed.status).toBe(422);
+    expect(((await malformed.json()) as { error: { code: string } }).error.code).toBe("INVALID_WORKFLOW");
+
+    const stillThere = await json("/api/projects/ventas-bot/workflow");
+    expect(stillThere.status).toBe(200);
   });
 
   it("runs a workflow through the HTTP API", async () => {
@@ -607,6 +664,11 @@ describe("application HTTP surface", () => {
       body: JSON.stringify({ defaultModel: "not-a-model" }),
     });
     expect(invalid.status).toBe(422);
+
+    await json("/api/settings", { method: "PUT", body: JSON.stringify({ defaultModel: "" }) });
+    const cleared = await json("/api/settings");
+    const clearedBody = (await cleared.json()) as { data: { defaultModel?: string } };
+    expect(clearedBody.data.defaultModel).toBe("opencode/deepseek-v4.1-flash-free");
   });
 
   it("serves the model catalog from the runtime", async () => {
@@ -992,5 +1054,166 @@ describe("application HTTP surface", () => {
       "invalid token",
     );
     application.store.integrations.remove("health-error");
+  });
+});
+
+describe("knowledge delete routes", () => {
+  async function createProject(slug: string) {
+    await json("/api/projects", { method: "POST", body: JSON.stringify({ slug, name: slug }) });
+  }
+
+  async function createNotebook(projectSlug: string, notebookSlug: string) {
+    const response = await json(`/api/projects/${projectSlug}/notebooks`, {
+      method: "POST",
+      body: JSON.stringify({ slug: notebookSlug, name: notebookSlug }),
+    });
+    expect(response.status).toBe(201);
+  }
+
+  async function uploadSource(projectSlug: string, notebookSlug: string, filename: string, content: string) {
+    const form = new FormData();
+    form.set("file", new File([content], filename, { type: "text/markdown" }));
+    const response = await app.request(`/api/projects/${projectSlug}/notebooks/${notebookSlug}/sources`, {
+      method: "POST",
+      headers: { cookie },
+      body: form,
+    });
+    expect(response.status).toBe(201);
+    return (await response.json()) as { source: { id: string; title: string }; chunks: number };
+  }
+
+  async function listSources(projectSlug: string, notebookSlug: string) {
+    const response = await json(`/api/projects/${projectSlug}/notebooks/${notebookSlug}/sources`);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { data: Array<{ id: string; title: string }> }).data;
+  }
+
+  async function listNotebooks(projectSlug: string) {
+    const response = await json(`/api/projects/${projectSlug}/notebooks`);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { data: Array<{ slug: string; sources: number }> }).data;
+  }
+
+  async function exists(path: string) {
+    return access(path).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  const sourceFile = (projectSlug: string, notebookSlug: string, sourceId: string) =>
+    join(dir, "workspaces", projectSlug, "knowledge", notebookSlug, "sources", `${sourceId}.md`);
+
+  it("deletes a source and its file while keeping siblings intact", async () => {
+    await createProject("lab-delete");
+    await createNotebook("lab-delete", "politicas");
+    const first = await uploadSource(
+      "lab-delete",
+      "politicas",
+      "devoluciones.md",
+      "# Devoluciones\n\nLas devoluciones tardan 5 días.",
+    );
+    const second = await uploadSource("lab-delete", "politicas", "envios.md", "# Envíos\n\nLos envíos salen cada martes.");
+
+    const response = await json(`/api/projects/lab-delete/notebooks/politicas/sources/${first.source.id}`, {
+      method: "DELETE",
+    });
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { ok: boolean }).ok).toBe(true);
+
+    const remaining = await listSources("lab-delete", "politicas");
+    expect(remaining.map((source) => source.title)).toEqual(["envios.md"]);
+    expect(await exists(sourceFile("lab-delete", "politicas", first.source.id))).toBe(false);
+    expect(await exists(sourceFile("lab-delete", "politicas", second.source.id))).toBe(true);
+
+    const deleted = await json("/api/projects/lab-delete/notebooks/politicas/search", {
+      method: "POST",
+      body: JSON.stringify({ query: "devoluciones" }),
+    });
+    const deletedHits = ((await deleted.json()) as { data: Array<{ citation: string }> }).data;
+    expect(deletedHits.every((hit) => !hit.citation.includes("devoluciones.md"))).toBe(true);
+
+    const kept = await json("/api/projects/lab-delete/notebooks/politicas/search", {
+      method: "POST",
+      body: JSON.stringify({ query: "envíos" }),
+    });
+    const keptHits = ((await kept.json()) as { data: Array<{ citation: string }> }).data;
+    expect(keptHits.some((hit) => hit.citation.includes("envios.md"))).toBe(true);
+  });
+
+  it("deletes a notebook with its directory and rows, keeping sibling notebooks", async () => {
+    await createNotebook("lab-delete", "manual");
+    await uploadSource("lab-delete", "manual", "manual.md", "# Manual\n\nEl horario es de 9 a 18.");
+    await createNotebook("lab-delete", "otros");
+    await uploadSource("lab-delete", "otros", "otros.md", "# Otros\n\nOtras notas.");
+
+    const response = await json("/api/projects/lab-delete/notebooks/manual", { method: "DELETE" });
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { ok: boolean }).ok).toBe(true);
+
+    const notebooks = await listNotebooks("lab-delete");
+    expect(notebooks.map((notebook) => notebook.slug)).not.toContain("manual");
+    expect(await exists(join(dir, "workspaces", "lab-delete", "knowledge", "manual"))).toBe(false);
+    expect(await exists(join(dir, "workspaces", "lab-delete", "knowledge", "otros", "sources"))).toBe(true);
+
+    const sources = await listSources("lab-delete", "otros");
+    expect(sources.map((source) => source.title)).toEqual(["otros.md"]);
+  });
+
+  it("returns 404 without side effects when the target belongs to another project", async () => {
+    await createProject("lab-vecino");
+    await createNotebook("lab-vecino", "politicas");
+    await createNotebook("lab-delete", "privado");
+    const privado = await uploadSource("lab-delete", "privado", "privado.md", "# Privado\n\nDatos privados.");
+    const own = await uploadSource(
+      "lab-delete",
+      "politicas",
+      "garantias.md",
+      "# Garantías\n\nLa garantía dura 12 meses.",
+    );
+
+    const sourceResponse = await json(`/api/projects/lab-vecino/notebooks/politicas/sources/${own.source.id}`, {
+      method: "DELETE",
+    });
+    expect(sourceResponse.status).toBe(404);
+    const sources = await listSources("lab-delete", "politicas");
+    expect(sources.some((source) => source.id === own.source.id)).toBe(true);
+    expect(await exists(sourceFile("lab-delete", "politicas", own.source.id))).toBe(true);
+
+    const notebookResponse = await json("/api/projects/lab-vecino/notebooks/privado", { method: "DELETE" });
+    expect(notebookResponse.status).toBe(404);
+    const notebooks = await listNotebooks("lab-delete");
+    expect(notebooks.map((notebook) => notebook.slug)).toContain("privado");
+    expect(await exists(sourceFile("lab-delete", "privado", privado.source.id))).toBe(true);
+  });
+
+  it("returns 404 for missing notebooks, sources and projects", async () => {
+    const notebook = await json("/api/projects/lab-delete/notebooks/no-existe", { method: "DELETE" });
+    expect(notebook.status).toBe(404);
+
+    const source = await json(`/api/projects/lab-delete/notebooks/politicas/sources/${crypto.randomUUID()}`, {
+      method: "DELETE",
+    });
+    expect(source.status).toBe(404);
+
+    const phantomProject = await json("/api/projects/proyecto-fantasma/notebooks/politicas", { method: "DELETE" });
+    expect(phantomProject.status).toBe(404);
+  });
+
+  it("rejects unsafe paths with 400 UNSAFE_PATH and no filesystem changes", async () => {
+    const source = await json("/api/projects/lab-delete/notebooks/politicas/sources/..%2F..%2Fopencode", {
+      method: "DELETE",
+    });
+    expect(source.status).toBe(400);
+    expect(((await source.json()) as { error?: { code?: string } }).error?.code).toBe("UNSAFE_PATH");
+
+    const notebook = await json("/api/projects/lab-delete/notebooks/..%2F..%2Flab-delete", { method: "DELETE" });
+    expect(notebook.status).toBe(400);
+    expect(((await notebook.json()) as { error?: { code?: string } }).error?.code).toBe("UNSAFE_PATH");
+
+    expect(await exists(join(dir, "workspaces", "lab-delete", "opencode.jsonc"))).toBe(true);
+    const notebooks = await listNotebooks("lab-delete");
+    expect(notebooks.map((notebook) => notebook.slug)).toContain("politicas");
+    expect(notebooks.find((notebook) => notebook.slug === "politicas")?.sources).toBeGreaterThan(0);
   });
 });

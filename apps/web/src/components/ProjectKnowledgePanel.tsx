@@ -1,8 +1,43 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type SearchHit } from "../api.ts";
+import { api, type NotebookSummary, type SearchHit, type SourceSummary } from "../api.ts";
 import { qk } from "../query.ts";
-import { badge, button, buttonPrimary, card } from "../ui.ts";
+import {
+  badge,
+  button,
+  buttonDanger,
+  buttonGhost,
+  buttonPrimary,
+  card,
+  friendlyError,
+  sectionTitle,
+} from "../ui.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { EmptyState } from "./EmptyState.tsx";
+import { Modal } from "./Modal.tsx";
+import { NodeIcon } from "./nodes/node-icons.tsx";
+import { Skeleton } from "./Skeleton.tsx";
+
+function PendingNote({ children }: { children: ReactNode }) {
+  return (
+    <p className="flex items-center gap-2 text-sm text-muted" aria-live="polite">
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+        className="animate-spin motion-reduce:animate-none"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="8" strokeDasharray="32 18" />
+      </svg>
+      {children}
+    </p>
+  );
+}
 
 export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) {
   const queryClient = useQueryClient();
@@ -17,6 +52,11 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
   const [name, setName] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [status, setStatus] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [uploadName, setUploadName] = useState<string>();
+  const [preview, setPreview] = useState<SourceSummary>();
+  const [confirmSource, setConfirmSource] = useState<SourceSummary>();
+  const [confirmNotebook, setConfirmNotebook] = useState<NotebookSummary>();
 
   const sourcesQuery = useQuery({
     queryKey: qk.sources(projectSlug, selected ?? ""),
@@ -29,33 +69,77 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
     onSuccess: (notebook) => {
       setSlug("");
       setName("");
+      setError(undefined);
+      setStatus("Notebook creado.");
       setSelected(notebook.slug);
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
+    onError: (cause) => setError(friendlyError(cause, "No se pudo crear el notebook.")),
   });
 
   const upload = useMutation({
     mutationFn: (file: File) => api.uploadSource(projectSlug, selected!, file),
+    onMutate: (file) => {
+      setStatus(undefined);
+      setError(undefined);
+      setUploadName(file.name);
+    },
     onSuccess: (result) => {
-      setStatus(`Fuente indexada: ${result.chunks} fragmentos`);
+      setUploadName(undefined);
+      setStatus(`Fuente indexada: ${result.source.title} (${result.chunks} fragmentos)`);
       void queryClient.invalidateQueries({ queryKey: qk.sources(projectSlug, selected!) });
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
+    },
+    onError: (cause) => {
+      setUploadName(undefined);
+      setError(friendlyError(cause, "No se pudo indexar el documento."));
     },
   });
 
   const ingest = useMutation({
     mutationFn: () => api.ingestUrl(projectSlug, selected!, url),
     onSuccess: (result) => {
-      setStatus(`URL indexada: ${result.chunks} fragmentos`);
+      setError(undefined);
+      setStatus(`URL indexada: ${result.source.title} (${result.chunks} fragmentos)`);
       setUrl("");
       void queryClient.invalidateQueries({ queryKey: qk.sources(projectSlug, selected!) });
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
+    onError: (cause) => setError(friendlyError(cause, "No se pudo indexar la URL.")),
   });
 
   const search = useMutation({
     mutationFn: () => api.searchNotebook(projectSlug, selected!, query),
     onSuccess: (result) => setHits(result.data),
+    onError: (cause) => setError(friendlyError(cause, "No se pudo buscar en el notebook.")),
+  });
+
+  const removeSource = useMutation({
+    mutationFn: (input: { notebookSlug: string; source: SourceSummary }) =>
+      api.deleteSource(projectSlug, input.notebookSlug, input.source.id),
+    onSuccess: (_result, input) => {
+      setConfirmSource(undefined);
+      setError(undefined);
+      setStatus(`Fuente eliminada: ${input.source.title}`);
+      void queryClient.invalidateQueries({ queryKey: qk.sources(projectSlug, input.notebookSlug) });
+      void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
+    },
+    onError: (cause) => setError(friendlyError(cause, "No se pudo eliminar la fuente.")),
+  });
+
+  const removeNotebook = useMutation({
+    mutationFn: (notebook: NotebookSummary) => api.deleteNotebook(projectSlug, notebook.slug),
+    onSuccess: (_result, notebook) => {
+      setConfirmNotebook(undefined);
+      setError(undefined);
+      setStatus(`Notebook eliminado: ${notebook.name}`);
+      if (selected === notebook.slug) {
+        setSelected(undefined);
+        setHits([]);
+      }
+      void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
+    },
+    onError: (cause) => setError(friendlyError(cause, "No se pudo eliminar el notebook.")),
   });
 
   function submitCreate(event: FormEvent) {
@@ -65,7 +149,6 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
 
   const notebooks = notebooksQuery.data ?? [];
   const sources = sourcesQuery.data ?? [];
-  const error = notebooksQuery.error ?? sourcesQuery.error ?? create.error ?? upload.error ?? ingest.error ?? search.error;
 
   return (
     <div className="flex flex-col gap-4">
@@ -82,40 +165,77 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
           Crear notebook
         </button>
       </form>
-      {status && <p className="text-sm text-ok">{status}</p>}
-      {error && <p className="text-sm text-danger">{error instanceof Error ? error.message : "Error de notebooks"}</p>}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {notebooks.map((notebook) => (
-          <button
-            key={notebook.slug}
-            className={`flex flex-col gap-2 rounded-xl border bg-panel p-4 text-left text-slate-200 transition hover:border-accent ${
-              selected === notebook.slug ? "border-accent" : "border-line"
-            }`}
-            onClick={() => {
-              setSelected(notebook.slug);
-              setHits([]);
-            }}
-          >
-            <strong className="text-sm">{notebook.name}</strong>
-            <span className="text-xs text-muted">{notebook.slug}</span>
-            <p className="text-sm text-muted">{notebook.description || "Sin descripción"}</p>
-            <span className={badge}>{notebook.sources} fuentes</span>
+      {status && (
+        <p className="text-sm text-ok" aria-live="polite">
+          {status}
+        </p>
+      )}
+      {error && <p className="text-sm text-danger">{error}</p>}
+
+      {notebooksQuery.isError ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-danger">
+            {friendlyError(notebooksQuery.error, "No se pudieron cargar los notebooks.")}
+          </p>
+          <button type="button" className={`${buttonGhost} self-start`} onClick={() => void notebooksQuery.refetch()}>
+            Reintentar
           </button>
-        ))}
-        {notebooksQuery.isLoading && <p className="text-sm text-muted">Cargando notebooks…</p>}
-      </div>
+        </div>
+      ) : notebooksQuery.isLoading ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <Skeleton shape="block" className="h-32" />
+          <Skeleton shape="block" className="h-32" />
+          <Skeleton shape="block" className="h-32" />
+        </div>
+      ) : notebooks.length === 0 ? (
+        <EmptyState
+          icon={<NodeIcon type="database" />}
+          title="Aún no hay notebooks"
+          description="Crea el primero con el formulario de arriba para subir documentos o indexar URLs que los agentes y el flujo puedan consultar."
+        />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {notebooks.map((notebook) => (
+            <article
+              key={notebook.slug}
+              className={`flex flex-col gap-3 rounded-xl border bg-panel p-4 transition ${
+                selected === notebook.slug ? "border-accent" : "border-line hover:border-accent"
+              }`}
+            >
+              <button
+                type="button"
+                className="flex flex-1 flex-col gap-2 text-left"
+                aria-pressed={selected === notebook.slug}
+                onClick={() => {
+                  setSelected(notebook.slug);
+                  setHits([]);
+                }}
+              >
+                <strong className="text-sm">{notebook.name}</strong>
+                <span className="text-xs text-muted">{notebook.slug}</span>
+                <p className="text-sm text-muted">{notebook.description || "Sin descripción"}</p>
+                <span className={badge}>{notebook.sources} fuentes</span>
+              </button>
+              <button type="button" className={`${buttonDanger} self-start`} onClick={() => setConfirmNotebook(notebook)}>
+                Eliminar
+              </button>
+            </article>
+          ))}
+        </div>
+      )}
 
       {selected && (
         <div className="grid items-start gap-4 lg:grid-cols-2">
           <section className={card}>
-            <h2 className="text-base font-semibold text-slate-100">Fuentes de {selected}</h2>
+            <h2 className={sectionTitle}>Fuentes de {selected}</h2>
             <div className="flex flex-wrap items-center gap-2">
               <input
                 type="file"
                 accept=".md,.markdown,.txt,.csv,.pdf,.docx"
                 aria-label="Subir documento"
                 className="min-w-[220px] flex-1"
+                disabled={upload.isPending}
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (file) upload.mutate(file);
@@ -133,22 +253,54 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
                 Indexar URL
               </button>
             </div>
-            <ul className="flex flex-col gap-2.5">
-              {sources.map((source) => (
-                <li key={source.id} className="border-b border-line pb-2">
-                  <strong className="text-sm">{source.title}</strong> <span className={badge}>{source.kind}</span>
-                  <p className="mt-1 text-xs text-muted">{source.summary || "Sin resumen"}</p>
-                </li>
-              ))}
-              {sourcesQuery.isLoading && <p className="text-sm text-muted">Cargando fuentes…</p>}
-              {!sourcesQuery.isLoading && sources.length === 0 && (
-                <p className="text-sm text-muted">Aún no hay fuentes. Sube un documento o indexa una URL.</p>
-              )}
-            </ul>
+            {upload.isPending && uploadName && <PendingNote>Subiendo {uploadName}…</PendingNote>}
+            {ingest.isPending && <PendingNote>Indexando {url}…</PendingNote>}
+            {sourcesQuery.isError ? (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm text-danger">
+                  {friendlyError(sourcesQuery.error, "No se pudieron cargar las fuentes.")}
+                </p>
+                <button type="button" className={`${buttonGhost} self-start`} onClick={() => void sourcesQuery.refetch()}>
+                  Reintentar
+                </button>
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-2.5">
+                {sources.map((source) => (
+                  <li key={source.id} className="flex flex-col gap-2 border-b border-line pb-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong className="min-w-0 flex-1 truncate text-sm" title={source.title}>
+                        {source.title}
+                      </strong>
+                      <span className={badge}>{source.kind}</span>
+                    </div>
+                    <p className="text-xs text-muted">{source.summary || "Sin resumen"}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className={buttonGhost} onClick={() => setPreview(source)}>
+                        Vista previa
+                      </button>
+                      <button type="button" className={buttonDanger} onClick={() => setConfirmSource(source)}>
+                        Eliminar
+                      </button>
+                    </div>
+                  </li>
+                ))}
+                {sourcesQuery.isLoading && (
+                  <div className="flex flex-col gap-2">
+                    <Skeleton shape="line" />
+                    <Skeleton shape="line" />
+                    <Skeleton shape="line" />
+                  </div>
+                )}
+                {!sourcesQuery.isLoading && sources.length === 0 && (
+                  <p className="text-sm text-muted">Aún no hay fuentes. Sube un documento o indexa una URL.</p>
+                )}
+              </ul>
+            )}
           </section>
 
           <section className={card}>
-            <h2 className="text-base font-semibold text-slate-100">Probar búsqueda</h2>
+            <h2 className={sectionTitle}>Probar búsqueda</h2>
             <form
               className="flex flex-wrap items-center gap-2"
               onSubmit={(event) => {
@@ -177,6 +329,54 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
             </div>
           </section>
         </div>
+      )}
+
+      {preview && (
+        <Modal title={preview.title} onClose={() => setPreview(undefined)} size="md">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={badge}>{preview.kind}</span>
+            <small className="text-xs text-muted">{new Date(preview.createdAt).toLocaleString()}</small>
+          </div>
+          <p className="text-sm text-slate-200">{preview.summary || "Sin resumen"}</p>
+          {preview.uri && (
+            <p className="min-w-0 break-all text-xs text-muted">
+              Origen:{" "}
+              <a className="text-accent hover:underline" href={preview.uri} target="_blank" rel="noreferrer noopener">
+                {preview.uri}
+              </a>
+            </p>
+          )}
+        </Modal>
+      )}
+
+      {confirmSource && selected && (
+        <ConfirmDialog
+          title="Eliminar fuente"
+          confirmLabel="Eliminar fuente"
+          pending={removeSource.isPending}
+          onCancel={() => setConfirmSource(undefined)}
+          onConfirm={() => removeSource.mutate({ notebookSlug: selected, source: confirmSource })}
+        >
+          <p className="text-sm text-slate-200">
+            Se eliminará <strong>{confirmSource.title}</strong> con todos sus fragmentos indexados. Esta acción no se puede
+            deshacer.
+          </p>
+        </ConfirmDialog>
+      )}
+
+      {confirmNotebook && (
+        <ConfirmDialog
+          title="Eliminar notebook"
+          confirmLabel="Eliminar notebook"
+          pending={removeNotebook.isPending}
+          onCancel={() => setConfirmNotebook(undefined)}
+          onConfirm={() => removeNotebook.mutate(confirmNotebook)}
+        >
+          <p className="text-sm text-slate-200">
+            Se eliminará <strong>{confirmNotebook.name}</strong> ({confirmNotebook.slug}) con sus {confirmNotebook.sources}{" "}
+            fuente(s) y sus archivos del espacio de trabajo. Esta acción no se puede deshacer.
+          </p>
+        </ConfirmDialog>
       )}
     </div>
   );

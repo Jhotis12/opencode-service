@@ -11,7 +11,9 @@ import {
   type ValidateRule,
 } from "@platform/shared";
 import { getConfigValue, isFieldVisible, setConfigValue, toList } from "./config-field-utils.ts";
-import { buttonGhost } from "../ui.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { Field } from "./Field.tsx";
+import { buttonGhost, fieldError } from "../ui.ts";
 
 function InputFieldsEditor({ fields, onChange }: { fields: InputField[]; onChange(fields: InputField[]): void }) {
   return (
@@ -122,9 +124,13 @@ function ValidateRulesEditor({ rules, onChange }: { rules: ValidateRule[]; onCha
 }
 
 function JsonField({
+  id,
+  describedBy,
   value,
   onChange,
 }: {
+  id: string;
+  describedBy?: string;
   value: unknown;
   onChange(value: unknown): void;
 }) {
@@ -134,6 +140,9 @@ function JsonField({
     <>
       <textarea
         rows={4}
+        id={id}
+        aria-invalid={Boolean(error)}
+        aria-describedby={[describedBy, error ? `${id}-error` : ""].filter(Boolean).join(" ") || undefined}
         value={raw}
         onChange={(event) => {
           const text = event.target.value;
@@ -146,15 +155,17 @@ function JsonField({
           }
         }}
       />
-      {error && <small className="text-danger">{error}</small>}
+      {error && <p id={`${id}-error`} className={fieldError}>{error}</p>}
     </>
   );
 }
 
 function DatabaseStatementsField({
+  id,
   value,
   onChange,
 }: {
+  id: string;
   value: unknown;
   onChange(value: unknown): void;
 }) {
@@ -164,6 +175,9 @@ function DatabaseStatementsField({
     <>
       <textarea
         rows={6}
+        id={id}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${id}-error` : undefined}
         value={raw}
         onChange={(event) => {
           const text = event.target.value;
@@ -182,7 +196,7 @@ function DatabaseStatementsField({
         }}
         placeholder={'[{"sql":"select * from leads where id = ?","params":["{{input.id}}"]}]'}
       />
-      {error && <small className="text-danger">{error}</small>}
+      {error && <p id={`${id}-error`} className={fieldError}>{error}</p>}
     </>
   );
 }
@@ -206,6 +220,7 @@ export function NodeConfigFields({
 }) {
   const definition = NODE_CONFIG_REGISTRY[node.type];
   const config = node.config;
+  const [pendingTriggerKind, setPendingTriggerKind] = useState<string>();
   const errors = new Map<string, string>();
   for (const field of definition.fields) {
     if (!isFieldVisible(config, field)) continue;
@@ -231,12 +246,7 @@ export function NodeConfigFields({
     onConfig({ [field.key]: value });
   }
 
-  function changeTriggerKind(next: string) {
-    if (next === String(config.kind ?? "manual")) return;
-    const incompatible = Boolean(config.integrationId || config.cron || config.runAt || config.secretAlias);
-    if (incompatible && !window.confirm("Cambiar el tipo de trigger descartará la configuración incompatible. ¿Continuar?")) {
-      return;
-    }
+  function applyTriggerKind(next: string) {
     const base = structuredClone(NODE_CONFIG_REGISTRY.trigger.defaults);
     const nextConfig: Record<string, unknown> = { ...base, kind: next };
     if (next === "integration") nextConfig.accepts = ["text"];
@@ -244,11 +254,24 @@ export function NodeConfigFields({
     onReplaceConfig(nextConfig);
   }
 
+  function changeTriggerKind(next: string) {
+    if (next === String(config.kind ?? "manual")) return;
+    const incompatible = Boolean(config.integrationId || config.cron || config.runAt || config.secretAlias);
+    if (!incompatible) {
+      applyTriggerKind(next);
+      return;
+    }
+    setPendingTriggerKind(next);
+  }
+
   function renderField(field: ConfigField) {
     if (!isFieldVisible(config, field)) return null;
     const value = getConfigValue(config, field.key);
     const error = errors.get(field.key);
-    const help = field.help ? <small className="text-[11px] text-muted">{field.help}</small> : null;
+    const fieldId = `node-config-${field.key}`;
+    const errorId = `${fieldId}-error`;
+    const helpId = field.help ? `${fieldId}-help` : undefined;
+    const help = field.help ? <small id={helpId} className="text-[11px] text-muted">{field.help}</small> : null;
 
     if (field.type === "custom") {
       if (field.widget === "speech-model-picker") {
@@ -283,17 +306,13 @@ export function NodeConfigFields({
           );
         }
         return (
-          <label key={field.key}>
-            {field.label}
+          <Field key={field.key} id={fieldId} label={field.label} hint={field.help} error={error}>
             <input
-              aria-label={field.label}
               value={current}
               placeholder={field.placeholder}
               onChange={(event) => set(field, event.target.value || undefined)}
             />
-            {help}
-            {error && <small className="text-danger">{error}</small>}
-          </label>
+          </Field>
         );
       }
       if (field.widget === "voice-picker") {
@@ -331,7 +350,10 @@ export function NodeConfigFields({
           <label key={field.key}>
             {field.label}
             <input
+              id={fieldId}
               aria-label={field.label}
+              aria-invalid={Boolean(error)}
+              aria-describedby={[helpId, error ? errorId : ""].filter(Boolean).join(" ") || undefined}
               value={current}
               placeholder={field.placeholder}
               list="node-voice-suggestions"
@@ -343,7 +365,7 @@ export function NodeConfigFields({
               ))}
             </datalist>
             {help}
-            {error && <small className="text-danger">{error}</small>}
+            {error && <p id={errorId} className={fieldError}>{error}</p>}
           </label>
         );
       }
@@ -354,13 +376,8 @@ export function NodeConfigFields({
             (!field.integrationCapability || integration.capabilities.includes(field.integrationCapability)),
         );
         return (
-          <label key={field.key}>
-            {field.label}
-            <select
-              aria-label={field.label}
-              value={String(value ?? "")}
-              onChange={(event) => set(field, event.target.value || undefined)}
-            >
+          <Field key={field.key} id={fieldId} label={field.label} hint={field.help} error={error}>
+            <select value={String(value ?? "")} onChange={(event) => set(field, event.target.value || undefined)}>
               <option value="">Selecciona una integración</option>
               {options.map((integration) => (
                 <option key={integration.id} value={integration.id}>
@@ -368,9 +385,7 @@ export function NodeConfigFields({
                 </option>
               ))}
             </select>
-            {help}
-            {error && <small className="text-danger">{error}</small>}
-          </label>
+          </Field>
         );
       }
       if (field.widget === "channel-event") {
@@ -433,7 +448,7 @@ export function NodeConfigFields({
         return (
           <label className="md:col-span-2" key={field.key}>
             {field.label}
-            <DatabaseStatementsField value={value} onChange={(next) => set(field, next)} />
+            <DatabaseStatementsField id={fieldId} value={value} onChange={(next) => set(field, next)} />
           </label>
         );
       }
@@ -611,25 +626,21 @@ export function NodeConfigFields({
       return (
         <label key={field.key} className="md:col-span-2">
           {field.label}
-          <JsonField value={value} onChange={(next) => set(field, next)} />
+          <JsonField id={fieldId} describedBy={helpId} value={value} onChange={(next) => set(field, next)} />
           {help}
         </label>
       );
     }
 
     return (
-      <label key={field.key}>
-        {field.label}
+      <Field key={field.key} id={fieldId} label={field.label} hint={field.help} error={error}>
         <input
-          aria-label={field.label}
           type={field.type === "url" ? "url" : field.type === "email" ? "email" : "text"}
           value={String(value ?? "")}
           placeholder={field.placeholder}
           onChange={(event) => set(field, event.target.value || undefined)}
         />
-        {help}
-        {error && <small className="text-danger">{error}</small>}
-      </label>
+      </Field>
     );
   }
 
@@ -648,6 +659,22 @@ export function NodeConfigFields({
         <p className="text-[11px] text-muted md:col-span-2">
           Este nodo usa un sub-agente del proyecto. El chat del proyecto usa el agente principal, que es otro perfil.
         </p>
+      )}
+      {pendingTriggerKind !== undefined && (
+        <ConfirmDialog
+          title="Cambiar el tipo de trigger"
+          confirmLabel="Cambiar tipo"
+          onCancel={() => setPendingTriggerKind(undefined)}
+          onConfirm={() => {
+            applyTriggerKind(pendingTriggerKind);
+            setPendingTriggerKind(undefined);
+          }}
+        >
+          <p className="text-sm text-muted">
+            El trigger tiene configuración incompatible (integración, cron, fecha de ejecución o secreto). Cambiar a
+            «{pendingTriggerKind}» descartará esa configuración. ¿Continuar?
+          </p>
+        </ConfirmDialog>
       )}
     </>
   );

@@ -86,6 +86,16 @@ export interface ProjectDestinationRepository {
   remove(id: string): boolean;
 }
 
+export interface RunListFilters {
+  status?: WorkflowRunRecord["status"];
+  project?: string;
+  entryPoint?: WorkflowRunRecord["entryPoint"];
+  /** Inclusive ISO-8601 lower bound on startedAt. */
+  from?: string;
+  /** Inclusive ISO-8601 upper bound on startedAt. */
+  to?: string;
+}
+
 export interface WorkflowRunRepository {
   claim(record: WorkflowRunRecord): { run: WorkflowRunRecord; created: boolean };
   findById(id: string): WorkflowRunRecord | undefined;
@@ -103,6 +113,8 @@ export interface WorkflowRunRepository {
   countInFlight(projectSlug: string): number;
   listByStatus(status: WorkflowRunRecord["status"]): WorkflowRunRecord[];
   listRecent(limit: number): WorkflowRunRecord[];
+  listFiltered(input: RunListFilters & { limit: number; offset: number }): WorkflowRunRecord[];
+  countFiltered(filters: RunListFilters): number;
   insertStep(record: StepRunRecord): void;
   listSteps(runId: string): StepRunRecord[];
   createApproval(record: ApprovalRecord): void;

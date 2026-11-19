@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
 import type { WorkflowGraph } from "@platform/shared";
 import { renderWithProviders } from "./render.tsx";
 
@@ -36,7 +36,14 @@ vi.mock("../src/components/CodeEditor.tsx", () => ({
 }));
 
 import { ApiClientError } from "../src/api.ts";
-import { ProjectPage } from "../src/pages/ProjectPage.tsx";
+import { ProjectLayout } from "../src/pages/ProjectLayout.tsx";
+import { ProjectOverviewPage } from "../src/pages/ProjectOverviewPage.tsx";
+import { ProjectFlowPage } from "../src/pages/ProjectFlowPage.tsx";
+import { ProjectRunsPage } from "../src/pages/ProjectRunsPage.tsx";
+import { ProjectAgentsPage } from "../src/pages/ProjectAgentsPage.tsx";
+import { ProjectKnowledgePage } from "../src/pages/ProjectKnowledgePage.tsx";
+import { ProjectIntegrationsPage } from "../src/pages/ProjectIntegrationsPage.tsx";
+import { ProjectSettingsPage } from "../src/pages/ProjectSettingsPage.tsx";
 
 const graph: WorkflowGraph = {
   version: 1,
@@ -49,6 +56,23 @@ const graph: WorkflowGraph = {
   ],
   edges: [{ id: "e1", source: "start", target: "code" }],
   updatedAt: new Date().toISOString(),
+};
+
+const issueGraph: WorkflowGraph = {
+  ...graph,
+  nodes: [
+    graph.nodes[0]!,
+    {
+      id: "code",
+      type: "code",
+      label: "Consultar",
+      position: { x: 220, y: 0 },
+      config: {},
+      notebookIds: [],
+      timeoutMs: 30000,
+      retryPolicy: { maxRetries: 0 },
+    },
+  ],
 };
 
 function setupApi() {
@@ -75,15 +99,24 @@ function setupApi() {
 
 function renderPage() {
   return renderWithProviders(
-    <MemoryRouter initialEntries={["/projects/demo"]}>
+    <MemoryRouter initialEntries={["/projects/demo/flow"]}>
       <Routes>
-        <Route path="/projects/:slug" element={<ProjectPage />} />
+        <Route path="/projects/:slug" element={<ProjectLayout />}>
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="overview" element={<ProjectOverviewPage />} />
+          <Route path="flow" element={<ProjectFlowPage />} />
+          <Route path="runs" element={<ProjectRunsPage />} />
+          <Route path="agents" element={<ProjectAgentsPage />} />
+          <Route path="knowledge" element={<ProjectKnowledgePage />} />
+          <Route path="integrations" element={<ProjectIntegrationsPage />} />
+          <Route path="settings" element={<ProjectSettingsPage />} />
+        </Route>
       </Routes>
     </MemoryRouter>,
   );
 }
 
-describe("ProjectPage canvas workspace", () => {
+describe("ProjectLayout flow section", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupApi();
@@ -120,11 +153,12 @@ describe("ProjectPage canvas workspace", () => {
     expect(saved.nodes.some((node) => node.type === "http" && node.label === "Mi HTTP")).toBe(true);
   });
 
-  it("keeps non-canvas tabs inside a readable centered container", async () => {
+  it("keeps non-canvas sections inside a readable centered container", async () => {
     renderPage();
     expect(await screen.findByText("Demo")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Agentes" }));
-    expect(screen.getByTestId("project-tab-content").className).toContain("max-w-[1200px]");
+    await userEvent.click(screen.getByRole("link", { name: "Agentes" }));
+    const content = await screen.findByTestId("project-tab-content");
+    expect(content.className).toContain("max-w-[1200px]");
   });
 
   it("duplicates a code node with its own code file", async () => {
@@ -183,6 +217,56 @@ describe("ProjectPage canvas workspace", () => {
 
     finishChat?.({ reply: "Listo", sessionId: "session", threadId: "thread" });
     await waitFor(() => expect(screen.queryByTestId("agent-progress")).not.toBeInTheDocument());
+  });
+
+  it("saves a dirty draft with Ctrl+S", async () => {
+    renderPage();
+    expect(await screen.findByText("Demo")).toBeInTheDocument();
+    fireEvent.click(document.querySelector('[data-node-id="code"]')!);
+    const inspector = await screen.findByRole("dialog", { name: "Nodo: Consultar" });
+    await userEvent.clear(within(inspector).getByLabelText("Etiqueta"));
+    await userEvent.type(within(inspector).getByLabelText("Etiqueta"), "Consultar API");
+    await userEvent.click(within(inspector).getByRole("button", { name: "Cerrar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Nodo:/ })).not.toBeInTheDocument());
+
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+    await waitFor(() => expect(apiMock.saveWorkflow).toHaveBeenCalled());
+    const saved = apiMock.saveWorkflow.mock.calls.at(-1)?.[1] as WorkflowGraph;
+    expect(saved.nodes.find((node) => node.id === "code")?.label).toBe("Consultar API");
+  });
+
+  it("blocks Ctrl+S and shows the issue count when the graph has problems", async () => {
+    apiMock.getWorkflow.mockResolvedValue(issueGraph);
+    renderPage();
+    expect(await screen.findByText("Demo")).toBeInTheDocument();
+
+    const summary = await screen.findByRole("region", { name: "Problemas del flujo" });
+    expect(within(summary).getByText(/Guardar deshabilitado: el flujo tiene 1 problema\./)).toBeInTheDocument();
+    expect(within(summary).getByText(/necesita un archivo TypeScript/)).toBeInTheDocument();
+    expect(screen.getByText("1 problema")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Guardar flujo" })).toBeDisabled();
+
+    fireEvent.keyDown(document, { key: "s", metaKey: true });
+    expect(apiMock.saveWorkflow).not.toHaveBeenCalled();
+
+    await userEvent.click(within(summary).getByRole("button", { name: "Descartar" }));
+    expect(screen.queryByRole("region", { name: "Problemas del flujo" })).not.toBeInTheDocument();
+    expect(screen.getByText("1 problema")).toBeInTheDocument();
+  });
+
+  it("asks for confirmation before deleting a node", async () => {
+    const { container } = renderPage();
+    expect(await screen.findByText("Demo")).toBeInTheDocument();
+    fireEvent.click(container.querySelector('[data-node-id="code"]')!);
+    const inspector = await screen.findByRole("dialog", { name: "Nodo: Consultar" });
+    await userEvent.click(within(inspector).getByRole("button", { name: "Eliminar" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Eliminar nodo" });
+    expect(dialog).toHaveTextContent("Se eliminará «Consultar»");
+    expect(container.querySelector('[data-node-id="code"]')).not.toBeNull();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Eliminar nodo" })).not.toBeInTheDocument());
+    expect(container.querySelector('[data-node-id="code"]')).not.toBeNull();
   });
 
   it("shows mapped and unmapped server validation issues", async () => {

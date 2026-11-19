@@ -4,6 +4,9 @@ import { useMutation } from "@tanstack/react-query";
 import { api } from "../api.ts";
 import { useAuth } from "../auth.tsx";
 import { BrandLockup } from "../components/Brand.tsx";
+import { Field } from "../components/Field.tsx";
+import { PageHeader } from "../components/PageHeader.tsx";
+import { PasswordField } from "../components/PasswordField.tsx";
 import { buttonPrimary, card, friendlyError } from "../ui.ts";
 
 export function LoginPage({ login = api.login }: { login?: typeof api.login } = {}) {
@@ -11,6 +14,8 @@ export function LoginPage({ login = api.login }: { login?: typeof api.login } = 
   const navigate = useNavigate();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
 
   const mutation = useMutation({
     mutationFn: () => login(username, password),
@@ -20,32 +25,46 @@ export function LoginPage({ login = api.login }: { login?: typeof api.login } = 
     },
   });
 
+  const passwordError =
+    passwordTouched && password.length === 0 ? "Introduce tu contraseña para entrar." : undefined;
+
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (password.length === 0 || mutation.isPending) return;
     mutation.mutate();
   }
 
   return (
     <main className="grid min-h-screen place-items-center p-6">
       <form className={`${card} w-full max-w-[420px] gap-4`} onSubmit={submit} aria-label="Iniciar sesión">
-        <BrandLockup
-          size={40}
-          asHeading
-          subtitle="Automatizaciones agénticas sobre OpenCode"
+        <BrandLockup size={40} compact />
+        <PageHeader
+          title="Agentic Platform"
+          description="Automatizaciones agénticas sobre OpenCode."
         />
-        <label>
-          Usuario
-          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-        </label>
-        <label>
-          Contraseña
+        <Field id="login-username" label="Usuario">
           <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
           />
-        </label>
+        </Field>
+        <PasswordField
+          id="login-password"
+          label="Contraseña"
+          toggleLabel="contraseña"
+          value={password}
+          onChange={setPassword}
+          onBlur={() => setPasswordTouched(true)}
+          visible={passwordVisible}
+          onToggle={() => setPasswordVisible((visible) => !visible)}
+          error={passwordError}
+          autoComplete="current-password"
+          autoFocus
+        />
         {mutation.error && (
           <p
             className="text-sm text-danger"
@@ -55,7 +74,7 @@ export function LoginPage({ login = api.login }: { login?: typeof api.login } = 
             {friendlyError(mutation.error, "No se pudo iniciar sesión.")}
           </p>
         )}
-        <button className={buttonPrimary} type="submit" disabled={mutation.isPending || !password}>
+        <button className={buttonPrimary} type="submit" disabled={mutation.isPending || password.length === 0}>
           {mutation.isPending ? "Entrando…" : "Entrar"}
         </button>
         <p className="text-xs text-muted">

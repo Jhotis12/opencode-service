@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IntegrationRecord, NodeSpec } from "@platform/shared";
 import { renderWithProviders } from "./render.tsx";
@@ -64,7 +64,7 @@ describe("NodeConfigFields", () => {
     expect(screen.getByText("Datos de entrada")).toBeInTheDocument();
   });
 
-  it("replaces incompatible config when the trigger kind changes", async () => {
+  it("asks for confirmation before replacing incompatible trigger config", async () => {
     const onReplaceConfig = vi.fn();
     renderWithProviders(
       <NodeConfigFields
@@ -76,11 +76,12 @@ describe("NodeConfigFields", () => {
         onEnableDecisionCode={vi.fn()}
       />,
     );
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     await userEvent.selectOptions(screen.getByLabelText("Entrada del flujo"), "manual");
+    const dialog = await screen.findByRole("dialog", { name: "Cambiar el tipo de trigger" });
+    expect(onReplaceConfig).not.toHaveBeenCalled();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cambiar tipo" }));
     expect(onReplaceConfig).toHaveBeenCalledWith(expect.objectContaining({ kind: "manual" }));
     expect(onReplaceConfig.mock.calls[0]?.[0]).not.toHaveProperty("integrationId");
-    confirm.mockRestore();
   });
 
   it("selects a discovered voice for a speak node", async () => {
@@ -119,5 +120,63 @@ describe("NodeConfigFields", () => {
       />,
     );
     expect(screen.getAllByText(/obligatorio|Required/).length).toBeGreaterThan(0);
+  });
+
+  it("associates the required URL error with its input", () => {
+    renderWithProviders(
+      <NodeConfigFields
+        node={node({}, "http")}
+        integrations={[]}
+        destinations={[]}
+        onConfig={vi.fn()}
+        onReplaceConfig={vi.fn()}
+        onEnableDecisionCode={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText("URL");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    const described = (input.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
+    expect(described).toContain("node-config-url-error");
+    for (const id of described) {
+      expect(document.getElementById(id)).not.toBeNull();
+    }
+    expect(document.getElementById("node-config-url-error")).toHaveTextContent("Este campo es obligatorio.");
+  });
+
+  it("associates the missing database integration error with its select", () => {
+    renderWithProviders(
+      <NodeConfigFields
+        node={node({}, "database")}
+        integrations={[]}
+        destinations={[]}
+        onConfig={vi.fn()}
+        onReplaceConfig={vi.fn()}
+        onEnableDecisionCode={vi.fn()}
+      />,
+    );
+    const select = screen.getByLabelText("Integración de base de datos");
+    expect(select).toHaveAttribute("aria-invalid", "true");
+    const described = (select.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
+    expect(described).toContain("node-config-integrationId-error");
+    for (const id of described) {
+      expect(document.getElementById(id)).not.toBeNull();
+    }
+  });
+
+  it("attaches no error id when the config is valid", () => {
+    renderWithProviders(
+      <NodeConfigFields
+        node={node({ method: "GET", url: "https://api.example.com", headers: "{}", body: "" }, "http")}
+        integrations={[]}
+        destinations={[]}
+        onConfig={vi.fn()}
+        onReplaceConfig={vi.fn()}
+        onEnableDecisionCode={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText("URL");
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(input.getAttribute("aria-describedby") ?? "").not.toContain("node-config-url-error");
+    expect(document.getElementById("node-config-url-error")).toBeNull();
   });
 });

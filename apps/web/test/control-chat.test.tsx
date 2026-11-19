@@ -6,7 +6,7 @@ import { ChatPanel } from "../src/components/ChatPanel.tsx";
 import { api, type ChatHistoryMessage } from "../src/api.ts";
 import { renderWithProviders } from "./render.tsx";
 
-function sseResponse(): Response {
+function sseResponse(errorGate: Promise<void>): Response {
   const body = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
@@ -15,14 +15,14 @@ function sseResponse(): Response {
           'event: activity\ndata: {"type":"activity","id":"tool:1","text":"Consultando ejecuciones","status":"started"}\n\n',
         ),
       );
-      setTimeout(() => {
+      void errorGate.then(() => {
         controller.enqueue(
           encoder.encode(
             'event: error\ndata: {"message":"the orchestrator returned an empty response"}\n\n',
           ),
         );
         controller.close();
-      }, 50);
+      });
     },
   });
   return new Response(body, {
@@ -37,7 +37,11 @@ afterEach(() => {
 
 describe("control chat progress", () => {
   it("sends activity to the chat and renders an error instead of an empty agent bubble", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse()));
+    let releaseError = () => {};
+    const errorGate = new Promise<void>((resolve) => {
+      releaseError = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse(errorGate)));
     const onActivityChange = vi.fn();
 
     renderWithProviders(
@@ -53,7 +57,9 @@ describe("control chat progress", () => {
     await userEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(onActivityChange).toHaveBeenCalledWith("Consultando ejecuciones"));
+    releaseError();
     expect(await screen.findByText(/Error: the orchestrator returned an empty response/)).toBeInTheDocument();
+    await waitFor(() => expect(onActivityChange).toHaveBeenLastCalledWith(undefined));
 
     const agentBubbles = screen
       .getAllByRole("article")
@@ -72,28 +78,38 @@ describe("control chat progress", () => {
       },
     ];
 
+    const onBusyChange = vi.fn();
+    let releaseStream = () => {};
+    const streamGate = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
+
     function Harness() {
       const [history, setHistory] = useState(initial);
       return (
-        <ChatPanel
-          storageKey="control-chat-duplicate-test"
-          initialMessages={history}
-          onSend={async (_message, onEvent) => {
-            onEvent({ type: "text", turnId: "turn-test", text: "OK" });
-            setHistory([
-              ...initial,
-              {
-                id: "a1",
-                threadId: "t1",
-                role: "agent",
-                content: "OK",
-                createdAt: new Date().toISOString(),
-              },
-            ]);
-            await new Promise((resolve) => setTimeout(resolve, 50));
-            return "OK";
-          }}
-        />
+        <>
+          <output data-testid="history-length" data-length={history.length} />
+          <ChatPanel
+            storageKey="control-chat-duplicate-test"
+            initialMessages={history}
+            onBusyChange={onBusyChange}
+            onSend={async (_message, onEvent) => {
+              onEvent({ type: "text", turnId: "turn-test", text: "OK" });
+              setHistory([
+                ...initial,
+                {
+                  id: "a1",
+                  threadId: "t1",
+                  role: "agent",
+                  content: "OK",
+                  createdAt: new Date().toISOString(),
+                },
+              ]);
+              await streamGate;
+              return "OK";
+            }}
+          />
+        </>
       );
     }
 
@@ -101,6 +117,9 @@ describe("control chat progress", () => {
     await userEvent.type(screen.getByPlaceholderText("Pídele un flujo, una corrección o un reporte…"), "hola");
     await userEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
+    await waitFor(() => expect(screen.getByTestId("history-length")).toHaveAttribute("data-length", "2"));
+    releaseStream();
     await waitFor(() => expect(screen.getAllByText("OK")).toHaveLength(1));
+    await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
   });
 });

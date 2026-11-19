@@ -1,19 +1,21 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import QRCode from "qrcode";
 import type { IntegrationRecord } from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { OverflowMenu, type OverflowMenuItem } from "./OverflowMenu.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { IntegrationEditor, type SavedIntegration } from "./IntegrationEditor.tsx";
-import { badge, button, buttonDanger, buttonGhost, card, friendlyError } from "../ui.ts";
+import { QrDisplay } from "./QrDisplay.tsx";
+import { badge, button, buttonGhost, card, friendlyError } from "../ui.ts";
 
 const DATABASE_KINDS = new Set<IntegrationRecord["kind"]>(["postgres", "mysql", "mssql", "sqlite"]);
 const CHANNEL_KINDS = new Set<IntegrationRecord["kind"]>(["telegram", "whatsapp", "external_chat"]);
 
 export type ResourceSection = "all" | "connections" | "channels" | "secrets";
 
-function DatabasePolicyEditor({
+export function DatabasePolicyEditor({
   projectSlug,
   integration,
   onSaved,
@@ -90,7 +92,9 @@ export function ProjectResourcesPanel({
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [rawError, setRawError] = useState<string>();
-  const [qr, setQr] = useState<{ id: string; qr: string }>();
+  const [qrFor, setQrFor] = useState<IntegrationRecord>();
+  const [confirmAction, setConfirmAction] = useState<{ kind: "delete" | "disconnect"; integration: IntegrationRecord }>();
+  const [confirmError, setConfirmError] = useState<string>();
 
   const allIntegrations = integrationsQuery.data ?? [];
   const integrations = allIntegrations.filter((integration) => {
@@ -142,7 +146,13 @@ export function ProjectResourcesPanel({
     mutationFn: (id: string) => api.disconnectIntegration(projectSlug, id),
     onSuccess: async () => {
       setStatus("Integración desconectada");
+      setConfirmAction(undefined);
+      setConfirmError(undefined);
       await refresh();
+    },
+    onError: (cause) => {
+      setRawError(cause instanceof Error ? cause.message : undefined);
+      setConfirmError(friendlyError(cause, "No se pudo desconectar la integración."));
     },
   });
 
@@ -150,7 +160,14 @@ export function ProjectResourcesPanel({
     mutationFn: (id: string) => api.deleteIntegration(projectSlug, id),
     onSuccess: async () => {
       setStatus("Integración eliminada");
+      setConfirmAction(undefined);
+      setConfirmError(undefined);
+      setEditingId(undefined);
       await refresh();
+    },
+    onError: (cause) => {
+      setRawError(cause instanceof Error ? cause.message : undefined);
+      setConfirmError(friendlyError(cause, "No se pudo eliminar la integración."));
     },
   });
 
@@ -177,21 +194,33 @@ export function ProjectResourcesPanel({
     },
   });
 
-  async function showQr(id: string) {
-    try {
-      const result = await api.integrationQr(projectSlug, id);
-      setQr({ id, qr: await QRCode.toDataURL(result.qr, { margin: 1, width: 220 }) });
-    } catch {
-      setStatus("Todavía no hay un QR disponible para esa integración");
-    }
-  }
-
   function saved(result: SavedIntegration) {
     setCreated(result);
     setStatus(`Integración ${result.integration.name} guardada`);
     setEditingId(undefined);
     setEditorKey((current) => current + 1);
     void refresh();
+  }
+
+  function askConfirm(action: { kind: "delete" | "disconnect"; integration: IntegrationRecord }) {
+    setConfirmError(undefined);
+    setConfirmAction(action);
+  }
+
+  function integrationMenu(integration: IntegrationRecord): OverflowMenuItem[] {
+    const items: OverflowMenuItem[] = [
+      integration.status === "connected"
+        ? { id: "disconnect", label: "Desconectar", onSelect: () => askConfirm({ kind: "disconnect", integration }) }
+        : { id: "connect", label: "Conectar", onSelect: () => connect.mutate(integration.id) },
+    ];
+    if (integration.kind === "telegram") {
+      items.push({ id: "clear-webhook", label: "Limpiar webhook", onSelect: () => clearWebhook.mutate(integration.id) });
+    }
+    if (integration.kind === "whatsapp") {
+      items.push({ id: "qr", label: "Ver QR", onSelect: () => setQrFor(integration) });
+    }
+    items.push({ id: "delete", label: "Borrar", danger: true, onSelect: () => askConfirm({ kind: "delete", integration }) });
+    return items;
   }
 
   return (
@@ -226,32 +255,19 @@ export function ProjectResourcesPanel({
                 onSaved={() => void queryClient.invalidateQueries({ queryKey: qk.integrations(projectSlug) })}
               />
             )}
-            <div className="flex flex-wrap gap-1.5">
-              <button className={buttonGhost} onClick={() => test.mutate(integration)}>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button type="button" className={buttonGhost} onClick={() => test.mutate(integration)}>
                 Probar
               </button>
-              <button className={buttonGhost} onClick={() => connect.mutate(integration.id)}>
-                Conectar
-              </button>
-              <button className={buttonGhost} onClick={() => disconnect.mutate(integration.id)}>
-                Desconectar
-              </button>
-              <button className={buttonGhost} onClick={() => setEditingId(integration.id)}>
+              <button
+                type="button"
+                className={buttonGhost}
+                onClick={() => setEditingId(integration.id)}
+                disabled={editingId === integration.id}
+              >
                 Editar
               </button>
-              {integration.kind === "telegram" && (
-                <button className={buttonGhost} onClick={() => clearWebhook.mutate(integration.id)}>
-                  Limpiar webhook
-                </button>
-              )}
-              {integration.kind === "whatsapp" && (
-                <button className={buttonGhost} onClick={() => void showQr(integration.id)}>
-                  Ver QR
-                </button>
-              )}
-              <button className={buttonDanger} onClick={() => remove.mutate(integration.id)}>
-                Borrar
-              </button>
+              <OverflowMenu label={`Más acciones de ${integration.name}`} items={integrationMenu(integration)} />
             </div>
             {editingId === integration.id && (
               <IntegrationEditor
@@ -276,11 +292,42 @@ export function ProjectResourcesPanel({
         )}
       </div>
 
-      {qr && (
-        <div className={card}>
-          <strong className="text-sm">QR de WhatsApp · {qr.id}</strong>
-          <img className="h-[220px] w-[220px] rounded-lg bg-white" src={qr.qr} alt="Código QR de WhatsApp" />
-        </div>
+      {qrFor && (
+        <QrDisplay
+          title="QR de WhatsApp"
+          integrationName={qrFor.name}
+          integrationId={qrFor.id}
+          loadQr={(id) => api.integrationQr(projectSlug, id).then((result) => result.qr)}
+          onClose={() => setQrFor(undefined)}
+        />
+      )}
+
+      {confirmAction && (
+        <ConfirmDialog
+          title={confirmAction.kind === "delete" ? "Eliminar integración" : "Desconectar integración"}
+          confirmLabel={confirmAction.kind === "delete" ? "Eliminar" : "Desconectar"}
+          pending={confirmAction.kind === "delete" ? remove.isPending : disconnect.isPending}
+          onCancel={() => {
+            setConfirmAction(undefined);
+            setConfirmError(undefined);
+          }}
+          onConfirm={() => {
+            const action = confirmAction;
+            if (action.kind === "delete") remove.mutate(action.integration.id);
+            else disconnect.mutate(action.integration.id);
+          }}
+        >
+          <p className="text-sm text-muted">
+            {confirmAction.kind === "delete"
+              ? `Se eliminará ${confirmAction.integration.name} (${confirmAction.integration.slug}). Esta acción no se puede deshacer.`
+              : `Se desconectará ${confirmAction.integration.name}. Podrás volver a conectarla cuando la necesites.`}
+          </p>
+          {confirmError && (
+            <p className="text-sm text-danger" role="alert" title={rawError}>
+              {confirmError}
+            </p>
+          )}
+        </ConfirmDialog>
       )}
 
       {section !== "secrets" && (

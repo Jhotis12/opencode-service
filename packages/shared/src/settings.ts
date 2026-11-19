@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+/** Modelo por defecto de plataforma, orquestador y proyectos sin override. */
+export const PLATFORM_DEFAULT_MODEL = "opencode/deepseek-v4.1-flash-free";
+
 export const EffectiveConfigSourceSchema = z.enum([
   "entity",
   "project",

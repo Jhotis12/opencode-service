@@ -1,15 +1,34 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
-import { badge, buttonPrimary, card, statusBadge } from "../ui.ts";
+import { badge, buttonGhost, buttonPrimary, card, friendlyError, statusBadge } from "../ui.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { Field } from "./Field.tsx";
 
+const ALIAS_PATTERN = /^[A-Za-z][A-Za-z0-9:_-]*$/;
+
+/**
+ * Secciones de configuración del proyecto. La página de ajustes renderiza una
+ * sola sección a la vez, según el `?section=` de la URL.
+ */
 export function ProjectSettingsPanel({
   projectSlug,
   section = "all",
 }: {
   projectSlug: string;
-  section?: "all" | "general" | "readiness";
+  section?: "all" | "general" | "readiness" | "secrets";
+}) {
+  if (section === "secrets") return <ProjectSecretsPanel projectSlug={projectSlug} />;
+  return <ProjectSettingsSections projectSlug={projectSlug} section={section} />;
+}
+
+function ProjectSettingsSections({
+  projectSlug,
+  section,
+}: {
+  projectSlug: string;
+  section: "all" | "general" | "readiness";
 }) {
   const queryClient = useQueryClient();
   const showGeneral = section === "all" || section === "general";
@@ -36,6 +55,7 @@ export function ProjectSettingsPanel({
   const [approvalRecipient, setApprovalRecipient] = useState("");
   const [transcriptionIntegrationId, setTranscriptionIntegrationId] = useState("");
   const [speechIntegrationId, setSpeechIntegrationId] = useState("");
+  const [nameError, setNameError] = useState<string>();
   const [status, setStatus] = useState<string>();
 
   useEffect(() => {
@@ -76,7 +96,26 @@ export function ProjectSettingsPanel({
   const error = settingsQuery.error ?? modelsQuery.error ?? save.error;
 
   if (!settings) {
-    return <p className="text-sm text-muted">{error instanceof Error ? error.message : "Cargando ajustes del proyecto…"}</p>;
+    if (error) {
+      return (
+        <div className={`${card} items-start`} role="alert">
+          <p className="text-sm text-danger">
+            {friendlyError(error, "No se pudieron cargar los ajustes del proyecto.")}
+          </p>
+          <button
+            type="button"
+            className={buttonGhost}
+            onClick={() => {
+              void settingsQuery.refetch();
+              if (modelsQuery.error) void modelsQuery.refetch();
+            }}
+          >
+            Reintentar
+          </button>
+        </div>
+      );
+    }
+    return <p className="text-sm text-muted">Cargando ajustes del proyecto…</p>;
   }
 
   return (
@@ -84,23 +123,33 @@ export function ProjectSettingsPanel({
       {showGeneral && (
       <form
         className={`${card} gap-3`}
-        onSubmit={(event) => {
+        onSubmit={(event: FormEvent) => {
           event.preventDefault();
+          if (!name.trim()) {
+            setNameError("El nombre es obligatorio.");
+            setStatus(undefined);
+            return;
+          }
+          setNameError(undefined);
           save.mutate();
         }}
         aria-label="Ajustes del proyecto"
+        noValidate
       >
         <h2 className="text-base font-semibold text-slate-100">Identidad y modelo</h2>
-        <label>
-          Nombre
-          <input value={name} onChange={(event) => setName(event.target.value)} />
-        </label>
-        <label>
-          Descripción
+        <Field id="project-name" label="Nombre" error={nameError}>
+          <input
+            value={name}
+            onChange={(event) => {
+              setName(event.target.value);
+              if (nameError) setNameError(undefined);
+            }}
+          />
+        </Field>
+        <Field id="project-description" label="Descripción">
           <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
-        </label>
-        <label>
-          Modelo por defecto del proyecto
+        </Field>
+        <Field id="project-default-model" label="Modelo por defecto del proyecto">
           <select value={defaultModel} onChange={(event) => setDefaultModel(event.target.value)}>
             <option value="">Usar el modelo global</option>
             {models.map((model) => (
@@ -110,18 +159,16 @@ export function ProjectSettingsPanel({
               </option>
             ))}
           </select>
-        </label>
-        <label>
-          Agente principal
+        </Field>
+        <Field id="project-primary-agent" label="Agente principal">
           <input
             value={primaryAgent}
             onChange={(event) => setPrimaryAgent(event.target.value)}
             placeholder="principal/agente"
           />
-        </label>
+        </Field>
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Aprobaciones</h3>
-        <label>
-          Canal de aprobación del proyecto
+        <Field id="project-approval-channel" label="Canal de aprobación del proyecto">
           <select
             value={approvalIntegrationId}
             onChange={(event) => setApprovalIntegrationId(event.target.value)}
@@ -135,16 +182,15 @@ export function ProjectSettingsPanel({
                 </option>
               ))}
           </select>
-        </label>
-        <label>
-          Destinatario de aprobación
+        </Field>
+        <Field id="project-approval-recipient" label="Destinatario de aprobación">
           <input
             value={approvalRecipient}
             onChange={(event) => setApprovalRecipient(event.target.value)}
             placeholder="ID de destino o 123456789"
             list="project-approval-destinations"
           />
-        </label>
+        </Field>
         <datalist id="project-approval-destinations">
           {destinations.map((destination) => (
             <option key={destination.id} value={destination.id}>
@@ -156,8 +202,7 @@ export function ProjectSettingsPanel({
           Puedes usar un destino etiquetado de la sección Destinos o un valor crudo; los valores existentes siguen siendo válidos.
         </p>
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Transcripción</h3>
-        <label>
-          Conexión de transcripción por defecto
+        <Field id="project-transcription" label="Conexión de transcripción por defecto">
           <select
             value={transcriptionIntegrationId}
             onChange={(event) => setTranscriptionIntegrationId(event.target.value)}
@@ -171,16 +216,15 @@ export function ProjectSettingsPanel({
                 </option>
               ))}
           </select>
-        </label>
+        </Field>
         <p className="text-xs text-muted">
           Se usa para transcribir audio en modo agente. Los nodos Transcribir pueden elegir otra conexión.
         </p>
         {settings.integrations.every((integration) => integration.kind !== "transcription") && (
-          <p className="text-xs text-warn">Crea una integración de Transcripción en Recursos para habilitar audio.</p>
+          <p className="text-xs text-warn">Crea una integración de Transcripción en Integraciones para habilitar audio.</p>
         )}
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Voz</h3>
-        <label>
-          Conexión de voz por defecto
+        <Field id="project-speech" label="Conexión de voz por defecto">
           <select value={speechIntegrationId} onChange={(event) => setSpeechIntegrationId(event.target.value)}>
             <option value="">Sin conexión por defecto</option>
             {settings.integrations
@@ -191,14 +235,14 @@ export function ProjectSettingsPanel({
                 </option>
               ))}
           </select>
-        </label>
+        </Field>
         <p className="text-xs text-muted">
           Se usa para responder con audio en Telegram y para los nodos Generar voz que no eligen otra conexión.
         </p>
         {settings.integrations.every((integration) => integration.kind !== "speech") && (
-          <p className="text-xs text-warn">Crea una integración de Voz (TTS) en Recursos para habilitar la respuesta por audio.</p>
+          <p className="text-xs text-warn">Crea una integración de Voz (TTS) en Integraciones para habilitar la respuesta por audio.</p>
         )}
-        <button className={buttonPrimary} disabled={save.isPending || !name}>
+        <button className={buttonPrimary} disabled={save.isPending}>
           Guardar ajustes
         </button>
         {status && <p className="text-sm text-ok">{status}</p>}
@@ -226,6 +270,160 @@ export function ProjectSettingsPanel({
           <span className={badge}>{settings.notebooks.length} notebooks</span>
         </div>
       </aside>
+      )}
+    </div>
+  );
+}
+
+function ProjectSecretsPanel({ projectSlug }: { projectSlug: string }) {
+  const queryClient = useQueryClient();
+  const secretsQuery = useQuery({
+    queryKey: qk.projectSecrets(projectSlug),
+    queryFn: () => api.listProjectSecrets(projectSlug).then((result) => result.data),
+  });
+  const [alias, setAlias] = useState("");
+  const [value, setValue] = useState("");
+  const [aliasError, setAliasError] = useState<string>();
+  const [valueError, setValueError] = useState<string>();
+  const [status, setStatus] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [pendingDelete, setPendingDelete] = useState<string>();
+
+  const save = useMutation({
+    mutationFn: (input: { alias: string; value: string }) =>
+      api.saveProjectSecret(projectSlug, input.alias, input.value),
+    onSuccess: async () => {
+      setAlias("");
+      setValue("");
+      setStatus("Secreto guardado en la bóveda del proyecto");
+      setError(undefined);
+      await queryClient.invalidateQueries({ queryKey: qk.projectSecrets(projectSlug) });
+    },
+    onError: (cause) => setError(friendlyError(cause, "No se pudo guardar el secreto.")),
+  });
+
+  const remove = useMutation({
+    mutationFn: (target: string) => api.deleteProjectSecret(projectSlug, target),
+    onSuccess: async () => {
+      setPendingDelete(undefined);
+      setStatus("Secreto eliminado");
+      setError(undefined);
+      await queryClient.invalidateQueries({ queryKey: qk.projectSecrets(projectSlug) });
+    },
+    onError: (cause) => {
+      setPendingDelete(undefined);
+      setError(friendlyError(cause, "No se pudo eliminar el secreto."));
+    },
+  });
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const nextAlias = alias.trim();
+    const nextValue = value;
+    const nextAliasError = !nextAlias
+      ? "El alias es obligatorio."
+      : ALIAS_PATTERN.test(nextAlias)
+        ? undefined
+        : "El alias debe empezar por una letra y usar solo letras, números, :, _ o -.";
+    const nextValueError = nextValue ? undefined : "El valor es obligatorio.";
+    setAliasError(nextAliasError);
+    setValueError(nextValueError);
+    if (nextAliasError || nextValueError) {
+      setStatus(undefined);
+      return;
+    }
+    save.mutate({ alias: nextAlias, value: nextValue });
+  }
+
+  const secrets = secretsQuery.data ?? [];
+  const queryError = secretsQuery.error instanceof Error ? secretsQuery.error.message : undefined;
+
+  return (
+    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <form className={`${card} gap-3`} onSubmit={submit} aria-label="Secretos del proyecto" noValidate>
+        <h2 className="text-base font-semibold text-slate-100">Secretos del proyecto</h2>
+        <p className="text-xs text-muted">
+          Se guardan en la bóveda del proyecto y se resuelven solo en el servidor: nunca llegan al agente ni a los workers.
+        </p>
+        <Field
+          id="secret-alias"
+          label="Alias"
+          hint="Empieza por una letra y usa solo letras, números, :, _ o -."
+          error={aliasError}
+        >
+          <input
+            value={alias}
+            onChange={(event) => {
+              setAlias(event.target.value);
+              if (aliasError) setAliasError(undefined);
+            }}
+            placeholder="openai_key"
+            autoComplete="off"
+          />
+        </Field>
+        <Field id="secret-value" label="Valor" error={valueError}>
+          <input
+            type="password"
+            value={value}
+            onChange={(event) => {
+              setValue(event.target.value);
+              if (valueError) setValueError(undefined);
+            }}
+            placeholder="Valor del secreto"
+            autoComplete="off"
+          />
+        </Field>
+        <button className={buttonPrimary} disabled={save.isPending}>
+          {save.isPending ? "Guardando…" : "Guardar secreto"}
+        </button>
+        {status && <p className="text-sm text-ok">{status}</p>}
+        {(error || queryError) && <p className="text-sm text-danger">{error ?? queryError}</p>}
+      </form>
+
+      <aside className={`${card} gap-2`}>
+        <h2 className="text-base font-semibold text-slate-100">Alias guardados</h2>
+        <p className="text-xs text-muted">
+          Referencia un alias desde una integración o un nodo con <code>{`{{secret:alias}}`}</code>.
+        </p>
+        <ul className="flex flex-col gap-2">
+          {secrets.map((secret) => (
+            <li
+              key={secret.alias}
+              className="flex items-center justify-between gap-2 rounded-lg border border-line bg-well p-2"
+            >
+              <span className="min-w-0">
+                <strong className="block truncate text-sm text-slate-200">{secret.alias}</strong>
+                <small className="text-xs text-muted">{secret.kind}</small>
+              </span>
+              <button
+                type="button"
+                className={buttonGhost}
+                aria-label={`Borrar el secreto ${secret.alias}`}
+                onClick={() => setPendingDelete(secret.alias)}
+              >
+                Borrar
+              </button>
+            </li>
+          ))}
+          {secrets.length === 0 && !secretsQuery.isLoading && (
+            <li className="text-sm text-muted">Sin secretos de proyecto.</li>
+          )}
+        </ul>
+      </aside>
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title="Eliminar secreto"
+          confirmLabel="Eliminar"
+          pending={remove.isPending}
+          onCancel={() => setPendingDelete(undefined)}
+          onConfirm={() => remove.mutate(pendingDelete)}
+        >
+          <p className="text-sm text-muted">
+            Se eliminará el secreto <strong>{pendingDelete}</strong> de la bóveda del proyecto. Las integraciones que lo
+            referencian dejarán de resolverlo.
+          </p>
+        </ConfirmDialog>
       )}
     </div>
   );

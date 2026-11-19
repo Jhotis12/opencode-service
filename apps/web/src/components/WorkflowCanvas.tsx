@@ -22,6 +22,8 @@ import { PlatformEdge, type PlatformFlowEdge } from "./PlatformEdge.tsx";
 import { CanvasActionsContext } from "./nodes/canvas-actions.ts";
 import { NODE_META } from "./nodes/node-catalog.ts";
 import { getConnectionIssue, resolveConnection, type GraphIssue } from "./canvas/graph-edits.ts";
+import { ShortcutsHelp, ZoomReadout } from "./canvas/canvas-overlays.tsx";
+import { focusRing } from "../ui.ts";
 
 const nodeTypes = { platform: PlatformNode };
 const edgeTypes = { platform: PlatformEdge };
@@ -283,14 +285,9 @@ export function WorkflowCanvas({
   }, [connecting, onCancelConnect]);
 
   function handleNodesChange(changes: NodeChange<PlatformFlowNode>[]) {
-    onNodesChange(changes);
-    const removed = changes.filter((change) => change.type === "remove").map((change) => change.id);
-    if (removed.length === 0) return;
-    onChange({
-      ...graph,
-      nodes: graph.nodes.filter((node) => !removed.includes(node.id)),
-      edges: graph.edges.filter((edge) => !removed.includes(edge.source) && !removed.includes(edge.target)),
-    });
+    const removals = changes.filter((change) => change.type === "remove");
+    onNodesChange(removals.length > 0 ? changes.filter((change) => change.type !== "remove") : changes);
+    for (const removal of removals) onDeleteNode(removal.id);
   }
 
   function handleEdgesChange(changes: EdgeChange<PlatformFlowEdge>[]) {
@@ -381,19 +378,21 @@ export function WorkflowCanvas({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="rounded-lg border border-line bg-well/90 px-3 py-2 text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent"
+                className={`rounded-lg border border-line bg-well/90 px-3 py-2 text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent ${focusRing}`}
                 onClick={onOpenPalette}
               >
                 + Nodo
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-line bg-well/90 px-3 py-2 text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent"
+                className={`rounded-lg border border-line bg-well/90 px-3 py-2 text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent ${focusRing}`}
                 onClick={fitOverview}
                 aria-label="Ajustar vista del flujo"
               >
                 Ajustar vista
               </button>
+              <ZoomReadout />
+              <ShortcutsHelp />
             </div>
           </Panel>
           {connecting && (

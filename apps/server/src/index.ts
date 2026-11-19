@@ -5,6 +5,7 @@ const port = Number(process.env.PORT ?? 3000);
 
 const application = await createApplication({
   dataDir,
+  defaultModel: process.env.DEFAULT_MODEL,
   initialAdminPassword: process.env.INITIAL_ADMIN_PASSWORD,
   serviceToken: process.env.PLATFORM_SERVICE_TOKEN,
   globalServiceToken: process.env.PLATFORM_GLOBAL_TOKEN,

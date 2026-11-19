@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatTurnEvent, ChatTurnStatus } from "@platform/shared";
 import { ChatTurnStreamError, type ChatHistoryMessage, type ChatTurnResult } from "../api.ts";
 import { useChatTurn } from "../useChatTurn.ts";
 import { BrandMark } from "./Brand.tsx";
-import { buttonGhost, buttonPrimary } from "../ui.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { EmptyState } from "./EmptyState.tsx";
+import { Field } from "./Field.tsx";
+import { Skeleton } from "./Skeleton.tsx";
+import { buttonGhost, buttonPrimary, focusRing, input as inputField } from "../ui.ts";
 
 type ChatActivity = {
   id: string;
@@ -20,8 +24,13 @@ export interface ChatMessage {
 
 type ChatSurface = "docked" | "minimized";
 
+/** Lifecycle of the history that feeds the panel. */
+export type ChatHistoryStatus = "loading" | "ready" | "error";
+
 const WELCOME =
   "Hola. Soy el agente principal de este proyecto. Puedo crear o editar nodos, sub-agentes y ejecutar el flujo. Te hablaré en términos de nodos y resultados; si necesitas el detalle técnico, lo abrimos.";
+
+const COPY_FEEDBACK_MS = 2000;
 
 function formatElapsed(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -39,6 +48,8 @@ function turnStatusLabel(status: ChatTurnStatus | undefined, connection: string)
       return "Recuperando el turno";
     case "running":
       return "Agente trabajando";
+    case "cancelled":
+      return "Turno cancelado";
     default:
       return "Agente trabajando";
   }
@@ -53,12 +64,56 @@ function nodeText(node: ReactNode): string {
   return "";
 }
 
-async function copyText(text: string): Promise<void> {
+/** Copies text to the clipboard; falls back to a hidden textarea when the async API is unavailable. */
+async function writeClipboard(text: string): Promise<boolean> {
   try {
-    await navigator.clipboard.writeText(text);
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
   } catch {
-    // Clipboard can be unavailable in non-secure contexts; the user can still select the text.
+    // Fall through to the legacy selection path below.
   }
+  if (typeof document === "undefined") return false;
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.top = "-1000px";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  area.select();
+  try {
+    return typeof document.execCommand === "function" ? document.execCommand("copy") : false;
+  } catch {
+    return false;
+  } finally {
+    area.remove();
+  }
+}
+
+function copyLabel(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (!flat) return "Copiar mensaje";
+  return `Copiar mensaje: ${flat.length > 48 ? `${flat.slice(0, 48)}…` : flat}`;
+}
+
+function ChatBubbleIcon() {
+  return (
+    <svg
+      width={32}
+      height={32}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M20 15a3 3 0 0 1-3 3H8l-4 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3z" />
+    </svg>
+  );
 }
 
 function MarkdownMessage({ text }: { text: string }) {
@@ -92,7 +147,8 @@ function MarkdownMessage({ text }: { text: string }) {
                 <button
                   type="button"
                   className="absolute right-2 top-2 z-10 rounded border border-line bg-panel px-2 py-1 text-[11px] text-muted hover:text-slate-100"
-                  onClick={() => void copyText(raw)}
+                  aria-label="Copiar código"
+                  onClick={() => void writeClipboard(raw)}
                 >
                   Copiar
                 </button>
@@ -128,6 +184,9 @@ export function ChatPanel({
   onMinimize,
   onBusyChange,
   onActivityChange,
+  historyStatus = "ready",
+  historyError,
+  onRetryHistory,
 }: {
   onSend(message: string, onEvent: (event: ChatTurnEvent) => void): Promise<ChatTurnResult | string>;
   onAttachTurn?: (turnId: string, onEvent: (event: ChatTurnEvent) => void) => Promise<ChatTurnResult>;
@@ -143,9 +202,20 @@ export function ChatPanel({
   onMinimize?: () => void;
   onBusyChange?: (busy: boolean) => void;
   onActivityChange?: (activity: string | undefined) => void;
+  /** Loading, ready or failed state of the history that feeds the panel. */
+  historyStatus?: ChatHistoryStatus;
+  /** Message shown when the history could not be loaded. */
+  historyError?: string;
+  /** Retry action offered by the history error state. */
+  onRetryHistory?: () => void;
 }) {
   const turn = useChatTurn({ attachTurn: onAttachTurn, cancelTurn: onCancelTurn, retryTurn: onRetryTurn });
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Seed the history on the first render so the panel never paints the empty
+  // state before the persisted messages arrive.
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const history = (initialMessages ?? []).map((message) => ({ role: message.role, text: message.content }));
+    return history.length > 0 ? history : [{ role: "agent", text: welcome }];
+  });
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
@@ -157,6 +227,12 @@ export function ChatPanel({
     return "docked";
   });
   const [atBottom, setAtBottom] = useState(true);
+  const [query, setQuery] = useState("");
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<{ key: string; ok: boolean } | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const searchId = useId();
   const listRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef(busy);
@@ -164,6 +240,21 @@ export function ChatPanel({
   const reconnectRef = useRef(turn.reconnect);
   reconnectRef.current = turn.reconnect;
   const attachedTurnRef = useRef<string | undefined>(undefined);
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleMessages = messages
+    .map((message, index) => ({ message, index }))
+    .filter(({ message }) => !normalizedQuery || message.text.toLowerCase().includes(normalizedQuery));
+
+  useEffect(() => () => clearTimeout(copyTimerRef.current), []);
+
+  function handleCopy(key: string, text: string) {
+    clearTimeout(copyTimerRef.current);
+    void writeClipboard(text).then((ok) => {
+      setCopyFeedback({ key, ok });
+      copyTimerRef.current = setTimeout(() => setCopyFeedback(null), COPY_FEEDBACK_MS);
+    });
+  }
 
   useEffect(() => {
     // A query refetch can deliver the persisted agent reply while the streamed
@@ -299,18 +390,49 @@ export function ChatPanel({
     setAtBottom(element.scrollHeight - element.scrollTop - element.clientHeight < 48);
   }
 
+  const cancelDialog = confirmCancelOpen ? (
+    <ConfirmDialog
+      title="Cancelar el turno"
+      confirmLabel="Cancelar turno"
+      cancelLabel="Seguir trabajando"
+      pending={cancelling}
+      onCancel={() => setConfirmCancelOpen(false)}
+      onConfirm={() => {
+        setCancelling(true);
+        void (async () => {
+          try {
+            await turn.cancel();
+          } catch (error) {
+            setMessages((current) => [
+              ...current,
+              { role: "system", text: `Error: ${error instanceof Error ? error.message : String(error)}` },
+            ]);
+          } finally {
+            setCancelling(false);
+            setConfirmCancelOpen(false);
+          }
+        })();
+      }}
+    >
+      <p className="text-sm text-slate-200">¿Cancelar este turno? Puede quedar trabajo parcial en el proyecto.</p>
+    </ConfirmDialog>
+  ) : null;
+
   if (surface === "minimized") {
     return (
-      <button
-        type="button"
-        className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-accent/40 bg-panel px-4 py-3 text-sm text-slate-100 shadow-2xl hover:border-accent"
-        onClick={() => setSurface("docked")}
-        aria-label="Restaurar chat del agente"
-      >
-        <BrandMark size={16} />
-        {title}
-        {messages.length > 1 && <span className="rounded-full bg-accent px-1.5 text-[11px] text-ink">{messages.length}</span>}
-      </button>
+      <>
+        <button
+          type="button"
+          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-accent/40 bg-panel px-4 py-3 text-sm text-slate-100 shadow-2xl hover:border-accent"
+          onClick={() => setSurface("docked")}
+          aria-label="Restaurar chat del agente"
+        >
+          <BrandMark size={16} />
+          {title}
+          {messages.length > 1 && <span className="rounded-full bg-accent px-1.5 text-[11px] text-ink">{messages.length}</span>}
+        </button>
+        {cancelDialog}
+      </>
     );
   }
 
@@ -339,6 +461,30 @@ export function ChatPanel({
           </button>
         </div>
       </header>
+      <div className="flex items-end gap-2">
+        <div className="min-w-0 flex-1">
+          <Field id={searchId} label="Buscar en el chat">
+            <input
+              type="search"
+              className={`${inputField} [&::-webkit-search-cancel-button]:appearance-none`}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Filtra el historial del chat…"
+              autoComplete="off"
+            />
+          </Field>
+        </div>
+        {normalizedQuery && (
+          <button type="button" className={buttonGhost} onClick={() => setQuery("")} aria-label="Limpiar búsqueda">
+            Limpiar
+          </button>
+        )}
+      </div>
+      {normalizedQuery && (
+        <p className="text-[11px] text-muted" role="status">
+          {visibleMessages.length} de {messages.length} mensajes coinciden con «{query.trim()}»
+        </p>
+      )}
       <div
         ref={listRef}
         className={`flex flex-col gap-2 overflow-auto pr-1 ${fill ? "min-h-0 flex-1" : "max-h-80"}`}
@@ -346,22 +492,74 @@ export function ChatPanel({
         aria-live="polite"
         data-testid="chat-messages"
       >
-        {messages.map((message, index) => (
-          <article
-            key={index}
-            className={`whitespace-pre-wrap rounded-[10px] px-3 py-2 text-sm leading-relaxed ${
-              message.role === "user"
-                ? "ml-auto max-w-[90%] border border-accent/30 bg-accent/10"
-                : message.role === "system"
-                  ? "border border-danger/35 bg-danger/10 text-rose-200"
-                  : "border border-line bg-well"
-            }`}
+        {historyStatus === "loading" ? (
+          <>
+            <p className="sr-only" role="status">
+              Cargando el historial del chat…
+            </p>
+            <div aria-hidden="true" className="flex flex-col gap-2">
+              <Skeleton shape="block" size="sm" />
+              <Skeleton shape="block" size="sm" />
+              <Skeleton shape="block" size="sm" />
+            </div>
+          </>
+        ) : historyStatus === "error" ? (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2.5"
           >
-            {message.role === "agent" ? <MarkdownMessage text={message.text} /> : message.text}
-          </article>
-        ))}
+            <p className="text-sm text-danger">{historyError ?? "No se pudo cargar el historial del chat."}</p>
+            {onRetryHistory && (
+              <button type="button" className={buttonGhost} onClick={onRetryHistory}>
+                Reintentar
+              </button>
+            )}
+          </div>
+        ) : visibleMessages.length === 0 ? (
+          <EmptyState
+            icon={<ChatBubbleIcon />}
+            title={normalizedQuery ? "Ningún mensaje coincide" : "Todavía no hay mensajes"}
+            description={
+              normalizedQuery
+                ? `Ningún mensaje del historial contiene «${query.trim()}».`
+                : "Envía un mensaje para empezar la conversación con el agente."
+            }
+            action={
+              normalizedQuery ? (
+                <button type="button" className={buttonPrimary} onClick={() => setQuery("")}>
+                  Ver todo el historial
+                </button>
+              ) : undefined
+            }
+          />
+        ) : (
+          visibleMessages.map(({ message, index }) => (
+            <article
+              key={index}
+              className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-relaxed ${
+                message.role === "user"
+                  ? "ml-auto max-w-[90%] border border-accent/30 bg-accent/10"
+                  : message.role === "system"
+                    ? "border border-danger/35 bg-danger/10 text-danger"
+                    : "border border-line bg-well"
+              }`}
+            >
+              {message.role === "agent" ? <MarkdownMessage text={message.text} /> : message.text}
+              <div className="mt-1 flex justify-end">
+                <button
+                  type="button"
+                  className={`rounded-md px-1.5 py-0.5 text-[11px] text-muted transition hover:bg-panel-2 hover:text-slate-100 ${focusRing}`}
+                  aria-label={copyLabel(message.text)}
+                  onClick={() => handleCopy(String(index), message.text)}
+                >
+                  {copyFeedback?.key === String(index) ? (copyFeedback.ok ? "Copiado" : "No se pudo copiar") : "Copiar"}
+                </button>
+              </div>
+            </article>
+          ))
+        )}
         {busy && (
-          <article className="flex flex-col gap-2 rounded-[10px] border border-accent/25 bg-well px-3 py-2.5 text-sm">
+          <article className="flex flex-col gap-2 rounded-lg border border-accent/25 bg-well px-3 py-2.5 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="flex items-center gap-1.5 text-[11px] font-medium text-accent">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
@@ -370,15 +568,7 @@ export function ChatPanel({
               <div className="flex items-center gap-2">
                 <small className="text-[11px] text-muted">{elapsed > 0 ? formatElapsed(elapsed) : "ahora"}</small>
                 {turn.turnId && onCancelTurn && (
-                  <button
-                    type="button"
-                    className={buttonGhost}
-                    onClick={() => {
-                      if (window.confirm("¿Cancelar este turno? Puede quedar trabajo parcial en el proyecto.")) {
-                        void turn.cancel();
-                      }
-                    }}
-                  >
+                  <button type="button" className={buttonGhost} onClick={() => setConfirmCancelOpen(true)}>
                     Cancelar
                   </button>
                 )}
@@ -463,6 +653,7 @@ export function ChatPanel({
           Enviar
         </button>
       </form>
+      {cancelDialog}
     </section>
   );
 }

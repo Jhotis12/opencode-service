@@ -9,7 +9,7 @@ target.
 ## 1. Brand
 
 - **Name:** Agentic Platform.
-- **Descriptor:** Automatizaciones agénticas sobre OpenCode. The navigation uses
+- **Descriptor (canonical):** Automatizaciones agénticas sobre OpenCode. The navigation uses
   the short form `Agentes sobre OpenCode`.
 - **Mark:** "Nodo abierto", an original open square O with a filled node and a
   terminal caret. It references code, agents and OpenCode without copying the
@@ -98,6 +98,22 @@ fallback. Code uses `--font-mono`.
 
 ## 5. Components
 
+### Shared primitives
+
+Six primitives are shared by every screen. They live in
+`apps/web/src/components/`; compose them instead of rebuilding the same markup,
+because they carry the tokens and the accessibility wiring. The props below are
+the contract — do not invent extras.
+
+| Primitive | File | Props | Use when |
+| --- | --- | --- | --- |
+| `PageHeader` | `apps/web/src/components/PageHeader.tsx` | `title`, `description?`, `actions?`, `breadcrumbs?` | top of every page: title, optional description, breadcrumbs and page-level actions |
+| `EmptyState` | `apps/web/src/components/EmptyState.tsx` | `icon`, `title`, `description`, `action?` | a list or panel has zero items: icon, short explanation and one next action |
+| `Skeleton` | `apps/web/src/components/Skeleton.tsx` | `shape?` (`line` \| `block` \| `circle`), `size?` (`sm` \| `md` \| `lg`), `className?` | loading placeholders shaped like the final content |
+| `ConfirmDialog` | `apps/web/src/components/ConfirmDialog.tsx` | `title`, `children`, `confirmLabel`, `cancelLabel?`, `confirmationText?`, `confirmationLabel?`, `pending?`, `onCancel`, `onConfirm` | destructive or irreversible confirmations; typed `confirmationText` guards the risky ones and `pending` disables confirm while the action runs |
+| `Field` | `apps/web/src/components/Field.tsx` | `id`, `label`, `hint?`, `error?`, `children` | every form control: wraps one control and wires `id`, `aria-describedby`, `aria-invalid` |
+| `Tabs` | `apps/web/src/components/Tabs.tsx` | `items` (`id`, `label`, `content`, `disabled?`), `value?`, `defaultValue?`, `onValueChange?`, `aria-label` | sibling sections inside one page; roving tabindex with Arrow/Home/End keys |
+
 ### Buttons
 
 Primary, secondary, ghost and danger variants. Every button has hover,
@@ -135,10 +151,20 @@ reachable while the body scrolls.
 ### Project top bar
 
 One row at 1280 px and 1440 px. Left: breadcrumb and project name. Center:
-scrollable six-tab strip with fade affordances. Right: unsaved dot, Save, Run,
-Agent and an overflow menu containing Versiones and Ajustes del flujo. The
-project name truncates before any tab label is clipped. At 1280 px the save
-action reads `Guardar`; from 1400 px it expands to `Guardar flujo`.
+scrollable tab strip with fade affordances and seven routed sections: Resumen,
+Flujo, Ejecuciones, Agentes, Conocimiento, Integraciones and Ajustes. Each tab is
+a URL under `/projects/:slug/`, so reload and deep links land on the same
+section; `/projects/:slug` redirects to `overview`. Right, in implementation
+order: issue badge (only when the flow has problems), unsaved dot, overflow
+menu, `Guardar`/`Guardar flujo`, `Ejecutar` and `Agente`.
+The overflow menu contains Versiones del flujo, Biblioteca del flujo and Ajustes
+del flujo. The project name truncates before any tab label is clipped. The save
+action reads `Guardar` at 1280 px and expands to `Guardar flujo` from 1400 px.
+
+The rail above the project shell has five global destinations: Proyectos,
+Ejecuciones, Orquestador global, Ajustes and Salud del sistema. Ejecuciones is
+the cross-project run history with filters, child-run grouping and JSON/CSV
+export; it uses the list template.
 
 ### Canvas
 
@@ -170,6 +196,46 @@ action reads `Guardar`; from 1400 px it expands to `Guardar flujo`.
 - Keyboard focus is visible; the composer, send, close/minimize and copy actions
   are reachable.
 
+### Page templates
+
+Every screen is one of four templates. Each starts with `PageHeader` and
+composes the shared primitives; the state matrix below applies to all of them.
+
+- **List** — `PageHeader` (title, description, create action in `actions`), a
+  toolbar with search and filters, then the content region. Rows keep a stable
+  height with `truncate` + `title`.
+- **Detail** — `PageHeader` with `breadcrumbs` and record actions over a stack
+  of cards or sections. Sub-collections inside it follow the List states.
+- **Editor** — `PageHeader` with save/run actions and the unsaved dot, grouped
+  sections (often `Tabs`), every control inside a `Field`, and a sticky footer
+  so the primary action stays reachable while the body scrolls.
+- **Settings** — `PageHeader` then `Tabs` or stacked section cards of `Field`
+  forms. Destructive actions live in their own zone and open `ConfirmDialog`.
+
+### State matrix
+
+Forms (editors and settings), lists (tables and card grids) and dialogs
+(`Modal`/`ConfirmDialog` bodies) each handle the five shared states:
+
+| State | Forms | Lists | Dialogs |
+| --- | --- | --- | --- |
+| Loading | controls disabled; primary action shows `pending` | `Skeleton` rows matching the final layout | `ConfirmDialog` `pending` disables confirm; cancel and close stay available |
+| Empty | no record to edit: `EmptyState` or `Field` `hint` explains it; never a silent blank form | `EmptyState` with icon, explanation and one next action | body explains there is nothing to choose or confirm yet |
+| Error | `Field` `error` under the control with `aria-invalid`; summary near the primary action | error message and a retry action; never the empty state | error text in the body; confirm re-enables after the failure |
+| Success | saved feedback or navigation; stale errors are cleared | the data itself; success feedback is transient | the dialog closes on success (exit 140 ms) |
+| Disabled | control disabled with `Field` `hint` explaining why; submit disabled until valid | row actions disabled with an accessible reason | confirm disabled until valid (e.g. `confirmationText` not typed) or while `pending` |
+
+Per-primitive states — the mapping the matrix must keep complete:
+
+- `Skeleton` → Loading.
+- `EmptyState` → Empty.
+- `Field` → Error (`error`) and Disabled (`hint` plus the control's `disabled`).
+- `ConfirmDialog` → Disabled (`pending`, `confirmationText`) and Success (it
+  closes with the 140 ms exit).
+- `Tabs` → Disabled (`items[].disabled`).
+- `PageHeader` → hosts the page-level Loading/Disabled actions (disabled save,
+  `pending` run) in `actions`; it has no state of its own.
+
 ## 6. Motion
 
 Use the tokens and rules in `docs/ui-motion.md`:
@@ -181,6 +247,21 @@ Use the tokens and rules in `docs/ui-motion.md`:
 - `prefers-reduced-motion` keeps opacity/colour changes but removes movement,
   pulses and smooth scrolling.
 - Do not animate keyboard-initiated high-frequency actions.
+
+## Guia externa
+
+External guidance is installed as two skills, both vendored under
+`.agents/skills/` and pinned by commit in `skills-lock.json`:
+`modern-web-guidance` (source `GoogleChrome/modern-web-guidance`) and
+`frontend-design` (source `anthropics/skills`).
+
+- **`modern-web-guidance`** — use before every HTML/CSS/client-side JS UI
+  decision (patterns, APIs, forms, accessibility, performance). Exact command:
+  `npx modern-web-guidance search "<topic>"`, then follow the returned guide
+  with `npx modern-web-guidance retrieve "<id>"`.
+- **`frontend-design`** — use for aesthetic direction: visual identity,
+  palette, typography and layout composition. It does not replace the
+  platform-pattern search above.
 
 ## 7. Accessibility
 

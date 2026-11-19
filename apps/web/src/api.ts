@@ -91,6 +91,7 @@ export interface RunRecord {
   workflowId: string;
   status: string;
   entryPoint: string;
+  parentRunId?: string;
   launchedBy?: string;
   graphHash?: string;
   integrationId?: string;
@@ -102,6 +103,105 @@ export interface RunRecord {
   steps: StepRun[];
 }
 
+export const RUNS_LIST_LIMIT = 100;
+
+/** Etiquetas visibles en español para el campo "Origen" (`entryPoint`). */
+export function runOriginLabel(entryPoint: string): string {
+  switch (entryPoint) {
+    case "web_ui":
+      return "Interfaz web";
+    case "global_orchestrator":
+      return "Orquestador global";
+    case "schedule":
+    case "scheduler":
+      return "Programado";
+    case "webhook":
+      return "Webhook";
+    case "telegram":
+      return "Telegram";
+    case "whatsapp":
+      return "WhatsApp";
+    case "email":
+      return "Correo";
+    case "external_chat":
+      return "Chat externo";
+    case "replay":
+      return "Re-ejecución";
+    case "bootstrap":
+      return "Arranque";
+    case "worker":
+      return "Proceso interno";
+    case "system":
+      return "Sistema";
+    default:
+      return entryPoint;
+  }
+}
+
+/**
+ * Etiqueta visible para el detalle técnico de origen (`sourceDetail`), que llega del
+ * servidor como `prefijo:detalle`. El detalle conserva el identificador para poder
+ * cruzarlo con el flujo, los nodos o las integraciones.
+ */
+export function runSourceLabel(sourceDetail: string): string {
+  const separator = sourceDetail.indexOf(":");
+  const kind = separator === -1 ? sourceDetail : sourceDetail.slice(0, separator);
+  const detail = separator === -1 ? "" : sourceDetail.slice(separator + 1);
+  const shortId = detail.slice(0, 8);
+  switch (kind) {
+    case "canvas":
+      return "Lienzo web";
+    case "webhook":
+      return `Webhook · ${detail}`;
+    case "replay":
+      return `Re-ejecución de ${shortId}`;
+    case "subworkflow":
+      return `Subflujo ${shortId}`;
+    case "foreach":
+      return `Bucle ${shortId}`;
+    case "integration":
+      return `Integración ${shortId}`;
+    case "cron":
+      return `Programación · ${detail}`;
+    case "once":
+      return "Una vez";
+    default:
+      return sourceDetail;
+  }
+}
+
+/** Filtros de la consulta global de ejecuciones (`/api/control/runs`). */
+export interface RunListFilters {
+  status?: string;
+  project?: string;
+  entryPoint?: string;
+  /** ISO date or datetime; a date-only value starts at 00:00:00.000Z. */
+  from?: string;
+  /** ISO date or datetime; a date-only value covers the whole day in UTC. */
+  to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface RunListPage {
+  data: RunRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+function runListQuery(filters: RunListFilters): string {
+  const params = new URLSearchParams();
+  if (filters.status) params.set("status", filters.status);
+  if (filters.project) params.set("project", filters.project);
+  if (filters.entryPoint) params.set("entryPoint", filters.entryPoint);
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  if (filters.limit !== undefined) params.set("limit", String(filters.limit));
+  if (filters.offset !== undefined) params.set("offset", String(filters.offset));
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
 export interface ScheduleState {
   nodeId: string;
   workflowId: string;
@@ -163,6 +263,7 @@ export interface SourceSummary {
   title: string;
   kind: string;
   summary: string;
+  uri?: string;
   createdAt: string;
 }
 
@@ -389,7 +490,8 @@ export const api = {
       `/api/projects/${slug}/workflow/versions/${version}/rollback`,
       { method: "POST" },
     ),
-  listRuns: (slug: string) => request<{ data: RunRecord[] }>(`/api/projects/${slug}/runs?limit=20`),
+  listRuns: (slug: string, limit = RUNS_LIST_LIMIT) =>
+    request<{ data: RunRecord[] }>(`/api/projects/${slug}/runs?limit=${limit}`),
   runWorkflow: (slug: string, payload: unknown, idempotencyKey?: string) =>
     request<RunRecord>(`/api/projects/${slug}/runs`, {
       method: "POST",
@@ -517,8 +619,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ alias, value, kind }),
     }),
-  deleteProjectSecret: (slug: string, alias: string) =>
-    request<{ ok: boolean }>(`/api/projects/${slug}/secrets/${alias}`, { method: "DELETE" }),
+  /** La bóveda borra el secreto del proyecto con el mismo endpoint y `?project=`. */
+  deleteProjectSecret: (slug: string, alias: string) => api.deleteSecret(alias, slug),
 
   listModels: () => request<{ data: ModelInfo[] }>("/api/models"),
   connectProvider: (apiKey: string) =>
@@ -527,11 +629,17 @@ export const api = {
   listSecrets: () => request<{ data: Array<{ alias: string; kind: string; createdAt: string }> }>("/api/vault/secrets"),
   saveSecret: (alias: string, value: string, kind = "generic") =>
     request<{ ok: boolean }>("/api/vault/secrets", { method: "POST", body: JSON.stringify({ alias, value, kind }) }),
-  deleteSecret: (alias: string) => request<{ ok: boolean }>(`/api/vault/secrets/${alias}`, { method: "DELETE" }),
+  deleteSecret: (alias: string, project?: string) =>
+    request<{ ok: boolean }>(
+      `/api/vault/secrets/${encodeURIComponent(alias)}${project ? `?project=${encodeURIComponent(project)}` : ""}`,
+      { method: "DELETE" },
+    ),
 
   listNotebooks: (slug: string) => request<{ data: NotebookSummary[] }>(`/api/projects/${slug}/notebooks`),
   createNotebook: (slug: string, input: { slug: string; name: string; description?: string }) =>
     request<NotebookSummary>(`/api/projects/${slug}/notebooks`, { method: "POST", body: JSON.stringify(input) }),
+  deleteNotebook: (slug: string, notebookSlug: string) =>
+    request<{ ok: boolean }>(`/api/projects/${slug}/notebooks/${notebookSlug}`, { method: "DELETE" }),
   listSources: (slug: string, notebookSlug: string) =>
     request<{ data: SourceSummary[] }>(`/api/projects/${slug}/notebooks/${notebookSlug}/sources`),
   uploadSource: (slug: string, notebookSlug: string, file: File) => {
@@ -546,6 +654,10 @@ export const api = {
     request<{ source: SourceSummary; chunks: number }>(`/api/projects/${slug}/notebooks/${notebookSlug}/url`, {
       method: "POST",
       body: JSON.stringify({ url }),
+    }),
+  deleteSource: (slug: string, notebookSlug: string, sourceId: string) =>
+    request<{ ok: boolean }>(`/api/projects/${slug}/notebooks/${notebookSlug}/sources/${sourceId}`, {
+      method: "DELETE",
     }),
   searchNotebook: (slug: string, notebookSlug: string, query: string) =>
     request<{ data: SearchHit[] }>(`/api/projects/${slug}/notebooks/${notebookSlug}/search`, {
@@ -591,6 +703,10 @@ export const api = {
     request<{ ok: boolean }>(`/api/control/integrations/${id}/telegram/clear-webhook`, { method: "POST" }),
   controlIntegrationQr: (id: string) => request<{ qr: string }>(`/api/control/integrations/${id}/qr`),
   controlOverview: () => request<OrchestratorOverview>("/api/control/overview"),
+  listGlobalRuns: (filters: RunListFilters = {}) =>
+    request<RunListPage>(`/api/control/runs${runListQuery(filters)}`),
+  getGlobalRun: (runId: string) =>
+    request<RunRecord>(`/api/control/runs/${encodeURIComponent(runId)}`),
   controlChat: (message: string, onEvent?: (event: ChatTurnEvent) => void, clientMessageId?: string) =>
     chatStream("/api/control/chat", message, onEvent, clientMessageId),
   controlChatHistory: () => request<{ data: ChatHistoryMessage[] }>("/api/control/chat?limit=200"),

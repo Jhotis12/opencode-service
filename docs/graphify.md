@@ -23,8 +23,8 @@ graphify install --project --platform opencode
 bun run graph:build          # code-only local graph, no API key
 bun run graph:update         # incremental AST update after code changes
 graphify query "how does the canvas fit view work?"
-graphify path "WorkflowCanvas" "ProjectPage"
-graphify explain "ProjectPage"
+graphify path "WorkflowCanvas" "ProjectLayout"
+graphify explain "ProjectLayout"
 graphify god-nodes
 ```
 

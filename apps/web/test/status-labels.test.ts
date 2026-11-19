@@ -16,6 +16,7 @@ describe("status labels", () => {
       degraded: "Degradado",
       down: "Caído",
       connected: "Conectado",
+      disconnected: "Desconectado",
       needs_config: "Falta configurar",
       qr_pending: "QR pendiente",
       error: "Error",

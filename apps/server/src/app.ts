@@ -4,13 +4,19 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { streamSSE } from "hono/streaming";
+import { z } from "zod";
 import {
   apiError,
+  EntryPointTypeSchema,
   evaluateToolPermission,
+  NodeSpecSchema,
+  PLATFORM_DEFAULT_MODEL,
+  WorkflowGraphSchema,
+  WorkflowRunStatusSchema,
   type AgentExecutionContext,
   type EffectiveSetting,
-  type WorkflowGraph,
 } from "@platform/shared";
+import type { RunListFilters } from "./application/ports/store.ts";
 import type { IntegrationRecord, UserRecord } from "./domain/entities.ts";
 import { InMemoryMetrics } from "./domain/telemetry/metrics.ts";
 import type { Logger } from "./domain/telemetry/index.ts";
@@ -23,7 +29,12 @@ import { BootstrapSystemUseCase } from "./application/use-cases/bootstrap.ts";
 import { SessionCodec } from "./infrastructure/in/auth/session.ts";
 import { authMiddleware } from "./infrastructure/in/auth/middleware.ts";
 import { createAuthRoutes } from "./infrastructure/in/http/auth-routes.ts";
-import { PROJECT_ISOLATION_PERMISSIONS, SafeFsWorkspaceAdapter } from "./infrastructure/out/workspace-fs/safe-workspace.ts";
+import {
+  KNOWLEDGE_SOURCE_ID_PATTERN,
+  PROJECT_ISOLATION_PERMISSIONS,
+  SafeFsWorkspaceAdapter,
+  WORKSPACE_SLUG_PATTERN,
+} from "./infrastructure/out/workspace-fs/safe-workspace.ts";
 import { BunWorkerPoolAdapter } from "./infrastructure/out/worker-sandbox/bun-worker-pool.ts";
 import { createAgentRuntime } from "./infrastructure/out/opencode/fake-runtime.ts";
 import { SseHub } from "./infrastructure/in/sse/sse-hub.ts";
@@ -89,6 +100,7 @@ import { WorkflowScheduler } from "./domain/workflow/cron.ts";
 export interface AppConfig {
   dataDir: string;
   databasePath?: string;
+  defaultModel?: string;
   initialAdminPassword?: string;
   serviceToken?: string;
   globalServiceToken?: string;
@@ -126,6 +138,13 @@ type AppEnv = {
     serviceProject?: string;
   };
 };
+
+// The shared graph schema defaults `notebookIds` so legacy files keep loading. An HTTP
+// client that omits it is a contract violation, not a server fault: reject it as 422
+// before the resource validator iterates the array.
+const WorkflowPayloadSchema = WorkflowGraphSchema.extend({
+  nodes: z.array(NodeSpecSchema.extend({ notebookIds: z.array(z.string()) })).min(1),
+});
 
 function resolveProjectRouteTool(method: string, path: string): string | undefined {
   if (method === "PUT" && (/\/workflow$/.test(path) || /\/nodes\//.test(path))) return "workflow_upsert";
@@ -172,10 +191,22 @@ function integrationError(c: { json(body: unknown, status?: number): Response },
   throw error;
 }
 
+const ISO_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Normalizes a query date bound to a UTC ISO instant; date-only values cover the whole day. */
+function parseIsoBound(value: string, kind: "from" | "to"): string | null {
+  if (ISO_DATE_ONLY.test(value)) return kind === "to" ? `${value}T23:59:59.999Z` : `${value}T00:00:00.000Z`;
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return null;
+  return new Date(parsed).toISOString();
+}
+
 export async function createApplication(config: AppConfig): Promise<Application> {
   const env = config.env ?? process.env;
   const logger = config.logger ?? createLogger({ level: env.LOG_LEVEL ?? "info" });
   const store = new SqliteStore(config.databasePath ?? join(config.dataDir, "db", "platform.sqlite"));
+  const modelDefault = config.defaultModel?.trim() || env.DEFAULT_MODEL?.trim() || PLATFORM_DEFAULT_MODEL;
+  const resolveDefaultModel = () => store.settings.get("default_model")?.trim() || modelDefault;
   const masterKey = await loadOrCreateMasterKey(join(config.dataDir, "master.key"));
   const vault = new Aes256GcmVaultAdapter(masterKey);
   const hasher = new BunPasswordHasher();
@@ -185,6 +216,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
     store,
     passwordHasher: hasher,
     initialPassword: config.initialAdminPassword,
+    defaultModel: modelDefault,
+    orchestratorModel: env.ORCHESTRATOR_MODEL,
     logger,
   }).execute();
 
@@ -302,7 +335,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
         await egress.send(integrationId, text, recipient);
       },
     },
-    defaultModel: () => store.settings.get("default_model") || undefined,
+    defaultModel: () => resolveDefaultModel(),
     projectDefaultModel: (slug) => store.projects.findBySlug(slug)?.defaultModel,
     knowledgeContext: async (projectSlug, notebookIds, query, strict) => {
       const results = [];
@@ -391,7 +424,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     agent,
     turns: useTurnEngine ? chatTurns : undefined,
     events,
-    defaultModel: () => store.settings.get("default_model") || undefined,
+    defaultModel: () => resolveDefaultModel(),
     timeoutMs: Number(env.AGENT_TURN_MAX_MS ?? env.AGENT_CHAT_TIMEOUT_MS ?? 1_800_000),
     logger,
   });
@@ -405,7 +438,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     model: () =>
       resolveOrchestratorModel(
         store.settings.get("orchestrator_model") || env.ORCHESTRATOR_MODEL,
-        store.settings.get("default_model"),
+        resolveDefaultModel(),
       ),
     logger,
   });
@@ -1146,10 +1179,14 @@ export async function createApplication(config: AppConfig): Promise<Application>
   });
 
   app.put("/api/projects/:slug/workflow", async (c) => {
-    const body = (await c.req.json().catch(() => undefined)) as WorkflowGraph | undefined;
+    const body = (await c.req.json().catch(() => undefined)) as unknown;
     if (!body) return c.json(apiError("VALIDATION_ERROR", "workflow body is required"), 422);
+    const parsed = WorkflowPayloadSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json(apiError("INVALID_WORKFLOW", "workflow payload is invalid", parsed.error.issues), 422);
+    }
     try {
-      return c.json(await saveWorkflow.execute(c.req.param("slug"), body, c.get("user")?.username ?? "service"));
+      return c.json(await saveWorkflow.execute(c.req.param("slug"), parsed.data, c.get("user")?.username ?? "service"));
     } catch (error) {
       if (error instanceof WorkflowValidationError) {
         return c.json(apiError("INVALID_WORKFLOW", error.message, error.issues), 422);
@@ -1527,6 +1564,50 @@ export async function createApplication(config: AppConfig): Promise<Application>
       data: await search.execute(c.req.param("slug"), c.req.param("notebookSlug"), body.query, body.limit ?? 5),
     });
   });
+  app.delete("/api/projects/:slug/notebooks/:notebookSlug", async (c) => {
+    const slug = c.req.param("slug");
+    const notebookSlug = c.req.param("notebookSlug");
+    if (!WORKSPACE_SLUG_PATTERN.test(slug) || !WORKSPACE_SLUG_PATTERN.test(notebookSlug)) {
+      return c.json(apiError("UNSAFE_PATH", "invalid notebook path"), 400);
+    }
+    if (!store.notebooks.findBySlug(slug, notebookSlug)) {
+      return c.json(apiError("NOT_FOUND", "notebook not found"), 404);
+    }
+    try {
+      await workspace.removeKnowledgeNotebook(slug, notebookSlug);
+    } catch (error) {
+      if (error instanceof WorkspaceError) return c.json(apiError("UNSAFE_PATH", error.message), 400);
+      throw error;
+    }
+    store.notebooks.remove(slug, notebookSlug);
+    return c.json({ ok: true });
+  });
+  app.delete("/api/projects/:slug/notebooks/:notebookSlug/sources/:sourceId", async (c) => {
+    const slug = c.req.param("slug");
+    const notebookSlug = c.req.param("notebookSlug");
+    const sourceId = c.req.param("sourceId");
+    if (
+      !WORKSPACE_SLUG_PATTERN.test(slug) ||
+      !WORKSPACE_SLUG_PATTERN.test(notebookSlug) ||
+      !KNOWLEDGE_SOURCE_ID_PATTERN.test(sourceId)
+    ) {
+      return c.json(apiError("UNSAFE_PATH", "invalid source path"), 400);
+    }
+    const notebook = store.notebooks.findBySlug(slug, notebookSlug);
+    if (!notebook) return c.json(apiError("NOT_FOUND", "notebook not found"), 404);
+    const source = store.knowledge.findSource(sourceId);
+    if (!source || source.notebookId !== notebook.id) {
+      return c.json(apiError("NOT_FOUND", "source not found"), 404);
+    }
+    try {
+      await workspace.removeKnowledgeSource(slug, notebookSlug, sourceId);
+    } catch (error) {
+      if (error instanceof WorkspaceError) return c.json(apiError("UNSAFE_PATH", error.message), 400);
+      throw error;
+    }
+    store.knowledge.removeSource(source.id);
+    return c.json({ ok: true });
+  });
   app.post("/api/projects/:slug/knowledge/search", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { query?: string; limit?: number };
     if (!body.query) return c.json(apiError("VALIDATION_ERROR", "query is required"), 422);
@@ -1565,9 +1646,24 @@ export async function createApplication(config: AppConfig): Promise<Application>
     });
     return c.json({ ok: true }, 201);
   });
-  app.delete("/api/vault/secrets/:alias", (c) =>
-    c.json({ ok: store.vault.remove({ scope: "global", alias: c.req.param("alias") }) }),
-  );
+  app.delete("/api/vault/secrets/:alias", (c) => {
+    const alias = c.req.param("alias");
+    const scopeQuery = c.req.query("project");
+    if (scopeQuery === undefined) {
+      return c.json({ ok: store.vault.remove({ scope: "global", alias }) });
+    }
+    const projectSlug = scopeQuery.trim();
+    if (!projectSlug) {
+      return c.json(apiError("VALIDATION_ERROR", "project must not be empty"), 400);
+    }
+    if (!WORKSPACE_SLUG_PATTERN.test(projectSlug)) {
+      return c.json(apiError("VALIDATION_ERROR", "invalid project slug"), 400);
+    }
+    if (!store.projects.findBySlug(projectSlug)) {
+      return c.json(apiError("NOT_FOUND", "project not found"), 404);
+    }
+    return c.json({ ok: store.vault.remove({ scope: "project", projectSlug, alias }) });
+  });
 
   // External database test/query through integration IDs.
   app.post("/api/control/integrations/:id/database/test", async (c) => {
@@ -1634,10 +1730,40 @@ export async function createApplication(config: AppConfig): Promise<Application>
     }
   });
   app.get("/api/control/runs", (c) => {
-    const limit = Math.min(Number(c.req.query("limit") ?? 20) || 20, 100);
-    return c.json({
-      data: store.runs.listRecent(limit).map((run) => ({ ...run, steps: store.runs.listSteps(run.id) })),
-    });
+    const rawStatus = c.req.query("status");
+    const status = rawStatus === undefined ? undefined : WorkflowRunStatusSchema.safeParse(rawStatus);
+    if (status && !status.success) return c.json(apiError("VALIDATION_ERROR", "invalid status filter"), 400);
+    const rawFrom = c.req.query("from");
+    const rawTo = c.req.query("to");
+    const from = rawFrom === undefined ? undefined : parseIsoBound(rawFrom, "from");
+    const to = rawTo === undefined ? undefined : parseIsoBound(rawTo, "to");
+    if ((rawFrom !== undefined && from === null) || (rawTo !== undefined && to === null)) {
+      return c.json(apiError("VALIDATION_ERROR", "from and to must be ISO date strings"), 400);
+    }
+    const filters: RunListFilters = {};
+    if (status?.success) filters.status = status.data;
+    const project = c.req.query("project");
+    if (project !== undefined) filters.project = project;
+    const rawEntryPoint = c.req.query("entryPoint");
+    if (rawEntryPoint !== undefined) {
+      const entryPoint = EntryPointTypeSchema.safeParse(rawEntryPoint);
+      if (!entryPoint.success) return c.json(apiError("VALIDATION_ERROR", "invalid entryPoint filter"), 400);
+      filters.entryPoint = entryPoint.data;
+    }
+    if (from) filters.from = from;
+    if (to) filters.to = to;
+    const limit = Math.min(Math.max(Math.floor(Number(c.req.query("limit") ?? 20) || 20), 1), 200);
+    const offset = Math.max(Math.floor(Number(c.req.query("offset") ?? 0) || 0), 0);
+    const total = store.runs.countFiltered(filters);
+    const data = store.runs
+      .listFiltered({ ...filters, limit, offset })
+      .map((run) => ({ ...run, steps: store.runs.listSteps(run.id) }));
+    return c.json({ data, total, limit, offset });
+  });
+  app.get("/api/control/runs/:runId", (c) => {
+    const run = store.runs.findById(c.req.param("runId"));
+    if (!run) return c.json(apiError("NOT_FOUND", "run not found"), 404);
+    return c.json({ ...run, steps: store.runs.listSteps(run.id) });
   });
   app.get("/api/control/errors", (c) => {
     const limit = Math.min(Number(c.req.query("limit") ?? 50) || 50, 200);
@@ -1645,8 +1771,10 @@ export async function createApplication(config: AppConfig): Promise<Application>
   });
 
   app.get("/api/config/effective", (c) => {
-    const defaultModel = store.settings.get("default_model");
-    const orchestratorDb = store.settings.get("orchestrator_model");
+    const defaultModel = store.settings.get("default_model")?.trim();
+    const defaultModelEnv = env.DEFAULT_MODEL?.trim();
+    const modelDefault = resolveDefaultModel();
+    const orchestratorDb = store.settings.get("orchestrator_model")?.trim();
     const orchestratorEnv = env.ORCHESTRATOR_MODEL;
     const sentryEnv = config.sentryDsn || env.SENTRY_DSN;
     const sentrySecret = store.vault.findByAlias({ scope: "global", alias: "setting:sentry_dsn" });
@@ -1655,8 +1783,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
       {
         key: "defaultModel",
         label: "Modelo por defecto",
-        value: defaultModel || null,
-        source: defaultModel ? "platform" : "default",
+        value: modelDefault,
+        source: defaultModel ? "platform" : defaultModelEnv ? "environment" : "default",
         secret: false,
         editable: true,
         restartRequired: false,
@@ -1664,7 +1792,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
       {
         key: "orchestratorModel",
         label: "Modelo del orquestador",
-        value: orchestratorDb || orchestratorEnv || null,
+        value: orchestratorDb || orchestratorEnv || modelDefault,
         source: orchestratorDb ? "platform" : orchestratorEnv ? "environment" : "default",
         secret: false,
         editable: true,
@@ -1727,7 +1855,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
         {
           key: "defaultModel",
           label: "Modelo del proyecto",
-          value: record.defaultModel || defaultModel || null,
+          value: record.defaultModel || modelDefault,
           source: record.defaultModel ? "project" : defaultModel ? "platform" : "default",
           secret: false,
           editable: true,
@@ -1790,8 +1918,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
         opencodeMode: env.OPENCODE_MODE ?? "auto",
         sentryConfigured: Boolean(store.vault.findByAlias({ scope: "global", alias: "setting:sentry_dsn" }) || config.sentryDsn),
         providerConnected: Boolean(store.vault.findByAlias({ scope: "global", alias: "provider:opencode-go" })),
-        defaultModel: store.settings.get("default_model") || undefined,
-        orchestratorModel: store.settings.get("orchestrator_model") || env.ORCHESTRATOR_MODEL || undefined,
+        defaultModel: resolveDefaultModel(),
+        orchestratorModel: store.settings.get("orchestrator_model")?.trim() || env.ORCHESTRATOR_MODEL?.trim() || resolveDefaultModel(),
         dataDir: config.dataDir,
       },
     }),

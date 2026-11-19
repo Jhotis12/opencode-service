@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import type { IntegrationRecord, NodeSpec, NodeType, WorkflowGraph } from "@platform/shared";
 import { WorkflowCanvas } from "../src/components/WorkflowCanvas.tsx";
 import { NodePaletteModal } from "../src/components/NodePaletteModal.tsx";
 import { NodeInspectorModal } from "../src/components/NodeInspectorModal.tsx";
-import { ProjectTopBar } from "../src/components/ProjectTopBar.tsx";
+import { ProjectTopBar, type ProjectTab } from "../src/components/ProjectTopBar.tsx";
 
 vi.mock("../src/components/CodeEditor.tsx", () => ({
   CodeEditor: ({ value, onChange }: { value: string; onChange(value: string): void }) => (
@@ -158,14 +158,24 @@ describe("WorkflowCanvas", () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith("start"));
   });
 
-  it("persists keyboard node removal through onChange", async () => {
+  it("routes keyboard node removal through the delete action so the owner can confirm it", async () => {
     const onChange = vi.fn();
-    const { container } = renderCanvas({ onChange });
+    const { container, props } = renderCanvas({ onChange });
     fireEvent.click(container.querySelector('[data-node-id="code"]')!);
     fireEvent.keyDown(document, { key: "Delete", code: "Delete" });
-    await waitFor(() => expect(onChange).toHaveBeenCalled());
-    const next = onChange.mock.calls.at(-1)?.[0] as WorkflowGraph;
-    expect(next.nodes.some((item) => item.id === "code")).toBe(false);
+    await waitFor(() => expect(vi.mocked(props.onDeleteNode)).toHaveBeenCalledWith("code"));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("shows the live zoom percentage and lists the editor shortcuts", async () => {
+    renderCanvas();
+    await waitFor(() => expect(screen.getByText(/Zoom \d+%/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Atajos de teclado" }));
+    const dialog = screen.getByRole("dialog", { name: "Atajos de teclado" });
+    expect(within(dialog).getByText("Guardar el flujo")).toBeInTheDocument();
+    expect(within(dialog).getByText("Ctrl/Cmd")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Atajos de teclado" })).not.toBeInTheDocument();
   });
 });
 
@@ -541,7 +551,7 @@ describe("NodeInspectorModal", () => {
     expect(onRemove).toHaveBeenCalled();
   });
 
-  it("resets incompatible trigger config when the kind changes", async () => {
+  it("resets incompatible trigger config after the kind change is confirmed", async () => {
     const trigger = node("start", "trigger", {
       config: { kind: "integration", integrationId: "tg1", event: "message.received" },
     });
@@ -550,14 +560,15 @@ describe("NodeInspectorModal", () => {
       graph: graph([trigger]),
       lastStep: undefined,
     });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const dialog = screen.getByRole("dialog", { name: "Nodo: start" });
     await userEvent.selectOptions(within(dialog).getByLabelText("Entrada del flujo"), "manual");
+    expect(onReplaceConfig).not.toHaveBeenCalled();
+    const confirmDialog = screen.getByRole("dialog", { name: "Cambiar el tipo de trigger" });
+    await userEvent.click(within(confirmDialog).getByRole("button", { name: "Cambiar tipo" }));
     expect(onReplaceConfig).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "manual" }),
     );
     expect(onReplaceConfig.mock.calls[0]?.[0]).not.toHaveProperty("integrationId");
-    confirm.mockRestore();
   });
 
   it("shows inline errors for incomplete node configuration", () => {
@@ -590,60 +601,92 @@ describe("NodeInspectorModal", () => {
   });
 });
 
+function LocationProbe() {
+  const location = useLocation();
+  return <p data-testid="location">{location.pathname}</p>;
+}
+
 describe("ProjectTopBar", () => {
-  it("switches tabs and edits flow settings", async () => {
-    const onTab = vi.fn();
+  const flowGraph = graph([node("start", "trigger")]);
+  const versions = [
+    {
+      id: "v1",
+      projectSlug: "demo",
+      version: 1,
+      graphHash: "h1",
+      graph: flowGraph,
+      codeBundle: {},
+      createdBy: "admin",
+      createdAt: new Date().toISOString(),
+    },
+  ];
+
+  function renderTopBar(tab: ProjectTab, extra: Partial<React.ComponentProps<typeof ProjectTopBar>> = {}) {
+    return render(
+      <MemoryRouter initialEntries={[`/projects/demo/${tab}`]}>
+        <LocationProbe />
+        <ProjectTopBar
+          slug="demo"
+          graph={flowGraph}
+          tab={tab}
+          counts={{ runs: 2, agents: 1, integrations: 3 }}
+          dirty={false}
+          issueCount={0}
+          saving={false}
+          modelOptions={["opencode-go/fast"]}
+          versions={versions}
+          onChange={() => undefined}
+          onSave={() => undefined}
+          onRun={() => undefined}
+          onChat={() => undefined}
+          onRollbackVersion={() => undefined}
+          {...extra}
+        />
+      </MemoryRouter>,
+    );
+  }
+
+  it("renders the sections as route links, navigates on click and reports guarded targets", async () => {
+    const first = renderTopBar("flow");
+    for (const label of ["Resumen", "Flujo", "Ejecuciones (2)", "Agentes (1)", "Conocimiento", "Integraciones (3)", "Ajustes"]) {
+      expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
+    }
+    const flowLink = screen.getByRole("link", { name: "Flujo" });
+    expect(flowLink).toHaveAttribute("href", "/projects/demo/flow");
+    expect(flowLink).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Resumen" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("button", { name: "Guardar flujo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ejecutar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Agente" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("link", { name: "Agentes (1)" }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/demo/agents");
+    first.unmount();
+
+    const onNavigateBlocked = vi.fn();
+    renderTopBar("agents", { navigationBlocked: true, onNavigateBlocked });
+    await userEvent.click(screen.getByRole("link", { name: "Resumen" }));
+    expect(onNavigateBlocked).toHaveBeenCalledWith("/projects/demo/overview");
+    await userEvent.click(screen.getByRole("link", { name: "← Proyectos" }));
+    expect(onNavigateBlocked).toHaveBeenCalledWith("/projects");
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/demo/agents");
+  });
+
+  it("keeps the versions and flow settings actions wired", async () => {
     const onChange = vi.fn();
     const onSave = vi.fn();
     const onRun = vi.fn();
     const onChat = vi.fn();
     const onRollbackVersion = vi.fn();
-    const flowGraph = graph([node("start", "trigger")]);
-    render(
-      <MemoryRouter>
-        <ProjectTopBar
-          slug="demo"
-          graph={flowGraph}
-          tab="canvas"
-          counts={{ runs: 2, agents: 1, integrations: 3 }}
-          dirty
-          issueCount={0}
-          saving={false}
-          modelOptions={["opencode-go/fast"]}
-          versions={[
-            {
-              id: "v1",
-              projectSlug: "demo",
-              version: 1,
-              graphHash: "h1",
-              graph: flowGraph,
-              codeBundle: {},
-              createdBy: "admin",
-              createdAt: new Date().toISOString(),
-            },
-          ]}
-          onTab={onTab}
-          onChange={onChange}
-          onSave={onSave}
-          onRun={onRun}
-          onChat={onChat}
-          onRollbackVersion={onRollbackVersion}
-        />
-      </MemoryRouter>,
-    );
-    for (const label of ["Canvas", "Ejecuciones (2)", "Agentes (1)", "Conocimiento", "Configuración (3)"]) {
-      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
-    }
-    expect(screen.getByRole("button", { name: "Guardar flujo" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ejecutar" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Agente" })).toBeInTheDocument();
+    renderTopBar("flow", { dirty: true, onChange, onSave, onRun, onChat, onRollbackVersion });
 
-    await userEvent.click(screen.getByRole("button", { name: "Agentes (1)" }));
-    expect(onTab).toHaveBeenCalledWith("agents");
     await userEvent.click(screen.getByRole("button", { name: "Más acciones del flujo" }));
     await userEvent.click(screen.getByRole("menuitem", { name: /Versiones del flujo/ }));
     const versionsDialog = screen.getByRole("dialog", { name: "Versiones del flujo" });
     await userEvent.click(within(versionsDialog).getByRole("button", { name: "Restaurar v1" }));
+    const rollbackDialog = screen.getByRole("dialog", { name: "Restaurar v1" });
+    expect(onRollbackVersion).not.toHaveBeenCalled();
+    await userEvent.click(within(rollbackDialog).getByRole("button", { name: "Restaurar v1" }));
     expect(onRollbackVersion).toHaveBeenCalledWith(1);
     await userEvent.click(screen.getByRole("button", { name: "Más acciones del flujo" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Ajustes del flujo" }));
@@ -658,26 +701,28 @@ describe("ProjectTopBar", () => {
     expect(onSave).toHaveBeenCalled();
   });
 
+  it("saves with Ctrl/Cmd+S only when the draft is dirty and the graph is valid", () => {
+    const onSave = vi.fn();
+    const first = renderTopBar("flow", { dirty: true, onSave });
+    expect(screen.getByRole("status", { name: "Cambios sin guardar" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    const second = renderTopBar("flow", { dirty: false, onSave });
+    fireEvent.keyDown(document, { key: "s", metaKey: true });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    second.unmount();
+
+    renderTopBar("flow", { dirty: true, issueCount: 2, onSave });
+    expect(screen.getByText("2 problemas")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Guardar flujo" })).toBeDisabled();
+    fireEvent.keyDown(document, { key: "s", metaKey: true });
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
   it("opens the overflow menu with the keyboard and closes it with Escape", async () => {
-    render(
-      <MemoryRouter>
-        <ProjectTopBar
-          slug="demo"
-          graph={graph([node("start", "trigger")])}
-          tab="canvas"
-          counts={{ runs: 0, agents: 0, integrations: 0 }}
-          dirty={false}
-          issueCount={0}
-          saving={false}
-          modelOptions={[]}
-          onTab={() => undefined}
-          onChange={() => undefined}
-          onSave={() => undefined}
-          onRun={() => undefined}
-          onChat={() => undefined}
-        />
-      </MemoryRouter>,
-    );
+    renderTopBar("flow");
 
     const trigger = screen.getByRole("button", { name: "Más acciones del flujo" });
     trigger.focus();

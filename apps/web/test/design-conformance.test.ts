@@ -24,6 +24,26 @@ function stripTokenFallbacks(source: string): string {
   return source.replace(TOKEN_FALLBACK, "var(--token)");
 }
 
+/**
+ * Files still rendering a native `<select>` instead of the shared picker.
+ * A later change drains this list; it is not a permanent exemption.
+ */
+export const NATIVE_SELECT_ALLOWLIST: readonly string[] = [
+  "AgentEditorModal.tsx",
+  "IntegrationEditor.tsx",
+  "NodeConfigFields.tsx",
+  "NodeInspector.tsx",
+  "NodeInspectorModal.tsx",
+  "PlatformEdge.tsx",
+  "ProjectDestinationsPanel.tsx",
+  "ProjectResourcesPanel.tsx",
+  "ProjectSettingsPanel.tsx",
+  "ProjectTopBar.tsx",
+  "RunLaunchModal.tsx",
+  "GlobalRunsPage.tsx",
+  "ProjectRunsPage.tsx",
+];
+
 const rules: readonly Rule[] = [
   {
     id: "rose-200-text",
@@ -62,6 +82,15 @@ const rules: readonly Rule[] = [
     sample: 'className="bg-[#0D1424]"',
     skip: (file) => file.endsWith("/index.css"),
     prepare: stripTokenFallbacks,
+  },
+  {
+    id: "native-select",
+    description: "native <select> instead of the shared picker",
+    pattern: /<select\b/,
+    sample: '<select value="" />',
+    skip: (file) =>
+      !file.endsWith(".tsx") ||
+      NATIVE_SELECT_ALLOWLIST.some((name) => file.endsWith(`/${name}`)),
   },
 ];
 

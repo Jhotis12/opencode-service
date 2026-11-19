@@ -92,6 +92,13 @@ function renderPage(initialEntries: string[] = ["/runs"]) {
   );
 }
 
+async function chooseFilter(name: string, option: string) {
+  await userEvent.click(screen.getByRole("combobox", { name }));
+  // A searchable combobox that kept focus after a commit only reopens from the keyboard.
+  if (screen.queryByRole("listbox") === null) await userEvent.keyboard("{ArrowDown}");
+  await userEvent.click(await screen.findByRole("option", { name: option }));
+}
+
 function lastCall() {
   const calls = apiMock.listGlobalRuns.mock.calls;
   return calls[calls.length - 1]?.[0] as Record<string, unknown>;
@@ -136,7 +143,7 @@ describe("GlobalRunsPage", () => {
     await screen.findByText("aaaa1111");
 
     apiMock.listGlobalRuns.mockResolvedValue(pageOf([failedWebhook]));
-    await userEvent.selectOptions(screen.getByLabelText("Estado"), "failed");
+    await chooseFilter("Estado", "Fallido");
 
     await waitFor(() => expect(lastCall()).toMatchObject({ status: "failed", limit: 50, offset: 0 }));
     expect(screen.getByTestId("location")).toHaveTextContent("/runs?status=failed");
@@ -149,13 +156,58 @@ describe("GlobalRunsPage", () => {
     renderPage(["/runs?status=failed"]);
 
     const empty = await screen.findByRole("heading", { name: "Ninguna ejecución coincide" });
-    expect(screen.getByLabelText("Estado")).toHaveValue("failed");
+    expect(screen.getByRole("combobox", { name: "Estado" })).toHaveTextContent("Fallido");
 
     await userEvent.click(within(empty.closest("section")!).getByRole("button", { name: "Limpiar filtros" }));
 
     await waitFor(() => expect(lastCall().status).toBeUndefined());
     expect(await screen.findByRole("heading", { name: "Sin ejecuciones todavía" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/runs$/);
+  });
+
+  it("filters by project slug and restores every run with Todos los proyectos", async () => {
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi, failedWebhook, runningSchedule]));
+    renderPage();
+    await screen.findByText("aaaa1111");
+
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi]));
+    await chooseFilter("Proyecto", "alpha");
+
+    await waitFor(() => expect(lastCall()).toMatchObject({ project: "alpha", limit: 50, offset: 0 }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/runs?project=alpha");
+    expect(screen.getAllByTestId("run-row")).toHaveLength(1);
+    expect(screen.getByTestId("global-runs-count")).toHaveTextContent("Mostrando 1–1 de 1 ejecuciones");
+
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi, failedWebhook, runningSchedule]));
+    await chooseFilter("Proyecto", "Todos los proyectos");
+
+    await waitFor(() => expect(lastCall().project).toBeUndefined());
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/runs$/);
+    expect(screen.getAllByTestId("run-row")).toHaveLength(3);
+    expect(screen.getByTestId("global-runs-count")).toHaveTextContent("Mostrando 1–3 de 3 ejecuciones");
+  });
+
+  it("keeps the project picker usable when no project exists yet", async () => {
+    apiMock.listProjects.mockResolvedValue({ data: [] });
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi]));
+    renderPage();
+    await screen.findByText("aaaa1111");
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Proyecto" }));
+
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("option", { name: "Todos los proyectos" })).toBeInTheDocument();
+    expect(screen.getAllByTestId("run-row")).toHaveLength(1);
+  });
+
+  it("keeps a deep-linked project visible when it is missing from the project list", async () => {
+    apiMock.listProjects.mockResolvedValue({ data: [] });
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi]));
+    renderPage(["/runs?project=alpha"]);
+
+    await screen.findByText("aaaa1111");
+    expect(screen.getByRole("combobox", { name: "Proyecto" })).toHaveValue("alpha");
+    expect(lastCall()).toMatchObject({ project: "alpha" });
   });
 
   it("indents each child run directly under its parent", async () => {

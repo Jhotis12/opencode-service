@@ -78,6 +78,11 @@ function renderRuns() {
   return renderWithProviders(<ProjectRunsPage />);
 }
 
+async function chooseFilter(name: string, option: string) {
+  await userEvent.click(screen.getByRole("combobox", { name }));
+  await userEvent.click(await screen.findByRole("option", { name: option }));
+}
+
 function emptySection() {
   return screen.getByRole("heading", { name: "Ninguna ejecución coincide" }).closest("section")!;
 }
@@ -103,21 +108,23 @@ describe("ProjectRunsPage", () => {
   it("filters by status and updates the filtered count", async () => {
     workspace.runs = [succeededWebUi, failedWebhook, runningSchedule];
     renderRuns();
-    await userEvent.selectOptions(screen.getByLabelText("Estado"), "failed");
+    await chooseFilter("Estado", "Fallido");
     const rows = screen.getAllByTestId("run-row");
     expect(rows).toHaveLength(1);
     expect(within(rows[0]).getByText("bbbb2222")).toBeInTheDocument();
     expect(screen.getByTestId("runs-filter-count")).toHaveTextContent("Mostrando 1 de 3 ejecuciones.");
+    expect(screen.getByRole("combobox", { name: "Estado" })).toHaveTextContent("Fallido");
   });
 
   it("filters by origin label, grouping schedule and scheduler", async () => {
     const scheduled = makeRun({ id: "dddd4444-sched", entryPoint: "scheduler" });
     workspace.runs = [succeededWebUi, failedWebhook, scheduled];
     renderRuns();
-    await userEvent.selectOptions(screen.getByLabelText("Origen"), "Programado");
+    await chooseFilter("Origen", "Programado");
     const rows = screen.getAllByTestId("run-row");
     expect(rows).toHaveLength(1);
     expect(within(rows[0]).getByText("dddd4444")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Origen" })).toHaveTextContent("Programado");
   });
 
   it("filters by an inclusive date range", async () => {
@@ -169,7 +176,7 @@ describe("ProjectRunsPage", () => {
   it("shows the empty state when no run matches the filters and recovers", async () => {
     workspace.runs = [succeededWebUi];
     renderRuns();
-    await userEvent.selectOptions(screen.getByLabelText("Estado"), "failed");
+    await chooseFilter("Estado", "Fallido");
     expect(screen.queryAllByTestId("run-row")).toHaveLength(0);
     expect(screen.getByRole("heading", { name: "Ninguna ejecución coincide" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Exportar JSON" })).toBeDisabled();
@@ -265,7 +272,7 @@ describe("ProjectRunsPage", () => {
         makeRun({ id: "zzzz9999-secret", steps: [step], error: "error-sensible", output: { dato: "salida-sensible" } }),
       ];
       renderRuns();
-      await userEvent.selectOptions(screen.getByLabelText("Estado"), "succeeded");
+      await chooseFilter("Estado", "Completado");
       await userEvent.click(screen.getByRole("button", { name: "Exportar JSON" }));
       expect(createObjectURL).toHaveBeenCalledTimes(1);
       const blob = createObjectURL.mock.calls[0][0];

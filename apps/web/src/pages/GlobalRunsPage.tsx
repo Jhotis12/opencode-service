@@ -15,6 +15,8 @@ import {
   downloadRunsExport,
   groupRunsByParent,
 } from "../components/RunsTable.tsx";
+import { Select } from "../components/Select.tsx";
+import type { SelectOption } from "../components/select/options.ts";
 import { Skeleton } from "../components/Skeleton.tsx";
 import { button, buttonGhost, card, friendlyError, input, statusLabel } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
@@ -25,6 +27,13 @@ const GLOBAL_RUNS_KEY = "global-runs";
 const GLOBAL_RUN_KEY = "global-run";
 
 type ExportFeedback = { readonly exported: number; readonly total: number };
+
+const EMPTY_FILTER: SelectOption = { value: "", label: "Todos" };
+
+const STATUS_OPTIONS: readonly SelectOption[] = [
+  EMPTY_FILTER,
+  ...RUN_STATUS_OPTIONS.map((value) => ({ value, label: statusLabel(value) })),
+];
 
 function readParam(params: URLSearchParams, key: string): string {
   return params.get(key)?.trim() ?? "";
@@ -88,6 +97,13 @@ export function GlobalRunsPage() {
   const first = total === 0 ? 0 : offset + 1;
   const last = offset + (runsQuery.data?.data.length ?? 0);
   const projectSlugs = projectsQuery.data?.map((item) => item.slug) ?? [];
+  // A deep-linked slug outside the loaded list still has to show as the selected value.
+  const visibleProjectSlugs =
+    project === "" || projectSlugs.includes(project) ? projectSlugs : [project, ...projectSlugs];
+  const projectOptions: readonly SelectOption[] = [
+    { value: "", label: "Todos los proyectos" },
+    ...visibleProjectSlugs.map((slug) => ({ value: slug, label: slug })),
+  ];
   const rowRun = runsQuery.data?.data.find((run) => run.id === runId);
   const detailRun = detailQuery.data ?? rowRun;
 
@@ -152,26 +168,24 @@ export function GlobalRunsPage() {
       <search className={card} aria-label="Filtros de ejecuciones">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Field id="global-runs-status" label="Estado">
-            <select
-              className={input}
+            <Select
+              label="Estado"
+              options={STATUS_OPTIONS}
               value={status}
-              onChange={(event) => setFilter("status", event.target.value)}
-            >
-              <option value="">Todos</option>
-              {RUN_STATUS_OPTIONS.map((value) => (
-                <option key={value} value={value}>
-                  {statusLabel(value)}
-                </option>
-              ))}
-            </select>
+              emptyValue=""
+              onChange={(value) => setFilter("status", value ?? "")}
+            />
           </Field>
-          <Field id="global-runs-project" label="Proyecto" hint="Slug exacto del proyecto.">
-            <input
-              className={input}
-              list="global-runs-project-options"
+          <Field id="global-runs-project" label="Proyecto" hint="Elige un proyecto; escribe para buscar por su slug.">
+            <Select
+              label="Proyecto"
+              options={projectOptions}
               value={project}
+              emptyValue=""
+              searchable
               placeholder="Todos los proyectos"
-              onChange={(event) => setFilter("project", event.target.value)}
+              noResultsLabel="Ningún proyecto coincide"
+              onChange={(value) => setFilter("project", value ?? "")}
             />
           </Field>
           <Field id="global-runs-from" label="Desde" hint="Día de inicio en UTC (inclusivo).">
@@ -191,12 +205,6 @@ export function GlobalRunsPage() {
             />
           </Field>
         </div>
-        <datalist id="global-runs-project-options">
-          {projectSlugs.map((slug) => (
-            <option key={slug} value={slug} />
-          ))}
-        </datalist>
-
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs text-muted" data-testid="global-runs-count" aria-live="polite">
             {countLabel}

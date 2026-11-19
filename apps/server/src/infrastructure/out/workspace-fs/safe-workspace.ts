@@ -14,7 +14,11 @@ export class WorkspaceError extends Error {
   }
 }
 
-const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,60}$/;
+/** Matches a project or notebook slug; anything else is rejected before touching the filesystem. */
+export const WORKSPACE_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,60}$/;
+
+/** Matches a stored knowledge source id (UUID-shaped, no path characters). */
+export const KNOWLEDGE_SOURCE_ID_PATTERN = /^[a-zA-Z0-9-]{8,80}$/;
 
 /**
  * Default permissions written into every project's opencode.jsonc. The agent
@@ -33,7 +37,7 @@ export class SafeFsWorkspaceAdapter implements WorkspacePort {
   constructor(private readonly rootDir: string) {}
 
   private assertSlug(slug: string): void {
-    if (!SLUG_PATTERN.test(slug)) throw new WorkspaceError("INVALID_SLUG", `invalid project slug: ${slug}`);
+    if (!WORKSPACE_SLUG_PATTERN.test(slug)) throw new WorkspaceError("INVALID_SLUG", `invalid project slug: ${slug}`);
   }
 
   /**
@@ -333,7 +337,7 @@ export class SafeFsWorkspaceAdapter implements WorkspacePort {
     const entries = await readdir(this.rootDir, { withFileTypes: true }).catch(() => []);
     const projects: string[] = [];
     for (const entry of entries) {
-      if (!entry.isDirectory() || !SLUG_PATTERN.test(entry.name)) continue;
+      if (!entry.isDirectory() || !WORKSPACE_SLUG_PATTERN.test(entry.name)) continue;
       const hasWorkflow = await readFile(join(this.rootDir, entry.name, "workflow.json"), "utf8")
         .then(() => true)
         .catch(() => false);
@@ -409,6 +413,32 @@ export class SafeFsWorkspaceAdapter implements WorkspacePort {
       throw new WorkspaceError("FORBIDDEN_PATH", "agent files must live under .opencode/agents/ and end with .md");
     }
     const path = await this.safePath(slug, relativePath);
+    await rm(path, { force: true });
+  }
+
+  /**
+   * Removes a notebook's knowledge directory. Slugs are validated first so a
+   * traversal attempt never reaches the filesystem, and the resolved path is
+   * re-checked against the project root before removal.
+   */
+  async removeKnowledgeNotebook(slug: string, notebookSlug: string): Promise<void> {
+    if (!WORKSPACE_SLUG_PATTERN.test(slug) || !WORKSPACE_SLUG_PATTERN.test(notebookSlug)) {
+      throw new WorkspaceError("FORBIDDEN_PATH", `invalid knowledge path: ${slug}/${notebookSlug}`);
+    }
+    const path = await this.safePath(slug, join("knowledge", notebookSlug));
+    await rm(path, { recursive: true, force: true });
+  }
+
+  /** Removes one stored source markdown file inside the notebook's sources directory. */
+  async removeKnowledgeSource(slug: string, notebookSlug: string, sourceId: string): Promise<void> {
+    if (
+      !WORKSPACE_SLUG_PATTERN.test(slug) ||
+      !WORKSPACE_SLUG_PATTERN.test(notebookSlug) ||
+      !KNOWLEDGE_SOURCE_ID_PATTERN.test(sourceId)
+    ) {
+      throw new WorkspaceError("FORBIDDEN_PATH", `invalid knowledge path: ${slug}/${notebookSlug}/${sourceId}`);
+    }
+    const path = await this.safePath(slug, join("knowledge", notebookSlug, "sources", `${sourceId}.md`));
     await rm(path, { force: true });
   }
 

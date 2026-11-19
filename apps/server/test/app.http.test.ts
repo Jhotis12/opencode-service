@@ -994,3 +994,164 @@ describe("application HTTP surface", () => {
     application.store.integrations.remove("health-error");
   });
 });
+
+describe("knowledge delete routes", () => {
+  async function createProject(slug: string) {
+    await json("/api/projects", { method: "POST", body: JSON.stringify({ slug, name: slug }) });
+  }
+
+  async function createNotebook(projectSlug: string, notebookSlug: string) {
+    const response = await json(`/api/projects/${projectSlug}/notebooks`, {
+      method: "POST",
+      body: JSON.stringify({ slug: notebookSlug, name: notebookSlug }),
+    });
+    expect(response.status).toBe(201);
+  }
+
+  async function uploadSource(projectSlug: string, notebookSlug: string, filename: string, content: string) {
+    const form = new FormData();
+    form.set("file", new File([content], filename, { type: "text/markdown" }));
+    const response = await app.request(`/api/projects/${projectSlug}/notebooks/${notebookSlug}/sources`, {
+      method: "POST",
+      headers: { cookie },
+      body: form,
+    });
+    expect(response.status).toBe(201);
+    return (await response.json()) as { source: { id: string; title: string }; chunks: number };
+  }
+
+  async function listSources(projectSlug: string, notebookSlug: string) {
+    const response = await json(`/api/projects/${projectSlug}/notebooks/${notebookSlug}/sources`);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { data: Array<{ id: string; title: string }> }).data;
+  }
+
+  async function listNotebooks(projectSlug: string) {
+    const response = await json(`/api/projects/${projectSlug}/notebooks`);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { data: Array<{ slug: string; sources: number }> }).data;
+  }
+
+  async function exists(path: string) {
+    return access(path).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  const sourceFile = (projectSlug: string, notebookSlug: string, sourceId: string) =>
+    join(dir, "workspaces", projectSlug, "knowledge", notebookSlug, "sources", `${sourceId}.md`);
+
+  it("deletes a source and its file while keeping siblings intact", async () => {
+    await createProject("lab-delete");
+    await createNotebook("lab-delete", "politicas");
+    const first = await uploadSource(
+      "lab-delete",
+      "politicas",
+      "devoluciones.md",
+      "# Devoluciones\n\nLas devoluciones tardan 5 días.",
+    );
+    const second = await uploadSource("lab-delete", "politicas", "envios.md", "# Envíos\n\nLos envíos salen cada martes.");
+
+    const response = await json(`/api/projects/lab-delete/notebooks/politicas/sources/${first.source.id}`, {
+      method: "DELETE",
+    });
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { ok: boolean }).ok).toBe(true);
+
+    const remaining = await listSources("lab-delete", "politicas");
+    expect(remaining.map((source) => source.title)).toEqual(["envios.md"]);
+    expect(await exists(sourceFile("lab-delete", "politicas", first.source.id))).toBe(false);
+    expect(await exists(sourceFile("lab-delete", "politicas", second.source.id))).toBe(true);
+
+    const deleted = await json("/api/projects/lab-delete/notebooks/politicas/search", {
+      method: "POST",
+      body: JSON.stringify({ query: "devoluciones" }),
+    });
+    const deletedHits = ((await deleted.json()) as { data: Array<{ citation: string }> }).data;
+    expect(deletedHits.every((hit) => !hit.citation.includes("devoluciones.md"))).toBe(true);
+
+    const kept = await json("/api/projects/lab-delete/notebooks/politicas/search", {
+      method: "POST",
+      body: JSON.stringify({ query: "envíos" }),
+    });
+    const keptHits = ((await kept.json()) as { data: Array<{ citation: string }> }).data;
+    expect(keptHits.some((hit) => hit.citation.includes("envios.md"))).toBe(true);
+  });
+
+  it("deletes a notebook with its directory and rows, keeping sibling notebooks", async () => {
+    await createNotebook("lab-delete", "manual");
+    await uploadSource("lab-delete", "manual", "manual.md", "# Manual\n\nEl horario es de 9 a 18.");
+    await createNotebook("lab-delete", "otros");
+    await uploadSource("lab-delete", "otros", "otros.md", "# Otros\n\nOtras notas.");
+
+    const response = await json("/api/projects/lab-delete/notebooks/manual", { method: "DELETE" });
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { ok: boolean }).ok).toBe(true);
+
+    const notebooks = await listNotebooks("lab-delete");
+    expect(notebooks.map((notebook) => notebook.slug)).not.toContain("manual");
+    expect(await exists(join(dir, "workspaces", "lab-delete", "knowledge", "manual"))).toBe(false);
+    expect(await exists(join(dir, "workspaces", "lab-delete", "knowledge", "otros", "sources"))).toBe(true);
+
+    const sources = await listSources("lab-delete", "otros");
+    expect(sources.map((source) => source.title)).toEqual(["otros.md"]);
+  });
+
+  it("returns 404 without side effects when the target belongs to another project", async () => {
+    await createProject("lab-vecino");
+    await createNotebook("lab-vecino", "politicas");
+    await createNotebook("lab-delete", "privado");
+    const privado = await uploadSource("lab-delete", "privado", "privado.md", "# Privado\n\nDatos privados.");
+    const own = await uploadSource(
+      "lab-delete",
+      "politicas",
+      "garantias.md",
+      "# Garantías\n\nLa garantía dura 12 meses.",
+    );
+
+    const sourceResponse = await json(`/api/projects/lab-vecino/notebooks/politicas/sources/${own.source.id}`, {
+      method: "DELETE",
+    });
+    expect(sourceResponse.status).toBe(404);
+    const sources = await listSources("lab-delete", "politicas");
+    expect(sources.some((source) => source.id === own.source.id)).toBe(true);
+    expect(await exists(sourceFile("lab-delete", "politicas", own.source.id))).toBe(true);
+
+    const notebookResponse = await json("/api/projects/lab-vecino/notebooks/privado", { method: "DELETE" });
+    expect(notebookResponse.status).toBe(404);
+    const notebooks = await listNotebooks("lab-delete");
+    expect(notebooks.map((notebook) => notebook.slug)).toContain("privado");
+    expect(await exists(sourceFile("lab-delete", "privado", privado.source.id))).toBe(true);
+  });
+
+  it("returns 404 for missing notebooks, sources and projects", async () => {
+    const notebook = await json("/api/projects/lab-delete/notebooks/no-existe", { method: "DELETE" });
+    expect(notebook.status).toBe(404);
+
+    const source = await json(`/api/projects/lab-delete/notebooks/politicas/sources/${crypto.randomUUID()}`, {
+      method: "DELETE",
+    });
+    expect(source.status).toBe(404);
+
+    const phantomProject = await json("/api/projects/proyecto-fantasma/notebooks/politicas", { method: "DELETE" });
+    expect(phantomProject.status).toBe(404);
+  });
+
+  it("rejects unsafe paths with 400 UNSAFE_PATH and no filesystem changes", async () => {
+    const source = await json("/api/projects/lab-delete/notebooks/politicas/sources/..%2F..%2Fopencode", {
+      method: "DELETE",
+    });
+    expect(source.status).toBe(400);
+    expect(((await source.json()) as { error?: { code?: string } }).error?.code).toBe("UNSAFE_PATH");
+
+    const notebook = await json("/api/projects/lab-delete/notebooks/..%2F..%2Flab-delete", { method: "DELETE" });
+    expect(notebook.status).toBe(400);
+    expect(((await notebook.json()) as { error?: { code?: string } }).error?.code).toBe("UNSAFE_PATH");
+
+    expect(await exists(join(dir, "workspaces", "lab-delete", "opencode.jsonc"))).toBe(true);
+    const notebooks = await listNotebooks("lab-delete");
+    expect(notebooks.map((notebook) => notebook.slug)).toContain("politicas");
+    expect(notebooks.find((notebook) => notebook.slug === "politicas")?.sources).toBeGreaterThan(0);
+  });
+});

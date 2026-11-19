@@ -25,7 +25,12 @@ import { BootstrapSystemUseCase } from "./application/use-cases/bootstrap.ts";
 import { SessionCodec } from "./infrastructure/in/auth/session.ts";
 import { authMiddleware } from "./infrastructure/in/auth/middleware.ts";
 import { createAuthRoutes } from "./infrastructure/in/http/auth-routes.ts";
-import { PROJECT_ISOLATION_PERMISSIONS, SafeFsWorkspaceAdapter } from "./infrastructure/out/workspace-fs/safe-workspace.ts";
+import {
+  KNOWLEDGE_SOURCE_ID_PATTERN,
+  PROJECT_ISOLATION_PERMISSIONS,
+  SafeFsWorkspaceAdapter,
+  WORKSPACE_SLUG_PATTERN,
+} from "./infrastructure/out/workspace-fs/safe-workspace.ts";
 import { BunWorkerPoolAdapter } from "./infrastructure/out/worker-sandbox/bun-worker-pool.ts";
 import { createAgentRuntime } from "./infrastructure/out/opencode/fake-runtime.ts";
 import { SseHub } from "./infrastructure/in/sse/sse-hub.ts";
@@ -1538,6 +1543,50 @@ export async function createApplication(config: AppConfig): Promise<Application>
     return c.json({
       data: await search.execute(c.req.param("slug"), c.req.param("notebookSlug"), body.query, body.limit ?? 5),
     });
+  });
+  app.delete("/api/projects/:slug/notebooks/:notebookSlug", async (c) => {
+    const slug = c.req.param("slug");
+    const notebookSlug = c.req.param("notebookSlug");
+    if (!WORKSPACE_SLUG_PATTERN.test(slug) || !WORKSPACE_SLUG_PATTERN.test(notebookSlug)) {
+      return c.json(apiError("UNSAFE_PATH", "invalid notebook path"), 400);
+    }
+    if (!store.notebooks.findBySlug(slug, notebookSlug)) {
+      return c.json(apiError("NOT_FOUND", "notebook not found"), 404);
+    }
+    try {
+      await workspace.removeKnowledgeNotebook(slug, notebookSlug);
+    } catch (error) {
+      if (error instanceof WorkspaceError) return c.json(apiError("UNSAFE_PATH", error.message), 400);
+      throw error;
+    }
+    store.notebooks.remove(slug, notebookSlug);
+    return c.json({ ok: true });
+  });
+  app.delete("/api/projects/:slug/notebooks/:notebookSlug/sources/:sourceId", async (c) => {
+    const slug = c.req.param("slug");
+    const notebookSlug = c.req.param("notebookSlug");
+    const sourceId = c.req.param("sourceId");
+    if (
+      !WORKSPACE_SLUG_PATTERN.test(slug) ||
+      !WORKSPACE_SLUG_PATTERN.test(notebookSlug) ||
+      !KNOWLEDGE_SOURCE_ID_PATTERN.test(sourceId)
+    ) {
+      return c.json(apiError("UNSAFE_PATH", "invalid source path"), 400);
+    }
+    const notebook = store.notebooks.findBySlug(slug, notebookSlug);
+    if (!notebook) return c.json(apiError("NOT_FOUND", "notebook not found"), 404);
+    const source = store.knowledge.findSource(sourceId);
+    if (!source || source.notebookId !== notebook.id) {
+      return c.json(apiError("NOT_FOUND", "source not found"), 404);
+    }
+    try {
+      await workspace.removeKnowledgeSource(slug, notebookSlug, sourceId);
+    } catch (error) {
+      if (error instanceof WorkspaceError) return c.json(apiError("UNSAFE_PATH", error.message), 400);
+      throw error;
+    }
+    store.knowledge.removeSource(source.id);
+    return c.json({ ok: true });
   });
   app.post("/api/projects/:slug/knowledge/search", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { query?: string; limit?: number };

@@ -7,6 +7,7 @@ import { streamSSE } from "hono/streaming";
 import {
   apiError,
   evaluateToolPermission,
+  PLATFORM_DEFAULT_MODEL,
   WorkflowRunStatusSchema,
   type AgentExecutionContext,
   type EffectiveSetting,
@@ -91,6 +92,7 @@ import { WorkflowScheduler } from "./domain/workflow/cron.ts";
 export interface AppConfig {
   dataDir: string;
   databasePath?: string;
+  defaultModel?: string;
   initialAdminPassword?: string;
   serviceToken?: string;
   globalServiceToken?: string;
@@ -188,6 +190,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
   const env = config.env ?? process.env;
   const logger = config.logger ?? createLogger({ level: env.LOG_LEVEL ?? "info" });
   const store = new SqliteStore(config.databasePath ?? join(config.dataDir, "db", "platform.sqlite"));
+  const modelDefault = config.defaultModel?.trim() || env.DEFAULT_MODEL?.trim() || PLATFORM_DEFAULT_MODEL;
+  const resolveDefaultModel = () => store.settings.get("default_model")?.trim() || modelDefault;
   const masterKey = await loadOrCreateMasterKey(join(config.dataDir, "master.key"));
   const vault = new Aes256GcmVaultAdapter(masterKey);
   const hasher = new BunPasswordHasher();
@@ -197,6 +201,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
     store,
     passwordHasher: hasher,
     initialPassword: config.initialAdminPassword,
+    defaultModel: modelDefault,
+    orchestratorModel: env.ORCHESTRATOR_MODEL,
     logger,
   }).execute();
 
@@ -314,7 +320,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
         await egress.send(integrationId, text, recipient);
       },
     },
-    defaultModel: () => store.settings.get("default_model") || undefined,
+    defaultModel: () => resolveDefaultModel(),
     projectDefaultModel: (slug) => store.projects.findBySlug(slug)?.defaultModel,
     knowledgeContext: async (projectSlug, notebookIds, query, strict) => {
       const results = [];
@@ -403,7 +409,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     agent,
     turns: useTurnEngine ? chatTurns : undefined,
     events,
-    defaultModel: () => store.settings.get("default_model") || undefined,
+    defaultModel: () => resolveDefaultModel(),
     timeoutMs: Number(env.AGENT_TURN_MAX_MS ?? env.AGENT_CHAT_TIMEOUT_MS ?? 1_800_000),
     logger,
   });
@@ -417,7 +423,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
     model: () =>
       resolveOrchestratorModel(
         store.settings.get("orchestrator_model") || env.ORCHESTRATOR_MODEL,
-        store.settings.get("default_model"),
+        resolveDefaultModel(),
       ),
     logger,
   });
@@ -1683,8 +1689,10 @@ export async function createApplication(config: AppConfig): Promise<Application>
   });
 
   app.get("/api/config/effective", (c) => {
-    const defaultModel = store.settings.get("default_model");
-    const orchestratorDb = store.settings.get("orchestrator_model");
+    const defaultModel = store.settings.get("default_model")?.trim();
+    const defaultModelEnv = env.DEFAULT_MODEL?.trim();
+    const modelDefault = resolveDefaultModel();
+    const orchestratorDb = store.settings.get("orchestrator_model")?.trim();
     const orchestratorEnv = env.ORCHESTRATOR_MODEL;
     const sentryEnv = config.sentryDsn || env.SENTRY_DSN;
     const sentrySecret = store.vault.findByAlias({ scope: "global", alias: "setting:sentry_dsn" });
@@ -1693,8 +1701,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
       {
         key: "defaultModel",
         label: "Modelo por defecto",
-        value: defaultModel || null,
-        source: defaultModel ? "platform" : "default",
+        value: modelDefault,
+        source: defaultModel ? "platform" : defaultModelEnv ? "environment" : "default",
         secret: false,
         editable: true,
         restartRequired: false,
@@ -1702,7 +1710,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
       {
         key: "orchestratorModel",
         label: "Modelo del orquestador",
-        value: orchestratorDb || orchestratorEnv || null,
+        value: orchestratorDb || orchestratorEnv || modelDefault,
         source: orchestratorDb ? "platform" : orchestratorEnv ? "environment" : "default",
         secret: false,
         editable: true,
@@ -1765,7 +1773,7 @@ export async function createApplication(config: AppConfig): Promise<Application>
         {
           key: "defaultModel",
           label: "Modelo del proyecto",
-          value: record.defaultModel || defaultModel || null,
+          value: record.defaultModel || modelDefault,
           source: record.defaultModel ? "project" : defaultModel ? "platform" : "default",
           secret: false,
           editable: true,
@@ -1828,8 +1836,8 @@ export async function createApplication(config: AppConfig): Promise<Application>
         opencodeMode: env.OPENCODE_MODE ?? "auto",
         sentryConfigured: Boolean(store.vault.findByAlias({ scope: "global", alias: "setting:sentry_dsn" }) || config.sentryDsn),
         providerConnected: Boolean(store.vault.findByAlias({ scope: "global", alias: "provider:opencode-go" })),
-        defaultModel: store.settings.get("default_model") || undefined,
-        orchestratorModel: store.settings.get("orchestrator_model") || env.ORCHESTRATOR_MODEL || undefined,
+        defaultModel: resolveDefaultModel(),
+        orchestratorModel: store.settings.get("orchestrator_model")?.trim() || env.ORCHESTRATOR_MODEL?.trim() || resolveDefaultModel(),
         dataDir: config.dataDir,
       },
     }),

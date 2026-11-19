@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { PLATFORM_DEFAULT_MODEL } from "@platform/shared";
 import type { Store } from "../ports/store.ts";
 import type { PasswordHasher } from "../ports/security.ts";
 import { loadOrCreateMasterKey } from "../../infrastructure/out/vault/aes-vault.ts";
@@ -12,6 +13,10 @@ export interface BootstrapOptions {
   store: Store;
   passwordHasher: PasswordHasher;
   initialPassword?: string;
+  /** Modelo por defecto para instalaciones nuevas (env DEFAULT_MODEL o el id de DeepSeek). */
+  defaultModel?: string;
+  /** ORCHESTRATOR_MODEL explícito: conserva la precedencia del entorno y no se siembra en base. */
+  orchestratorModel?: string;
   logger?: { info(bindings: Record<string, unknown>, message?: string): void };
 }
 
@@ -78,7 +83,8 @@ async function ensureControlWorkspace(dataDir: string): Promise<void> {
 
 /**
  * Prepares persistent storage and the initial administrator. Safe to run on
- * every start: existing users and the master key are never overwritten.
+ * every start: existing users, the master key and configured models are never
+ * overwritten.
  */
 export class BootstrapSystemUseCase {
   constructor(private readonly options: BootstrapOptions) {}
@@ -88,6 +94,7 @@ export class BootstrapSystemUseCase {
     for (const dir of directories) await mkdir(dir, { recursive: true });
     await loadOrCreateMasterKey(join(this.options.dataDir, "master.key"));
     await ensureControlWorkspace(this.options.dataDir);
+    this.seedDefaultModels();
 
     if (this.options.store.users.count() > 0) {
       return { createdAdmin: false, dataDir: this.options.dataDir, directories };
@@ -107,5 +114,25 @@ export class BootstrapSystemUseCase {
       "default administrator created",
     );
     return { createdAdmin: true, dataDir: this.options.dataDir, directories };
+  }
+
+  /**
+   * Fills the platform and orchestrator models only when no value is stored, so
+   * a fresh install starts on DeepSeek V4.1 Flash and a custom choice survives
+   * every restart. An explicit ORCHESTRATOR_MODEL keeps its environment
+   * precedence instead of being copied into the database.
+   */
+  private seedDefaultModels(): void {
+    const fallback = this.options.defaultModel?.trim() || PLATFORM_DEFAULT_MODEL;
+    if (!this.options.store.settings.get("default_model")?.trim()) {
+      this.options.store.settings.set("default_model", fallback);
+      this.options.logger?.info(
+        { event: "bootstrap_default_model_seeded", entryPoint: "bootstrap", model: fallback },
+        "platform default model seeded",
+      );
+    }
+    if (!this.options.store.settings.get("orchestrator_model")?.trim() && !this.options.orchestratorModel?.trim()) {
+      this.options.store.settings.set("orchestrator_model", fallback);
+    }
   }
 }

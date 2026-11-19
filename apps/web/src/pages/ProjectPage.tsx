@@ -8,6 +8,7 @@ import { AgentCatalog } from "../components/AgentCatalog.tsx";
 import { StatusBadge } from "../components/StatusBadge.tsx";
 import { ChatPanel } from "../components/ChatPanel.tsx";
 import { WorkflowCanvas } from "../components/WorkflowCanvas.tsx";
+import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
 import { ProjectTopBar, type ProjectTab } from "../components/ProjectTopBar.tsx";
 import { NodePaletteModal } from "../components/NodePaletteModal.tsx";
 import { NodeInspectorModal } from "../components/NodeInspectorModal.tsx";
@@ -569,6 +570,14 @@ export function ProjectPage() {
 
   return (
     <section className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center px-3 pt-2 text-xs text-muted lg:px-4">
+        <Breadcrumbs
+          items={[
+            { label: "Proyectos", to: "/projects" },
+            { label: slug, to: `/projects/${slug}`, title: graph.name },
+          ]}
+        />
+      </div>
       <ProjectTopBar
         slug={slug}
         graph={graph}

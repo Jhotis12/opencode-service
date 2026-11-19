@@ -6,12 +6,34 @@ import { BrandLockup } from "./Brand.tsx";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { NavIcon, type NavIconName } from "./NavIcon.tsx";
 
-const NAV_ITEMS: Array<{ to: string; label: string; icon: NavIconName }> = [
+const NAV_ITEMS: Array<{ to: string; label: string; icon: NavIconName | "runs" }> = [
   { to: "/projects", label: "Proyectos", icon: "projects" },
+  { to: "/runs", label: "Ejecuciones", icon: "runs" },
   { to: "/orchestrator", label: "Orquestador global", icon: "orchestrator" },
   { to: "/settings", label: "Ajustes", icon: "settings" },
   { to: "/system/health", label: "Salud del sistema", icon: "health" },
 ];
+
+export function RunsNavIcon() {
+  return (
+    <svg
+      width={18}
+      height={18}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </svg>
+  );
+}
 
 const COLLAPSE_KEY = "platform.nav.collapsed";
 
@@ -149,7 +171,7 @@ export function Layout() {
                 }`
               }
             >
-              <NavIcon name={item.icon} />
+              {item.icon === "runs" ? <RunsNavIcon /> : <NavIcon name={item.icon} />}
               <span
                 className={`nav-label min-w-0 overflow-hidden whitespace-nowrap ${
                   collapsed ? "lg:max-w-0 lg:opacity-0" : "lg:max-w-[180px] lg:opacity-100"

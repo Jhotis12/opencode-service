@@ -5,6 +5,7 @@ import { api, type ModelInfo } from "../api.ts";
 import { qk } from "../query.ts";
 import { Modal } from "../components/Modal.tsx";
 import { ControlChannelsPanel } from "../components/ControlChannelsPanel.tsx";
+import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
 import { badge, button, buttonPrimary, card, pageTitle, statusBadge } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
 
@@ -121,6 +122,14 @@ export function SettingsPage() {
   return (
     <section className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0 basis-full text-xs text-muted">
+          <Breadcrumbs
+            items={[
+              { label: "Proyectos", to: "/projects" },
+              { label: "Ajustes", to: "/settings" },
+            ]}
+          />
+        </div>
         <div>
           <h1 className={pageTitle}>Ajustes de plataforma</h1>
           <p className="mt-1 text-sm text-muted">

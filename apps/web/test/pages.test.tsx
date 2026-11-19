@@ -224,7 +224,7 @@ vi.mock("../src/api.ts", () => ({
   },
 }));
 
-import { SettingsPage } from "../src/pages/SettingsPage.tsx";
+import { PlatformSettingsPage as SettingsPage } from "../src/pages/PlatformSettingsPage.tsx";
 import { ProjectKnowledgePanel } from "../src/components/ProjectKnowledgePanel.tsx";
 import { ProjectSettingsPanel } from "../src/components/ProjectSettingsPanel.tsx";
 import { ProjectResourcesPanel } from "../src/components/ProjectResourcesPanel.tsx";

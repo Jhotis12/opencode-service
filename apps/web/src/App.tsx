@@ -8,7 +8,7 @@ import { ProjectsPage } from "./pages/ProjectsPage.tsx";
 import { ProjectLayout } from "./pages/ProjectLayout.tsx";
 import { GlobalRunsPage } from "./pages/GlobalRunsPage.tsx";
 import { OrchestratorPage } from "./pages/OrchestratorPage.tsx";
-import { SettingsPage } from "./pages/SettingsPage.tsx";
+import { PlatformSettingsPage } from "./pages/PlatformSettingsPage.tsx";
 import { HealthPage } from "./pages/HealthPage.tsx";
 
 const ProjectOverviewPage = lazy(() =>
@@ -68,7 +68,7 @@ export function App() {
           </Route>
           <Route path="/runs" element={<GlobalRunsPage />} />
           <Route path="/orchestrator" element={<OrchestratorPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings" element={<PlatformSettingsPage />} />
           <Route path="/system/health" element={<HealthPage />} />
         </Route>
       </Route>

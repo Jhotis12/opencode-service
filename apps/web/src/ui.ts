@@ -16,7 +16,7 @@ export const buttonDanger =
   "inline-flex items-center justify-center gap-2 rounded-lg border border-transparent bg-transparent px-3 py-2 text-sm text-danger transition active:scale-[0.97] hover:border-danger/50 hover:bg-danger/10";
 
 export const buttonDangerSolid =
-  "inline-flex items-center justify-center gap-2 rounded-lg border border-transparent bg-danger px-3.5 py-2 text-sm font-semibold text-ink transition active:scale-[0.97] hover:bg-rose-300 disabled:cursor-not-allowed disabled:opacity-45";
+  "inline-flex items-center justify-center gap-2 rounded-lg border border-transparent bg-danger px-3.5 py-2 text-sm font-semibold text-ink transition active:scale-[0.97] hover:bg-danger/85 disabled:cursor-not-allowed disabled:opacity-45";
 
 export const input =
   "w-full rounded-lg border border-line bg-well px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30";
@@ -24,7 +24,7 @@ export const input =
 export const label = "flex flex-col gap-1.5 text-xs text-muted";
 
 export const badge =
-  "inline-flex w-fit items-center gap-1.5 rounded-full border border-line px-2.5 py-0.5 text-[11px] text-muted";
+  "inline-flex w-fit items-center gap-1.5 rounded-full border border-line px-2.5 py-0.5 text-micro text-muted";
 
 export const pageTitle = "text-2xl font-semibold tracking-tight text-slate-100";
 export const sectionTitle = "text-base font-semibold text-slate-100";

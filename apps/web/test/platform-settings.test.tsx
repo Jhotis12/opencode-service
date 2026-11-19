@@ -3,7 +3,7 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { api } from "../src/api.ts";
-import { SettingsPage } from "../src/pages/SettingsPage.tsx";
+import { PlatformSettingsPage as SettingsPage } from "../src/pages/PlatformSettingsPage.tsx";
 import { renderWithProviders } from "./render.tsx";
 
 vi.mock("../src/api.ts", () => ({

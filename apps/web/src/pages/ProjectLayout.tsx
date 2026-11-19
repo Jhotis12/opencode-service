@@ -1,4 +1,4 @@
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useParams } from "react-router-dom";
 import { api } from "../api.ts";
@@ -10,7 +10,7 @@ import { RunDetailModal } from "../components/RunDetailModal.tsx";
 import { RunLaunchModal } from "../components/RunLaunchModal.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
 import { qk } from "../query.ts";
-import { buttonGhost, card, friendlyError } from "../ui.ts";
+import { buttonGhost, card, friendlyError, notify } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
 import { ProjectWorkspaceProvider, useProjectWorkspace } from "./project-workspace.tsx";
 
@@ -46,6 +46,22 @@ function ProjectWorkspaceShell() {
     enabled: Boolean(workspace.slug),
   });
   useDocumentTitle(workspace.graph?.name ?? "Proyecto");
+
+  // Workspace status is action feedback (run finished, flow saved); surface it as a toast
+  // instead of a green banner so the canvas stays free for persistent state.
+  const toastedStatus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const status = workspace.status;
+    if (!status) {
+      toastedStatus.current = undefined;
+      return;
+    }
+    if (status === toastedStatus.current) return;
+    toastedStatus.current = status;
+    if (/error/i.test(status)) notify.error(status);
+    else if (/pausad/i.test(status)) notify.info(status);
+    else notify.success(status);
+  }, [workspace.status]);
 
   useEffect(() => {
     if (!workspace.dirty) return;
@@ -117,9 +133,8 @@ function ProjectWorkspaceShell() {
         onRollbackVersion={(version) => workspace.rollbackVersion(version)}
       />
 
-      {(workspace.status || workspace.displayError || notReady.length > 0) && (
+      {(workspace.displayError || notReady.length > 0) && (
         <div className="flex flex-col gap-1 border-b border-line px-3 py-2 lg:px-4">
-          {workspace.status && <p className="text-xs text-ok">{workspace.status}</p>}
           {workspace.displayError && <p className="text-xs text-danger">{workspace.displayError}</p>}
           {notReady.length > 0 && (
             <p className="text-xs text-warn">

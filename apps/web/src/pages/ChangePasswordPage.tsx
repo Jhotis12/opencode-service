@@ -78,8 +78,8 @@ export function ChangePasswordPage({
   const greeting = user?.username ? `Hola ${user.username}. ` : "";
 
   return (
-    <main className="grid min-h-screen place-items-center p-6">
-      <form className={`${card} w-full max-w-[420px] gap-4`} onSubmit={submit} aria-label="Cambiar contraseña">
+    <main className="flex min-h-dvh flex-col overflow-y-auto p-6">
+      <form className={`${card} m-auto w-full max-w-[420px] gap-4`} onSubmit={submit} aria-label="Cambiar contraseña">
         <BrandLockup size={32} subtitle={false} />
         <PageHeader
           title="Cambia tu contraseña inicial"

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { focusRing, tab, tabActive, tabList } from "../ui.ts";
 
 export type TabItem = {
@@ -26,12 +26,29 @@ export function Tabs({
   const [internalValue, setInternalValue] = useState(defaultValue ?? firstEnabledId);
   const activeId = value ?? internalValue;
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState({ left: false, right: false });
   const activeIndex = items.findIndex((item) => item.id === activeId);
+
+  const updateOverflow = useCallback(() => {
+    const element = stripRef.current;
+    if (!element) return;
+    const left = element.scrollLeft > 4;
+    const right = element.scrollLeft + element.clientWidth < element.scrollWidth - 4;
+    setOverflow((current) => (current.left === left && current.right === right ? current : { left, right }));
+  }, []);
+
+  useEffect(() => {
+    updateOverflow();
+    window.addEventListener("resize", updateOverflow);
+    return () => window.removeEventListener("resize", updateOverflow);
+  }, [updateOverflow]);
 
   useEffect(() => {
     const activeTab = tabRefs.current[activeIndex];
     activeTab?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-  }, [activeId, activeIndex]);
+    updateOverflow();
+  }, [activeId, activeIndex, updateOverflow]);
 
   function select(id: string) {
     if (value === undefined) setInternalValue(id);
@@ -69,31 +86,53 @@ export function Tabs({
 
   return (
     <div className="min-w-0">
-      <div className={tabList} role="tablist" aria-label={ariaLabel}>
-        {items.map((item, index) => {
-          const active = item.id === activeId;
-          return (
-            <button
-              key={item.id}
-              ref={(element) => {
-                tabRefs.current[index] = element;
-              }}
-              type="button"
-              role="tab"
-              id={`${baseId}-tab-${index}`}
-              aria-selected={active}
-              aria-controls={`${baseId}-panel-${index}`}
-              aria-disabled={item.disabled || undefined}
-              disabled={item.disabled}
-              tabIndex={active && !item.disabled ? 0 : -1}
-              className={`${tab} ${active ? tabActive : ""}`.trim()}
-              onClick={() => select(item.id)}
-              onKeyDown={(event) => onTabKeyDown(event, index)}
-            >
-              {item.label}
-            </button>
-          );
-        })}
+      <div className="relative">
+        <div
+          ref={stripRef}
+          className={tabList}
+          role="tablist"
+          aria-label={ariaLabel}
+          onScroll={updateOverflow}
+        >
+          {items.map((item, index) => {
+            const active = item.id === activeId;
+            return (
+              <button
+                key={item.id}
+                ref={(element) => {
+                  tabRefs.current[index] = element;
+                }}
+                type="button"
+                role="tab"
+                id={`${baseId}-tab-${index}`}
+                aria-selected={active}
+                aria-controls={`${baseId}-panel-${index}`}
+                aria-disabled={item.disabled || undefined}
+                disabled={item.disabled}
+                tabIndex={active && !item.disabled ? 0 : -1}
+                className={`${tab} ${active ? tabActive : ""}`.trim()}
+                onClick={() => select(item.id)}
+                onKeyDown={(event) => onTabKeyDown(event, index)}
+              >
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+        {overflow.left && (
+          <span
+            data-testid="tab-scroll-fade-start"
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-ink to-transparent"
+          />
+        )}
+        {overflow.right && (
+          <span
+            data-testid="tab-scroll-fade-end"
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-ink to-transparent"
+          />
+        )}
       </div>
       {items.map((item, index) => {
         const active = item.id === activeId;

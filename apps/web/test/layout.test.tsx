@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { Layout } from "../src/components/Layout.tsx";
+import { Tabs, type TabItem } from "../src/components/Tabs.tsx";
 
 vi.mock("../src/auth.tsx", () => ({
   useAuth: () => ({
@@ -77,5 +78,68 @@ describe("Layout", () => {
 
     renderLayout("/settings");
     expect(screen.getByTestId("app-main").className).toContain("max-w-[1500px]");
+  });
+});
+
+const tabItems = [
+  { id: "overview", label: "Resumen", content: <p>Resumen</p> },
+  { id: "runs", label: "Ejecuciones", content: <p>Ejecuciones</p> },
+  { id: "agents", label: "Agentes", content: <p>Agentes</p> },
+] satisfies readonly TabItem[];
+
+/** jsdom reports zero metrics, so the strip's scroll box is stubbed on the node itself. */
+function stubStripMetrics(metrics: { clientWidth: number; scrollWidth: number }) {
+  const tablist = screen.getByRole("tablist", { name: "Secciones del proyecto" });
+  let scrollLeft = 0;
+  Object.defineProperty(tablist, "clientWidth", { configurable: true, get: () => metrics.clientWidth });
+  Object.defineProperty(tablist, "scrollWidth", { configurable: true, get: () => metrics.scrollWidth });
+  Object.defineProperty(tablist, "scrollLeft", {
+    configurable: true,
+    get: () => scrollLeft,
+    set: (value: number) => {
+      scrollLeft = value;
+    },
+  });
+  return {
+    tablist,
+    scrollTo(value: number) {
+      tablist.scrollLeft = value;
+      act(() => {
+        tablist.dispatchEvent(new Event("scroll"));
+      });
+    },
+  };
+}
+
+describe("Tabs scroll affordances", () => {
+  it("shows the trailing fade while content remains to the right and hides it at the end", () => {
+    render(<Tabs items={tabItems} aria-label="Secciones del proyecto" />);
+    const strip = stubStripMetrics({ clientWidth: 200, scrollWidth: 500 });
+    strip.scrollTo(0);
+
+    expect(screen.queryByTestId("tab-scroll-fade-start")).not.toBeInTheDocument();
+    expect(screen.getByTestId("tab-scroll-fade-end")).toBeInTheDocument();
+
+    strip.scrollTo(150);
+    expect(screen.getByTestId("tab-scroll-fade-start")).toBeInTheDocument();
+    expect(screen.getByTestId("tab-scroll-fade-end")).toBeInTheDocument();
+
+    strip.scrollTo(300);
+    expect(screen.getByTestId("tab-scroll-fade-start")).toBeInTheDocument();
+    expect(screen.queryByTestId("tab-scroll-fade-end")).not.toBeInTheDocument();
+  });
+
+  it("recomputes the affordance when the strip is resized", () => {
+    render(<Tabs items={tabItems} aria-label="Secciones del proyecto" />);
+    const metrics = { clientWidth: 500, scrollWidth: 500 };
+    const strip = stubStripMetrics(metrics);
+    strip.scrollTo(0);
+    expect(screen.queryByTestId("tab-scroll-fade-end")).not.toBeInTheDocument();
+
+    metrics.clientWidth = 200;
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(screen.getByTestId("tab-scroll-fade-end")).toBeInTheDocument();
   });
 });

@@ -208,7 +208,7 @@ function ProjectSettingsSections({
           Se usa para transcribir audio en modo agente. Los nodos Transcribir pueden elegir otra conexión.
         </p>
         {settings.integrations.every((integration) => integration.kind !== "transcription") && (
-          <p className="text-xs text-warn">Crea una integración de Transcripción en Recursos para habilitar audio.</p>
+          <p className="text-xs text-warn">Crea una integración de Transcripción en Integraciones para habilitar audio.</p>
         )}
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Voz</h3>
         <label>
@@ -228,7 +228,7 @@ function ProjectSettingsSections({
           Se usa para responder con audio en Telegram y para los nodos Generar voz que no eligen otra conexión.
         </p>
         {settings.integrations.every((integration) => integration.kind !== "speech") && (
-          <p className="text-xs text-warn">Crea una integración de Voz (TTS) en Recursos para habilitar la respuesta por audio.</p>
+          <p className="text-xs text-warn">Crea una integración de Voz (TTS) en Integraciones para habilitar la respuesta por audio.</p>
         )}
         <button className={buttonPrimary} disabled={save.isPending}>
           Guardar ajustes

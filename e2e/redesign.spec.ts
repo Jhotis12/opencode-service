@@ -278,3 +278,24 @@ test("the suite keeps its own data dir and leaves an operator fixture untouched"
   expect(after.mtimeMs).toBe(before.mtimeMs);
   expect(readFileSync(marker, "utf8")).toBe(payload);
 });
+
+test("the rail stays pinned while a long page scrolls", async ({ page }) => {
+  await signInWithCurrentAdminPassword(page);
+  await page.setViewportSize({ width: 1440, height: 520 });
+  const nav = page.getByRole("navigation", { name: "Navegación principal" });
+  for (const path of ["/system/health", "/projects", "/runs", "/settings", "/orchestrator"]) {
+    await page.goto(path);
+    const metrics = await page.evaluate(() => {
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      return {
+        scrolled: window.scrollY,
+        documentHeight: document.documentElement.scrollHeight,
+        viewportHeight: window.innerHeight,
+      };
+    });
+    if (metrics.documentHeight <= metrics.viewportHeight + 80) continue;
+    expect(metrics.scrolled, `${path} should scroll`).toBeGreaterThan(0);
+    const box = await nav.boundingBox();
+    expect(box?.y ?? -1, `${path} keeps the rail pinned`).toBeLessThan(4);
+  }
+});

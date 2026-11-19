@@ -175,3 +175,70 @@ describe("ProjectsPage", () => {
     expect(api.deleteProject).toHaveBeenCalledWith("bot-ventas");
   });
 });
+
+describe("ProjectsPage first-run guidance", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(api.listProjects).mockResolvedValue({ data: [] });
+  });
+
+  it("shows the 'Cómo funciona' block with the three steps and leaves the primary action to the empty state", async () => {
+    renderPage();
+    const block = await screen.findByRole("region", { name: "Cómo funciona" });
+    const steps = within(block).getAllByRole("listitem");
+    expect(steps).toHaveLength(3);
+    expect(within(steps[0]).getByText("Proyecto")).toBeInTheDocument();
+    expect(within(steps[1]).getByText("Flujo")).toBeInTheDocument();
+    expect(within(steps[2]).getByText("Ejecución")).toBeInTheDocument();
+    expect(within(block).queryByRole("button", { name: /crear .*proyecto/i })).not.toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Todavía no hay proyectos" });
+    const createCtas = screen.getAllByRole("button", { name: /crear .*proyecto/i });
+    expect(createCtas).toHaveLength(1);
+    expect(createCtas[0]).toHaveTextContent("Crear primer proyecto");
+  });
+
+  it("keeps the guide CTA on a populated account and opens the create modal with it", async () => {
+    vi.mocked(api.listProjects).mockResolvedValue({ data: [project] });
+    renderPage();
+    await screen.findByRole("heading", { name: "Bot de ventas" });
+    const block = screen.getByRole("region", { name: "Cómo funciona" });
+    expect(within(block).getByRole("button", { name: "Crear un proyecto" })).toBeInTheDocument();
+    await userEvent.click(within(block).getByRole("button", { name: "Crear un proyecto" }));
+    expect(screen.getByRole("dialog", { name: "Nuevo proyecto" })).toBeInTheDocument();
+  });
+
+  it("hides the block on dismissal, persists the key and stays hidden after a remount", async () => {
+    const { unmount } = renderPage();
+    const block = await screen.findByRole("region", { name: "Cómo funciona" });
+    await userEvent.click(within(block).getByRole("button", { name: /Descartar/ }));
+    expect(screen.queryByRole("region", { name: "Cómo funciona" })).not.toBeInTheDocument();
+    expect(localStorage.getItem("platform.onboarding.dismissed")).toBe("1");
+    unmount();
+    renderPage();
+    expect(screen.queryByRole("region", { name: "Cómo funciona" })).not.toBeInTheDocument();
+  });
+
+  it("still shows the block when the stored value is corrupt", async () => {
+    localStorage.setItem("platform.onboarding.dismissed", "no-es-un-valor");
+    renderPage();
+    expect(await screen.findByRole("region", { name: "Cómo funciona" })).toBeInTheDocument();
+  });
+
+  it("renders the page and the block without throwing when localStorage access fails", async () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("The operation is insecure.", "SecurityError");
+    });
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("The operation is insecure.", "SecurityError");
+    });
+    try {
+      renderPage();
+      const block = await screen.findByRole("region", { name: "Cómo funciona" });
+      await userEvent.click(within(block).getByRole("button", { name: /Descartar/ }));
+      expect(screen.queryByRole("region", { name: "Cómo funciona" })).not.toBeInTheDocument();
+    } finally {
+      getItem.mockRestore();
+      setItem.mockRestore();
+    }
+  });
+});

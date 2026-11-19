@@ -10,10 +10,55 @@ import { Modal } from "../components/Modal.tsx";
 import { NavIcon } from "../components/NavIcon.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
-import { badge, button, buttonDanger, buttonGhost, buttonPrimary, card, friendlyError } from "../ui.ts";
+import {
+  badge,
+  button,
+  buttonDanger,
+  buttonGhost,
+  buttonPrimary,
+  card,
+  friendlyError,
+  muted,
+  sectionTitle,
+  smallMuted,
+} from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
 
 type ProjectTemplateId = "blank" | "triaje-operativo";
+
+const ONBOARDING_KEY = "platform.onboarding.dismissed";
+
+const ONBOARDING_STEPS: ReadonlyArray<{ title: string; description: string }> = [
+  {
+    title: "Proyecto",
+    description: "Agrupa tu caso de uso: agentes, integraciones, conocimiento y secretos.",
+  },
+  {
+    title: "Flujo",
+    description: "Describe en el canvas los pasos, las decisiones y las herramientas de cada etapa.",
+  },
+  {
+    title: "Ejecución",
+    description: "OpenCode corre el flujo y deja cada corrida registrada con su resultado.",
+  },
+];
+
+function onboardingDismissed(): boolean {
+  try {
+    return localStorage.getItem(ONBOARDING_KEY) === "1";
+  } catch {
+    // Storage can be unavailable (private browsing, blocked cookies); the guide stays visible.
+    return false;
+  }
+}
+
+function persistOnboardingDismissed() {
+  try {
+    localStorage.setItem(ONBOARDING_KEY, "1");
+  } catch {
+    // Storage can be unavailable; the guide then only hides for the current session.
+  }
+}
 
 const TEMPLATES: ReadonlyArray<{ id: ProjectTemplateId; name: string; description: string }> = [
   {
@@ -60,6 +105,7 @@ export function ProjectsPage() {
   const [formError, setFormError] = useState<string>();
   const [rawError, setRawError] = useState<string>();
   const [status, setStatus] = useState<string>();
+  const [showOnboarding, setShowOnboarding] = useState(() => !onboardingDismissed());
 
   const projects = projectsQuery.data ?? [];
   const filtered = useMemo(() => {
@@ -155,6 +201,11 @@ export function ProjectsPage() {
     setSlugError(undefined);
   }
 
+  function dismissOnboarding() {
+    setShowOnboarding(false);
+    persistOnboardingDismissed();
+  }
+
   return (
     <section className="flex flex-col gap-5">
       <PageHeader
@@ -166,6 +217,68 @@ export function ProjectsPage() {
           </button>
         }
       />
+
+      {showOnboarding && (
+        <section
+          aria-labelledby="onboarding-title"
+          className="flex flex-col gap-4 rounded-xl border border-accent/40 bg-panel/90 p-5"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-col gap-1">
+              <h2 id="onboarding-title" className={sectionTitle}>
+                Cómo funciona
+              </h2>
+              <p className={`max-w-3xl ${muted}`}>
+                Todo caso de uso recorre tres niveles: un proyecto que agrupa todo, un flujo que describes en el canvas y una
+                ejecución que dispara OpenCode.
+              </p>
+            </div>
+            <button
+              type="button"
+              className={buttonGhost}
+              aria-label="Descartar la guía de cómo funciona"
+              onClick={dismissOnboarding}
+            >
+              Descartar
+            </button>
+          </div>
+
+          <ol className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+            {ONBOARDING_STEPS.map((step, index) => (
+              <li className="flex flex-1 items-center gap-2" key={step.title}>
+                <div className="flex flex-1 flex-col gap-1 rounded-xl border border-line bg-well px-3.5 py-3">
+                  <span className="text-sm font-medium text-slate-200">{step.title}</span>
+                  <span className={smallMuted}>{step.description}</span>
+                </div>
+                {index < ONBOARDING_STEPS.length - 1 && (
+                  <svg
+                    aria-hidden="true"
+                    className="hidden h-4 w-4 shrink-0 text-muted sm:block"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M5 12h14" />
+                    <path d="m13 6 6 6-6 6" />
+                  </svg>
+                )}
+              </li>
+            ))}
+          </ol>
+
+          {projects.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" className={buttonPrimary} onClick={() => setCreateOpen(true)}>
+                Crear un proyecto
+              </button>
+              <p className={smallMuted}>O abre un proyecto existente y configúralo paso a paso.</p>
+            </div>
+          )}
+        </section>
+      )}
 
       {status && (
         <p className="text-sm text-ok" aria-live="polite">

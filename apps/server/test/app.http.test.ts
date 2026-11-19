@@ -68,7 +68,7 @@ beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "platform-http-"));
   application = await createApplication({
     dataDir: dir,
-    env: { ...process.env, OPENCODE_MODE: "fake", ORCHESTRATOR_MODEL: "opencode-go/fast", SENTRY_DSN: "" },
+    env: { ...process.env, OPENCODE_MODE: "fake", DEFAULT_MODEL: "opencode/deepseek-v4.1-flash-free", ORCHESTRATOR_MODEL: "opencode-go/fast", SENTRY_DSN: "" },
     serviceToken,
     globalServiceToken,
     logger: testLogger,
@@ -174,10 +174,12 @@ describe("application HTTP surface", () => {
     const response = await json("/api/config/effective?project=ventas-bot");
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      platform: Array<{ key: string; source: string; editable: boolean; masked?: string }>;
+      platform: Array<{ key: string; source: string; value: unknown; editable: boolean; masked?: string }>;
       project: Array<{ key: string; source: string; value: unknown }>;
     };
     expect(body.platform.find((item) => item.key === "orchestratorModel")?.source).toBe("environment");
+    expect(body.platform.find((item) => item.key === "defaultModel")?.value).toBe("opencode/deepseek-v4.1-flash-free");
+    expect(body.platform.find((item) => item.key === "defaultModel")?.source).toBe("platform");
     expect(body.platform.find((item) => item.key === "opencodeMode")?.editable).toBe(false);
     expect(body.project.find((item) => item.key === "defaultModel")?.source).toBe("project");
     expect(body.project.find((item) => item.key === "defaultModel")?.value).toBe("opencode-go/vision");
@@ -607,6 +609,11 @@ describe("application HTTP surface", () => {
       body: JSON.stringify({ defaultModel: "not-a-model" }),
     });
     expect(invalid.status).toBe(422);
+
+    await json("/api/settings", { method: "PUT", body: JSON.stringify({ defaultModel: "" }) });
+    const cleared = await json("/api/settings");
+    const clearedBody = (await cleared.json()) as { data: { defaultModel?: string } };
+    expect(clearedBody.data.defaultModel).toBe("opencode/deepseek-v4.1-flash-free");
   });
 
   it("serves the model catalog from the runtime", async () => {

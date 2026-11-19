@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import type { RunRecord } from "../api.ts";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
@@ -26,11 +27,13 @@ export function RunDetailModal({
   nodeLabels,
   onClose,
   onReplay,
+  notice,
 }: {
   run: RunRecord;
   nodeLabels?: Record<string, string>;
   onClose(): void;
   onReplay(fromNodeId?: string): void;
+  notice?: ReactNode;
 }) {
   const queryClient = useQueryClient();
   const approvalsQuery = useQuery({
@@ -71,6 +74,7 @@ export function RunDetailModal({
         <span className="w-full break-all">ID: {run.id}</span>
       </div>
       {run.error && <p className="text-sm text-danger">{run.error}</p>}
+      {notice}
 
       {run.status === "paused" && (
         <section className="flex flex-col gap-2 rounded-lg border border-warn/40 bg-warn/5 p-3">

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PLATFORM_DEFAULT_MODEL } from "@platform/shared";
 import { Aes256GcmVaultAdapter, VaultError, loadOrCreateMasterKey } from "../src/infrastructure/out/vault/aes-vault.ts";
 import { BunPasswordHasher } from "../src/infrastructure/out/security/bun-password-hasher.ts";
 import { BootstrapSystemUseCase, DEFAULT_ADMIN_PASSWORD } from "../src/application/use-cases/bootstrap.ts";
@@ -79,6 +80,52 @@ describe("first boot bootstrap", () => {
     }
     expect((await stat(join(dataDir, "control", "AGENTS.md"))).isFile()).toBe(true);
     expect((await stat(join(dataDir, "control", ".opencode", "agents", "orchestrator", "agente.md"))).isFile()).toBe(true);
+    store.close();
+  });
+
+  it("seeds DeepSeek V4.1 Flash as the platform and orchestrator default", async () => {
+    const dataDir = await tempDir();
+    const store = new SqliteStore(join(dataDir, "db", "platform.sqlite"));
+    await new BootstrapSystemUseCase({
+      dataDir,
+      store,
+      passwordHasher: new BunPasswordHasher(),
+    }).execute();
+
+    expect(store.settings.get("default_model")).toBe(PLATFORM_DEFAULT_MODEL);
+    expect(store.settings.get("orchestrator_model")).toBe(PLATFORM_DEFAULT_MODEL);
+    store.close();
+  });
+
+  it("uses DEFAULT_MODEL when provided and keeps an explicit ORCHESTRATOR_MODEL in the environment", async () => {
+    const dataDir = await tempDir();
+    const store = new SqliteStore(join(dataDir, "db", "platform.sqlite"));
+    await new BootstrapSystemUseCase({
+      dataDir,
+      store,
+      passwordHasher: new BunPasswordHasher(),
+      defaultModel: "opencode-go/custom",
+      orchestratorModel: "opencode-go/orchestrator",
+    }).execute();
+
+    expect(store.settings.get("default_model")).toBe("opencode-go/custom");
+    expect(store.settings.get("orchestrator_model")).toBeUndefined();
+    store.close();
+  });
+
+  it("preserves custom models already stored", async () => {
+    const dataDir = await tempDir();
+    const store = new SqliteStore(join(dataDir, "db", "platform.sqlite"));
+    store.settings.set("default_model", "opencode-go/fast");
+    store.settings.set("orchestrator_model", "opencode-go/reasoning");
+    await new BootstrapSystemUseCase({
+      dataDir,
+      store,
+      passwordHasher: new BunPasswordHasher(),
+    }).execute();
+
+    expect(store.settings.get("default_model")).toBe("opencode-go/fast");
+    expect(store.settings.get("orchestrator_model")).toBe("opencode-go/reasoning");
     store.close();
   });
 

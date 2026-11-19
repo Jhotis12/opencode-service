@@ -54,6 +54,7 @@ describe("control chat progress", () => {
 
     await waitFor(() => expect(onActivityChange).toHaveBeenCalledWith("Consultando ejecuciones"));
     expect(await screen.findByText(/Error: the orchestrator returned an empty response/)).toBeInTheDocument();
+    await waitFor(() => expect(onActivityChange).toHaveBeenLastCalledWith(undefined));
 
     const agentBubbles = screen
       .getAllByRole("article")
@@ -72,12 +73,15 @@ describe("control chat progress", () => {
       },
     ];
 
+    const onBusyChange = vi.fn();
+
     function Harness() {
       const [history, setHistory] = useState(initial);
       return (
         <ChatPanel
           storageKey="control-chat-duplicate-test"
           initialMessages={history}
+          onBusyChange={onBusyChange}
           onSend={async (_message, onEvent) => {
             onEvent({ type: "text", turnId: "turn-test", text: "OK" });
             setHistory([
@@ -102,5 +106,6 @@ describe("control chat progress", () => {
     await userEvent.click(screen.getByRole("button", { name: "Enviar" }));
 
     await waitFor(() => expect(screen.getAllByText("OK")).toHaveLength(1));
+    await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(false));
   });
 });

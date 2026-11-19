@@ -36,8 +36,11 @@ Abre `http://localhost:3001` (el contenedor escucha en `3000`; el host usa `3001
 | `AGENT_TURN_IDLE_MS` | Inactividad máxima antes de interrumpir un turno (10 min por defecto). |
 | `AGENT_TURN_POLL_MS` / `AGENT_TURN_RETRY_MS` | Intervalo de polling y reintento de transporte del turno. |
 | `CHAT_TURN_ENGINE` | `v2` para el ciclo durable; `legacy` conserva la ruta anterior durante el rollout. |
-| `ORCHESTRATOR_MODEL` | Modelo del orquestador global; Ajustes puede sobrescribirlo en base y, si ambos faltan, usa el modelo por defecto de la plataforma. |
+| `ORCHESTRATOR_MODEL` | Modelo del orquestador global; Ajustes puede sobrescribirlo en base y, si ambos faltan, usa el modelo por defecto de la plataforma (DeepSeek V4.1 Flash). |
+| `DEFAULT_MODEL` | Modelo por defecto de plataforma y orquestador al sembrar una instalación nueva (`opencode/deepseek-v4.1-flash-free`). Un valor guardado en Ajustes tiene prioridad y nunca se sobrescribe. |
 | `OPENCODE_MODE=fake` | Runtime simulado para desarrollo y E2E. |
+
+El modelo por defecto de la plataforma es **DeepSeek V4.1 Flash** (`opencode/deepseek-v4.1-flash-free`). El arranque lo siembra en `system_settings` solo cuando la clave está vacía; Ajustes, el proyecto, el flujo o el nodo pueden sobrescribirlo y el arranque nunca pisa ese valor.
 
 ## Dos planos
 
@@ -138,7 +141,7 @@ Con `Accept: text/event-stream` responde por SSE; con `webhookUrl` entrega el re
 - Puede recibir alertas de `run.failed`, `integration.down` y `health.degraded`; las alertas son deterministas, deduplicadas y con throttle.
 - El chat del orquestador está en la página **Orquestador global** y usa herramientas `platform_*` con scope global.
 - Solo recibe herramientas de lectura: proyectos, flujos, ejecuciones, errores, salud y conocimiento. Las tools de mutación o efectos secundarios no se registran en su inventario.
-- Usa `ORCHESTRATOR_MODEL` si está definido; si no, el modelo por defecto de la plataforma.
+- Usa `ORCHESTRATOR_MODEL` si está definido; si no, el modelo por defecto de la plataforma (DeepSeek V4.1 Flash).
 - Sus credenciales son distintas de las de proyecto: `PLATFORM_GLOBAL_TOKEN` vs `PLATFORM_SERVICE_TOKEN`.
 - No edita proyectos; si en el futuro se habilitan acciones, requieren confirmación explícita y auditoría.
 

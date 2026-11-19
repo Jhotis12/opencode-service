@@ -6,7 +6,7 @@ import { LoginPage } from "./pages/LoginPage.tsx";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage.tsx";
 import { ProjectsPage } from "./pages/ProjectsPage.tsx";
 import { ProjectLayout } from "./pages/ProjectLayout.tsx";
-import { RunsPage } from "./pages/RunsPage.tsx";
+import { GlobalRunsPage } from "./pages/GlobalRunsPage.tsx";
 import { OrchestratorPage } from "./pages/OrchestratorPage.tsx";
 import { SettingsPage } from "./pages/SettingsPage.tsx";
 import { HealthPage } from "./pages/HealthPage.tsx";
@@ -66,7 +66,7 @@ export function App() {
             <Route path="settings" element={<ProjectSettingsPage />} />
             <Route path="*" element={<ProjectSectionRedirect />} />
           </Route>
-          <Route path="/runs" element={<RunsPage />} />
+          <Route path="/runs" element={<GlobalRunsPage />} />
           <Route path="/orchestrator" element={<OrchestratorPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/system/health" element={<HealthPage />} />

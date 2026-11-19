@@ -1,13 +1,128 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { SubagentProfile } from "@platform/shared";
+import {
+  PlatformToolNameSchema,
+  type PermissionRule,
+  type PlatformToolName,
+  type SubagentProfile,
+} from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { Field } from "./Field.tsx";
 import { Modal } from "./Modal.tsx";
-import { buttonGhost, buttonPrimary } from "../ui.ts";
+import { buttonDanger, buttonGhost, buttonPrimary } from "../ui.ts";
 
 type AgentMode = "primary" | "subagent" | "all";
+type ToolEffect = PermissionRule["effect"];
+
+const PLATFORM_TOOL_META: Record<PlatformToolName, { label: string; description: string }> = {
+  workflow_list: {
+    label: "Listar proyectos",
+    description: "Lista los proyectos y automatizaciones visibles para el agente.",
+  },
+  workflow_get: {
+    label: "Leer un flujo",
+    description: "Lee el grafo workflow.json de un proyecto.",
+  },
+  workflow_upsert: {
+    label: "Guardar flujos",
+    description: "Crea o reemplaza el grafo de un flujo tras validar el esquema y el DAG.",
+  },
+  workflow_trigger: {
+    label: "Ejecutar flujos",
+    description: "Lanza una ejecución de un flujo con una carga JSON.",
+  },
+  workflow_runs: {
+    label: "Ver ejecuciones",
+    description: "Consulta las últimas ejecuciones con sus pasos y errores.",
+  },
+  project_overview: {
+    label: "Resumen de la plataforma",
+    description: "Resume proyectos, ejecuciones recientes, errores e integraciones.",
+  },
+  subagent_upsert: {
+    label: "Guardar agentes",
+    description: "Crea o actualiza los agentes Markdown del proyecto.",
+  },
+  subagent_list: {
+    label: "Listar agentes",
+    description: "Lista los agentes y categorías de un proyecto.",
+  },
+  integration_list: {
+    label: "Listar integraciones",
+    description: "Consulta las integraciones conectadas, sin secretos.",
+  },
+  kb_search: {
+    label: "Buscar conocimiento",
+    description: "Busca en los notebooks del proyecto y devuelve citas.",
+  },
+  db_query: {
+    label: "Consultar la base de datos",
+    description: "Ejecuta SQL contra una integración de base de datos del proyecto.",
+  },
+  notify: {
+    label: "Enviar notificaciones",
+    description: "Envía mensajes por una integración de canal del proyecto.",
+  },
+  health_summary: {
+    label: "Salud de la plataforma",
+    description: "Resume la salud, las ejecuciones recientes y los errores.",
+  },
+};
+
+export const PLATFORM_TOOL_OPTIONS: { name: PlatformToolName; label: string; description: string }[] =
+  PlatformToolNameSchema.options.map((name) => ({ name, ...PLATFORM_TOOL_META[name] }));
+
+export const TOOL_EFFECT_OPTIONS: { value: ToolEffect; label: string }[] = [
+  { value: "allow", label: "Permitir" },
+  { value: "deny", label: "Denegar" },
+  { value: "ask", label: "Preguntar" },
+];
+
+const TOOL_EFFECT_CHOICES: { value: "" | ToolEffect; label: string }[] = [
+  { value: "", label: "Sin regla" },
+  ...TOOL_EFFECT_OPTIONS,
+];
+
+export function toolEffectLabel(effect: ToolEffect): string {
+  return TOOL_EFFECT_OPTIONS.find((option) => option.value === effect)?.label ?? effect;
+}
+
+/** Bare and platform_-prefixed resources (both accepted by evaluateToolPermission)
+ * resolve to their tool; unresolvable rules are surfaced, never dropped silently. */
+export function permissionRulesToToolEffects(permissions: PermissionRule[] | undefined): {
+  effects: Partial<Record<PlatformToolName, ToolEffect>>;
+  unknownRules: PermissionRule[];
+} {
+  const known = new Set<string>(PlatformToolNameSchema.options);
+  const resolveTool = (resource: string): PlatformToolName | undefined => {
+    if (known.has(resource)) return resource as PlatformToolName;
+    const bare = resource.replace(/^platform_/, "");
+    if (known.has(bare)) return bare as PlatformToolName;
+    return undefined;
+  };
+  const precedence: Record<ToolEffect, number> = { ask: 1, allow: 2, deny: 3 };
+  const effects: Partial<Record<PlatformToolName, ToolEffect>> = {};
+  const unknownRules: PermissionRule[] = [];
+  for (const rule of permissions ?? []) {
+    const tool = resolveTool(rule.resource);
+    if (!tool) {
+      unknownRules.push(rule);
+      continue;
+    }
+    const current = effects[tool];
+    if (!current || precedence[rule.effect] > precedence[current]) effects[tool] = rule.effect;
+  }
+  return { effects, unknownRules };
+}
+
+export function toolEffectsToPermissionRules(
+  effects: Partial<Record<PlatformToolName, ToolEffect>>,
+): PermissionRule[] {
+  return PlatformToolNameSchema.options
+    .filter((tool) => effects[tool])
+    .map((tool) => ({ action: "tool", resource: tool, effect: effects[tool] as ToolEffect }));
+}
 
 type AgentFormState = {
   category: string;
@@ -17,10 +132,12 @@ type AgentFormState = {
   model: string;
   mode: AgentMode;
   notebooks: string;
-  deniedTools: string;
+  toolEffects: Partial<Record<PlatformToolName, ToolEffect>>;
+  unknownRules: PermissionRule[];
 };
 
 function toForm(agent?: SubagentProfile): AgentFormState {
+  const { effects, unknownRules } = permissionRulesToToolEffects(agent?.frontmatter.permissions);
   return {
     category: agent?.category ?? "",
     role: agent?.role ?? "",
@@ -29,12 +146,13 @@ function toForm(agent?: SubagentProfile): AgentFormState {
     model: agent?.frontmatter.model ?? "",
     mode: agent?.frontmatter.mode ?? "subagent",
     notebooks: (agent?.frontmatter.notebooks ?? []).join(", "),
-    deniedTools: (agent?.frontmatter.permissions ?? [])
-      .filter((permission) => permission.effect === "deny")
-      .map((permission) => permission.resource)
-      .join(", "),
+    toolEffects: effects,
+    unknownRules,
   };
 }
+
+const effectPill =
+  "flex cursor-pointer items-center rounded-lg border border-line bg-panel-2 px-2.5 py-1.5 text-xs text-slate-300 transition hover:border-accent has-[:checked]:border-accent has-[:checked]:bg-accent/15 has-[:checked]:font-medium has-[:checked]:text-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent";
 
 export function AgentEditorModal({
   projectSlug,
@@ -50,6 +168,7 @@ export function AgentEditorModal({
   onSaved?(agent: SubagentProfile): void;
 }) {
   const queryClient = useQueryClient();
+  const permissionGroupId = useId();
   const editing = Boolean(agent);
   const [form, setForm] = useState<AgentFormState>(() => toForm(agent));
   const [error, setError] = useState<string>();
@@ -57,14 +176,14 @@ export function AgentEditorModal({
   const identityValid =
     /^[a-z0-9][a-z0-9-]*$/.test(form.category.trim()) &&
     /^[a-z0-9][a-z0-9-]*$/.test(form.role.trim());
-  const canSave = identityValid && Boolean(form.description.trim()) && Boolean(form.body.trim());
+  const canSave =
+    identityValid &&
+    Boolean(form.description.trim()) &&
+    Boolean(form.body.trim()) &&
+    form.unknownRules.length === 0;
 
   const save = useMutation({
     mutationFn: () => {
-      const denied = form.deniedTools
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
       return api.upsertAgent(projectSlug, form.category.trim(), form.role.trim(), {
         description: form.description.trim(),
         body: form.body,
@@ -74,15 +193,7 @@ export function AgentEditorModal({
           .split(",")
           .map((item) => item.trim())
           .filter(Boolean),
-        ...(denied.length > 0
-          ? {
-              permissions: denied.map((resource) => ({
-                action: "tool",
-                resource,
-                effect: "deny" as const,
-              })),
-            }
-          : {}),
+        permissions: toolEffectsToPermissionRules(form.toolEffects),
       });
     },
     onSuccess: async (saved) => {
@@ -98,6 +209,19 @@ export function AgentEditorModal({
 
   function patch(patch: Partial<AgentFormState>) {
     setForm((current) => ({ ...current, ...patch }));
+  }
+
+  function setToolEffect(tool: PlatformToolName, effect: ToolEffect | undefined) {
+    setForm((current) => {
+      const toolEffects = { ...current.toolEffects };
+      if (effect) toolEffects[tool] = effect;
+      else delete toolEffects[tool];
+      return { ...current, toolEffects };
+    });
+  }
+
+  function removeUnknownRule(index: number) {
+    setForm((current) => ({ ...current, unknownRules: current.unknownRules.filter((_, i) => i !== index) }));
   }
 
   function submit() {
@@ -221,16 +345,71 @@ export function AgentEditorModal({
 
         <section className="flex flex-col gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-slate-100">Permisos</h3>
-            <p className="text-xs text-muted">Las herramientas bloqueadas se rechazan con HTTP 403.</p>
+            <h3 className="text-sm font-semibold text-slate-100">Permisos por herramienta</h3>
+            <p className="text-xs text-muted">
+              Elige Permitir, Denegar o Preguntar para cada herramienta. Denegar rechaza la llamada con HTTP 403; sin
+              regla, la herramienta sigue el comportamiento predeterminado.
+            </p>
           </div>
-          <Field id="agent-denied-tools" label="Herramientas bloqueadas (separadas por coma)">
-            <input
-              value={form.deniedTools}
-              onChange={(event) => patch({ deniedTools: event.target.value })}
-              placeholder="workflow_upsert, subagent_upsert, db_query"
-            />
-          </Field>
+
+          {form.unknownRules.length > 0 && (
+            <div
+              className="flex flex-col gap-2 rounded-lg border border-danger/40 bg-danger/5 p-3"
+              data-testid="unknown-permission-rules"
+            >
+              <p className="text-xs text-danger" role="alert">
+                Hay reglas con herramientas fuera del catálogo (
+                {form.unknownRules.map((rule) => rule.resource).join(", ")}). Quítalas para poder guardar; el resto de
+                permisos se mantiene.
+              </p>
+              {form.unknownRules.map((rule, index) => (
+                <div
+                  key={`${rule.resource}-${rule.action}-${index}`}
+                  className="flex items-center justify-between gap-2 text-xs text-slate-300"
+                >
+                  <span>
+                    <code className="rounded bg-well px-1 py-0.5">{rule.resource}</code> · {rule.action} ·{" "}
+                    {toolEffectLabel(rule.effect)}
+                  </span>
+                  <button type="button" className={buttonDanger} onClick={() => removeUnknownRule(index)}>
+                    Quitar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-col">
+            {PLATFORM_TOOL_OPTIONS.map((tool) => (
+              <fieldset
+                key={tool.name}
+                data-testid={`permission-row-${tool.name}`}
+                className="grid gap-x-4 gap-y-1.5 border-b border-line py-2.5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+              >
+                <legend className="text-xs font-medium text-slate-300">
+                  {tool.label} <code className="text-[11px] font-normal text-muted">{tool.name}</code>
+                  <span className="mt-0.5 block text-[11px] font-normal text-muted">{tool.description}</span>
+                </legend>
+                <div className="flex flex-wrap items-center gap-1">
+                  {TOOL_EFFECT_CHOICES.map((option) => (
+                    <label key={option.value || "sin-regla"} className={effectPill}>
+                      <input
+                        type="radio"
+                        name={`${permissionGroupId}-${tool.name}`}
+                        value={option.value}
+                        checked={form.toolEffects[tool.name] === (option.value || undefined)}
+                        onChange={() =>
+                          setToolEffect(tool.name, option.value ? option.value : undefined)
+                        }
+                        className="sr-only"
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ))}
+          </div>
         </section>
 
         {error && (

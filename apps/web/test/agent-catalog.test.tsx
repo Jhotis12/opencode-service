@@ -130,4 +130,112 @@ describe("AgentCatalog", () => {
     await userEvent.click(within(screen.getByRole("dialog", { name: "Eliminar agente" })).getByRole("button", { name: "Borrar agente" }));
     await waitFor(() => expect(apiMock.deleteAgent).toHaveBeenCalledWith("demo", "ventas", "calificador"));
   });
+
+  it("round-trips per-tool permission rules through the visual editor", async () => {
+    renderCatalog();
+    await userEvent.click(
+      within(screen.getByTestId("agent-card-ventas-calificador")).getByRole("button", { name: "Editar" }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Editar agente" });
+    expect(
+      within(screen.getByTestId("permission-row-db_query")).getByRole("radio", { name: "Denegar" }),
+    ).toBeChecked();
+    expect(
+      within(screen.getByTestId("permission-row-workflow_list")).getByRole("radio", { name: "Sin regla" }),
+    ).toBeChecked();
+
+    await userEvent.click(
+      within(screen.getByTestId("permission-row-notify")).getByRole("radio", { name: "Preguntar" }),
+    );
+    await userEvent.click(
+      within(screen.getByTestId("permission-row-workflow_trigger")).getByRole("radio", { name: "Permitir" }),
+    );
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Guardar agente" }));
+    await waitFor(() => expect(apiMock.upsertAgent).toHaveBeenCalledTimes(1));
+    expect(apiMock.upsertAgent.mock.calls[0][3].permissions).toEqual([
+      { action: "tool", resource: "workflow_trigger", effect: "allow" },
+      { action: "tool", resource: "db_query", effect: "deny" },
+      { action: "tool", resource: "notify", effect: "ask" },
+    ]);
+  });
+
+  it("adding a deny on one tool leaves the other rules unchanged", async () => {
+    const mixed: SubagentProfile = {
+      ...subagent,
+      frontmatter: {
+        ...subagent.frontmatter,
+        permissions: [
+          { action: "tool", resource: "kb_search", effect: "allow" },
+          { action: "tool", resource: "notify", effect: "ask" },
+        ],
+      },
+    };
+    renderCatalog([mixed, primary]);
+    await userEvent.click(
+      within(screen.getByTestId("agent-card-ventas-calificador")).getByRole("button", { name: "Editar" }),
+    );
+    await userEvent.click(
+      within(screen.getByTestId("permission-row-db_query")).getByRole("radio", { name: "Denegar" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Guardar agente" }));
+    await waitFor(() => expect(apiMock.upsertAgent).toHaveBeenCalledTimes(1));
+    expect(apiMock.upsertAgent.mock.calls[0][3].permissions).toEqual([
+      { action: "tool", resource: "kb_search", effect: "allow" },
+      { action: "tool", resource: "db_query", effect: "deny" },
+      { action: "tool", resource: "notify", effect: "ask" },
+    ]);
+  });
+
+  it("filters the catalog by name and role", async () => {
+    renderCatalog();
+    expect(screen.getByTestId("agent-card-principal-agente")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-card-ventas-calificador")).toBeInTheDocument();
+
+    const search = screen.getByRole("searchbox", { name: "Buscar agentes" });
+    await userEvent.type(search, "calificador");
+    expect(screen.queryByTestId("agent-card-principal-agente")).not.toBeInTheDocument();
+    expect(screen.getByTestId("agent-card-ventas-calificador")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-search-count")).toHaveTextContent("1 de 2 agentes");
+
+    await userEvent.clear(search);
+    await userEvent.type(search, "noexiste");
+    expect(screen.queryByTestId("agent-card-ventas-calificador")).not.toBeInTheDocument();
+    expect(screen.getByText("No hay agentes que coincidan con «noexiste».")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Limpiar búsqueda" }));
+    expect(screen.getByTestId("agent-card-principal-agente")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-card-ventas-calificador")).toBeInTheDocument();
+  });
+
+  it("blocks saving while unknown tool rules exist and removes them on demand", async () => {
+    const legacy: SubagentProfile = {
+      ...subagent,
+      frontmatter: {
+        ...subagent.frontmatter,
+        permissions: [
+          { action: "tool", resource: "db_query", effect: "deny" },
+          { action: "tool", resource: "legacy_tool", effect: "deny" },
+        ],
+      },
+    };
+    renderCatalog([legacy, primary]);
+    await userEvent.click(
+      within(screen.getByTestId("agent-card-ventas-calificador")).getByRole("button", { name: "Editar" }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Editar agente" });
+    const unknownBlock = screen.getByTestId("unknown-permission-rules");
+    expect(within(unknownBlock).getByText("legacy_tool")).toBeInTheDocument();
+    const save = within(dialog).getByRole("button", { name: "Guardar agente" });
+    expect(save).toBeDisabled();
+
+    await userEvent.click(within(unknownBlock).getByRole("button", { name: "Quitar" }));
+    expect(screen.queryByTestId("unknown-permission-rules")).not.toBeInTheDocument();
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    await waitFor(() => expect(apiMock.upsertAgent).toHaveBeenCalledTimes(1));
+    expect(apiMock.upsertAgent.mock.calls[0][3].permissions).toEqual([
+      { action: "tool", resource: "db_query", effect: "deny" },
+    ]);
+  });
 });

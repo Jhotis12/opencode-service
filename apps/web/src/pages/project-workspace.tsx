@@ -23,6 +23,12 @@ import {
 import { qk } from "../query.ts";
 import { getGraphIssues, mapServerIssue, type GraphIssue } from "../components/canvas/graph-edits.ts";
 
+export interface AgentFlowUpdate {
+  summary: string;
+  nodeIds: string[];
+  at: number;
+}
+
 export interface ProjectWorkspace {
   slug: string;
   graph: WorkflowGraph | undefined;
@@ -70,11 +76,21 @@ export interface ProjectWorkspace {
   chatUnread: boolean;
   setChatUnread(next: boolean): void;
   agentTouchedNodeIds: string[];
+  agentFlowUpdate: AgentFlowUpdate | undefined;
+  dismissAgentFlowUpdate(): void;
   sendChat(message: string, onEvent?: (event: ChatTurnEvent) => void): Promise<ChatTurnResult>;
   requestNavigate(target: string): void;
   pendingPath: string | undefined;
   discardAndContinue(): void;
   cancelPendingNavigation(): void;
+}
+
+const AGENT_TOUCH_TTL_MS = 4_500;
+const AGENT_FLOW_UPDATE_TTL_MS = 30_000;
+const LOCAL_SAVE_TTL_MS = 15_000;
+
+function graphContentSignature(graph: WorkflowGraph): string {
+  return JSON.stringify({ id: graph.id, nodes: graph.nodes, edges: graph.edges });
 }
 
 const ProjectWorkspaceContext = createContext<ProjectWorkspace | undefined>(undefined);
@@ -159,11 +175,14 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
   const [chatActivity, setChatActivity] = useState<string>();
   const [chatUnread, setChatUnread] = useState(false);
   const [agentTouchedNodeIds, setAgentTouchedNodeIds] = useState<string[]>([]);
+  const [agentFlowUpdate, setAgentFlowUpdate] = useState<AgentFlowUpdate>();
   const [pendingPath, setPendingPath] = useState<string>();
   const chatOpenRef = useRef(false);
   const chatBusyRef = useRef(false);
   const graphRef = useRef<WorkflowGraph | undefined>(undefined);
   const agentTouchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const agentUpdateTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const localSaveRef = useRef<{ signature: string; activeUntil: number } | undefined>(undefined);
 
   chatOpenRef.current = chatOpen;
   chatBusyRef.current = chatBusy;
@@ -176,7 +195,13 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     }
   }, [workflowQuery.data]);
 
-  useEffect(() => () => clearTimeout(agentTouchTimer.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(agentTouchTimer.current);
+      clearTimeout(agentUpdateTimer.current);
+    },
+    [],
+  );
 
   const graphIssues = useMemo(() => (graph ? getGraphIssues(graph) : []), [graph]);
 
@@ -192,7 +217,13 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     source.addEventListener("workflow.updated", (event) => {
       const data = JSON.parse((event as MessageEvent).data) as { projectSlug: string; graph: WorkflowGraph };
       if (data.projectSlug === slug) {
-        if (chatBusyRef.current) markAgentChanges(data.graph);
+        const pendingSave = localSaveRef.current;
+        const isOwnSave =
+          pendingSave !== undefined &&
+          Date.now() <= pendingSave.activeUntil &&
+          pendingSave.signature === graphContentSignature(data.graph);
+        if (isOwnSave) localSaveRef.current = undefined;
+        else markAgentChanges(data.graph);
         queryClient.setQueryData(qk.workflow(slug), data.graph);
         setGraph(data.graph);
         setDirty(false);
@@ -236,6 +267,12 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
 
   const saveWorkflowMutation = useMutation({
     mutationFn: (next: WorkflowGraph) => api.saveWorkflow(slug, next),
+    onMutate: (next) => {
+      localSaveRef.current = {
+        signature: graphContentSignature(next),
+        activeUntil: Date.now() + LOCAL_SAVE_TTL_MS,
+      };
+    },
     onSuccess: (saved) => {
       queryClient.setQueryData(qk.workflow(slug), saved);
       void queryClient.invalidateQueries({ queryKey: qk.workflowVersions(slug) });
@@ -246,6 +283,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       setError(undefined);
     },
     onError: (cause) => {
+      localSaveRef.current = undefined;
       if (graph && cause instanceof ApiClientError && cause.code === "INVALID_WORKFLOW") {
         const messages =
           cause.issues ??
@@ -300,6 +338,14 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
 
   const rollbackVersionMutation = useMutation({
     mutationFn: (version: number) => api.rollbackWorkflowVersion(slug, version),
+    onMutate: (version) => {
+      const target = versions.find((item) => item.version === version);
+      if (!target) return;
+      localSaveRef.current = {
+        signature: graphContentSignature(target.graph),
+        activeUntil: Date.now() + LOCAL_SAVE_TTL_MS,
+      };
+    },
     onSuccess: async (result, version) => {
       queryClient.setQueryData(qk.workflow(slug), result.graph);
       await queryClient.invalidateQueries({ queryKey: qk.workflowVersions(slug) });
@@ -327,31 +373,55 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     setDirty(true);
   }
 
+  function plural(count: number, singular: string, pluralForm: string) {
+    return `${count} ${count === 1 ? singular : pluralForm}`;
+  }
+
   function markAgentChanges(next: WorkflowGraph) {
     const previous = graphRef.current;
-    if (!previous) return;
-    const added = next.nodes.filter((node) => !previous.nodes.some((item) => item.id === node.id));
-    const changed = next.nodes.filter((node) => {
-      const old = previous.nodes.find((item) => item.id === node.id);
-      return Boolean(old && JSON.stringify(old) !== JSON.stringify(node));
-    });
+    const added = previous
+      ? next.nodes.filter((node) => !previous.nodes.some((item) => item.id === node.id))
+      : next.nodes;
+    const changed = previous
+      ? next.nodes.filter((node) => {
+          const old = previous.nodes.find((item) => item.id === node.id);
+          return Boolean(old && JSON.stringify(old) !== JSON.stringify(node));
+        })
+      : [];
+    const removed = previous
+      ? previous.nodes.filter((node) => !next.nodes.some((item) => item.id === node.id))
+      : [];
+    const edgesChanged = previous ? JSON.stringify(previous.edges) !== JSON.stringify(next.edges) : false;
     const touched = [...added, ...changed].map((node) => node.id);
-    if (touched.length > 0) {
-      const names = [...added, ...changed]
-        .map((node) => node.label ?? node.id)
-        .slice(0, 3)
-        .join(", ");
-      setChatActivity(
-        added.length > 0
-          ? `Flujo actualizado: +${added.length} nodo${added.length === 1 ? "" : "s"}${names ? ` (${names})` : ""}`
-          : `Nodo actualizado: ${names}`,
-      );
-      setAgentTouchedNodeIds(touched);
-      clearTimeout(agentTouchTimer.current);
-      agentTouchTimer.current = setTimeout(() => setAgentTouchedNodeIds([]), 4500);
-    } else if (JSON.stringify(previous.edges) !== JSON.stringify(next.edges)) {
-      setChatActivity("Conexiones del flujo actualizadas");
-    }
+    const names = [...added, ...changed]
+      .map((node) => node.label ?? node.id)
+      .slice(0, 3)
+      .join(", ");
+    const counts: string[] = [];
+    if (added.length > 0) counts.push(`+${plural(added.length, "nodo", "nodos")}`);
+    if (changed.length > 0) counts.push(plural(changed.length, "nodo actualizado", "nodos actualizados"));
+    if (removed.length > 0) counts.push(`−${plural(removed.length, "nodo", "nodos")}`);
+    const summary =
+      counts.length > 0
+        ? `El agente actualizó el flujo: ${counts.join(", ")}${names ? ` (${names})` : ""}`
+        : edgesChanged
+          ? "El agente actualizó las conexiones del flujo"
+          : "El agente actualizó el flujo";
+
+    setChatActivity(summary);
+    setAgentFlowUpdate({ summary, nodeIds: touched, at: Date.now() });
+    setAgentTouchedNodeIds(touched);
+    clearTimeout(agentTouchTimer.current);
+    agentTouchTimer.current = setTimeout(() => setAgentTouchedNodeIds([]), AGENT_TOUCH_TTL_MS);
+    clearTimeout(agentUpdateTimer.current);
+    agentUpdateTimer.current = setTimeout(() => setAgentFlowUpdate(undefined), AGENT_FLOW_UPDATE_TTL_MS);
+  }
+
+  function dismissAgentFlowUpdate() {
+    clearTimeout(agentTouchTimer.current);
+    clearTimeout(agentUpdateTimer.current);
+    setAgentFlowUpdate(undefined);
+    setAgentTouchedNodeIds([]);
   }
 
   function requestNavigate(target: string) {
@@ -433,6 +503,8 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     chatUnread,
     setChatUnread,
     agentTouchedNodeIds,
+    agentFlowUpdate,
+    dismissAgentFlowUpdate,
     sendChat: (message, onEvent) => chatMutation.mutateAsync({ message, onEvent }),
     requestNavigate,
     pendingPath,

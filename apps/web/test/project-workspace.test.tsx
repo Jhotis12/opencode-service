@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import type { SubagentProfile, WorkflowGraph } from "@platform/shared";
@@ -47,7 +47,38 @@ vi.mock("../src/components/CodeEditor.tsx", () => ({
 }));
 
 import { App } from "../src/App.tsx";
-import { renderWithProviders } from "./render.tsx";
+import { findToast, renderWithProviders } from "./render.tsx";
+
+type TestListener = (event: MessageEvent) => void;
+
+class TestEventSource {
+  static instances: TestEventSource[] = [];
+  readonly url: string;
+  private readonly listeners = new Map<string, Set<TestListener>>();
+
+  constructor(url: string | URL) {
+    this.url = String(url);
+    TestEventSource.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: TestListener) {
+    const listeners = this.listeners.get(type) ?? new Set<TestListener>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: TestListener) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  close() {}
+
+  emit(type: string, payload: unknown) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ data: JSON.stringify(payload) } as MessageEvent);
+    }
+  }
+}
 
 const graph: WorkflowGraph = {
   version: 1,
@@ -73,6 +104,44 @@ const agent: SubagentProfile = {
   },
   body: "Coordina el proyecto.",
 };
+
+function graphWithAgent(label: string): WorkflowGraph {
+  return {
+    ...graph,
+    nodes: [
+      ...graph.nodes.map((node) => (node.id === "code" ? { ...node, label } : node)),
+      {
+        id: "agent",
+        type: "agent",
+        label: "Redactar",
+        agentId: "principal/agente",
+        position: { x: 440, y: 0 },
+        config: {},
+        notebookIds: [],
+        timeoutMs: 30_000,
+        retryPolicy: { maxRetries: 0 },
+      },
+    ],
+    edges: [...graph.edges, { id: "e2", source: "code", target: "agent" }],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function emitWorkflowUpdate(next: WorkflowGraph) {
+  const sources = TestEventSource.instances.filter((source) => source.url === "/api/events");
+  expect(sources.length).toBeGreaterThan(0);
+  act(() => {
+    for (const source of sources) source.emit("workflow.updated", { projectSlug: "demo", graph: next });
+  });
+}
+
+function emitRunUpdate(payload: { status: string; projectSlug?: string }) {
+  const sources = TestEventSource.instances.filter((source) => source.url === "/api/events");
+  expect(sources.length).toBeGreaterThan(0);
+  act(() => {
+    for (const source of sources) source.emit("run.updated", { projectSlug: "demo", ...payload });
+  });
+}
 
 function setupApi() {
   apiMock.getWorkflow.mockResolvedValue(graph);
@@ -143,6 +212,8 @@ async function makeGraphDirty(container: HTMLElement) {
 describe("routed project workspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    TestEventSource.instances.length = 0;
+    globalThis.EventSource = TestEventSource as unknown as typeof EventSource;
     setupApi();
   });
 
@@ -230,6 +301,84 @@ describe("routed project workspace", () => {
     await userEvent.click(within(sectionTabs()).getByRole("link", { name: "Ejecuciones (1)" }));
     expect(await screen.findByText("abcd1234")).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Cambios sin guardar" })).not.toBeInTheDocument();
+  });
+
+  it("announces a finished run with a toast instead of a green banner", async () => {
+    renderApp("/projects/demo/flow");
+    expect(await screen.findByRole("button", { name: "+ Nodo" })).toBeInTheDocument();
+
+    emitRunUpdate({ status: "succeeded" });
+
+    expect(await findToast("Ejecución completada. El detalle está en Ejecuciones.")).toBeVisible();
+  });
+
+  it("marks and announces an external workflow update while the chat is idle", async () => {
+    const { container } = renderApp("/projects/demo/flow");
+    expect(await screen.findByRole("button", { name: "+ Nodo" })).toBeInTheDocument();
+
+    emitWorkflowUpdate(graphWithAgent("Consultar"));
+
+    const banner = await screen.findByTestId("agent-update-banner");
+    expect(banner).toHaveTextContent("El agente actualizó el flujo: +1 nodo (Redactar)");
+    await waitFor(() => expect(container.querySelector('[data-node-id="agent"]')).not.toBeNull());
+    expect(container.querySelector('[data-node-id="agent"] .agent-touch-layer')).not.toBeNull();
+    expect(container.querySelector('[data-node-id="start"] .agent-touch-layer')).toBeNull();
+
+    await userEvent.click(within(banner).getByRole("button", { name: "Descartar actualización del agente" }));
+    expect(screen.queryByTestId("agent-update-banner")).not.toBeInTheDocument();
+    expect(container.querySelector('[data-node-id="agent"] .agent-touch-layer')).toBeNull();
+  });
+
+  it("does not announce the SSE event that echoes the local save", async () => {
+    let finishSave: (() => void) | undefined;
+    apiMock.saveWorkflow.mockImplementation(
+      (_slug: string, next: WorkflowGraph) =>
+        new Promise<WorkflowGraph>((resolve) => {
+          finishSave = () => resolve(next);
+        }),
+    );
+    const { container } = renderApp("/projects/demo/flow");
+    expect(await screen.findByRole("button", { name: "+ Nodo" })).toBeInTheDocument();
+    await makeGraphDirty(container);
+    await userEvent.click(screen.getByRole("button", { name: "Guardar flujo" }));
+    await waitFor(() => expect(apiMock.saveWorkflow).toHaveBeenCalled());
+    const saved = apiMock.saveWorkflow.mock.calls.at(-1)?.[1] as WorkflowGraph;
+
+    emitWorkflowUpdate(saved);
+    expect(screen.queryByTestId("agent-update-banner")).not.toBeInTheDocument();
+
+    act(() => finishSave?.());
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Cambios sin guardar" })).not.toBeInTheDocument());
+    expect(screen.queryByTestId("agent-update-banner")).not.toBeInTheDocument();
+  });
+
+  it("replaces a dirty draft with the agent graph and announces the change", async () => {
+    const { container } = renderApp("/projects/demo/flow");
+    expect(await screen.findByRole("button", { name: "+ Nodo" })).toBeInTheDocument();
+    await makeGraphDirty(container);
+
+    emitWorkflowUpdate(graphWithAgent("Desde el agente"));
+
+    const banner = await screen.findByTestId("agent-update-banner");
+    expect(banner).toHaveTextContent("El agente actualizó el flujo");
+    expect(banner).toHaveTextContent("+1 nodo");
+    expect(banner).toHaveTextContent("1 nodo actualizado");
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Cambios sin guardar" })).not.toBeInTheDocument());
+
+    fireEvent.click(container.querySelector('[data-node-id="code"]')!);
+    const inspector = await screen.findByRole("dialog", { name: "Nodo: Desde el agente" });
+    expect(within(inspector).getByLabelText("Etiqueta")).toHaveValue("Desde el agente");
+  });
+
+  it("keeps the agent marker available when the flow tab opens after the update", async () => {
+    renderApp("/projects/demo/overview");
+    expect(await screen.findByRole("heading", { name: "Resumen" })).toBeInTheDocument();
+
+    emitWorkflowUpdate(graphWithAgent("Desde el agente"));
+    await userEvent.click(within(sectionTabs()).getByRole("link", { name: "Flujo" }));
+
+    expect(await screen.findByRole("button", { name: "+ Nodo" })).toBeInTheDocument();
+    expect(screen.getByTestId("agent-update-banner")).toHaveTextContent("El agente actualizó el flujo");
   });
 
   it("warns before closing the tab only when the graph is dirty", async () => {

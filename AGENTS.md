@@ -19,14 +19,14 @@ Rules:
 ## Web shell
 
 - `apps/web/src/App.tsx` is the route source of truth. The rail has five global pages (`/projects`, `/runs`, `/orchestrator`, `/settings`, `/system/health`) and each project section is a route under `/projects/:slug/`: `overview`, `flow`, `runs`, `agents`, `knowledge`, `integrations`, `settings`. `/projects/:slug` redirects to `overview`. Keep the README route table 1:1 with this file.
-- The project shell lives in `pages/ProjectLayout.tsx` with shared state in `pages/project-workspace.tsx`; `components/ProjectTopBar.tsx` renders the section tabs and the overflow menu (Versiones, Biblioteca del flujo, Ajustes del flujo).
+- The project shell lives in `pages/ProjectLayout.tsx` with shared state in `pages/project-workspace.tsx`; `components/ProjectTopBar.tsx` renders the section tabs and the overflow menu (Versiones del flujo, Biblioteca del flujo, Ajustes del flujo).
 - Workflow import/export uses `WorkflowDefinitionSchema` in `apps/web/src/workflow-transfer.ts`: `{ version: 1, exportedAt, graph }`, where `graph` is `WorkflowGraphSchema`. The plan calls this envelope `WorkflowExportEnvelopeSchema`; it's the same contract under the real symbol.
 - Visual rules: `docs/design-standard.md`. Motion: `docs/ui-motion.md`. Both are binding for new UI work.
 
 ## Default model
 
 - The platform and the global orchestrator default to DeepSeek V4.1 Flash (`opencode/deepseek-v4.1-flash-free`, `PLATFORM_DEFAULT_MODEL` in `packages/shared`).
-- `BootstrapSystemUseCase` seeds `default_model` and `orchestrator_model` only when the key is unset, from `options.defaultModel ?? DEFAULT_MODEL ?? PLATFORM_DEFAULT_MODEL`. Startup never overwrites a saved setting, and a project, flow or node can override the platform value.
+- `BootstrapSystemUseCase` seeds `default_model` from `options.defaultModel ?? PLATFORM_DEFAULT_MODEL` (`apps/server/src/index.ts` folds `DEFAULT_MODEL` into `options.defaultModel`) only when the key is unset. It seeds `orchestrator_model` only when the key is unset and no explicit `orchestratorModel` (`ORCHESTRATOR_MODEL`) is supplied, which preserves env precedence. Startup never overwrites a saved setting, and a project, flow or node can override the platform value.
 - `.env.example` and `docker-compose.yml` ship `DEFAULT_MODEL` so fresh installs land on DeepSeek; see the README variables table for precedence.
 
 ## Installed skills

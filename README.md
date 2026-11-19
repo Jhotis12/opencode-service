@@ -80,7 +80,7 @@ El rail lateral fija las cinco páginas globales: **Proyectos**, **Ejecuciones**
 | `/runs` | **Ejecuciones** globales de todos los proyectos. |
 | `/orchestrator` | **Orquestador global**: chat de control y estado cross-project. |
 | `/settings` | **Ajustes** de plataforma: proveedor, Sentry, bóveda y canales del orquestador. |
-| `/system/health` | **Salud del sistema**: servicios, errores recientes y runbook. |
+| `/system/health` | **Salud del sistema**: estado de los servicios, rendimiento y errores recientes, con enlace a Sentry/GlitchTip en `/settings`. |
 | `*` | Redirige a `/projects`. |
 
 **Ejecuciones globales** reúne los runs de todos los proyectos en una sola tabla. Filtra por estado, slug de proyecto y rango de fechas en UTC, pagina de 50 en 50, abre el detalle paso a paso y exporta hasta 200 filas en JSON o CSV con los filtros activos. Los runs hijos de `foreach` y `subworkflow` se agrupan bajo su padre (`parentRunId`).

@@ -85,6 +85,15 @@ export function evaluateToolPermission(input: {
   if (denied) {
     return { allowed: false, reason: `permission denied by agent rule for tool ${input.tool}` };
   }
+  // Platform tool calls cross an HTTP boundary with no interactive approver, so `ask` must fail closed
+  // instead of silently granting the access the operator wanted to review.
+  const asked = rules.find((rule) => matchesRule(rule) && rule.effect === "ask");
+  if (asked) {
+    return {
+      allowed: false,
+      reason: `tool ${input.tool} requires approval (ask) and no interactive approver is available`,
+    };
+  }
   const explicitlyAllowed = rules.some((rule) => matchesRule(rule) && rule.effect === "allow");
   if (
     (context === "workflow" || context === "external_channel") &&

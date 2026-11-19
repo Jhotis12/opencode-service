@@ -1015,9 +1015,36 @@ export async function createApplication(config: AppConfig): Promise<Application>
     }
   });
   app.post("/api/control/knowledge/search", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { query?: string; projectSlug?: string; limit?: number };
-    if (!body.query) return c.json(apiError("VALIDATION_ERROR", "query is required"), 422);
-    return c.json({ data: await search.searchAcrossProjects(body.query, body.limit ?? 5, body.projectSlug) });
+    const body = (await c.req.json().catch(() => ({}))) as {
+      query?: unknown;
+      projectSlug?: unknown;
+      notebookSlug?: unknown;
+      limit?: unknown;
+    };
+    if (typeof body.query !== "string" || !body.query.trim()) {
+      return c.json(apiError("VALIDATION_ERROR", "query is required"), 422);
+    }
+    const projectSlug = typeof body.projectSlug === "string" ? body.projectSlug.trim() : undefined;
+    const notebookSlug = typeof body.notebookSlug === "string" ? body.notebookSlug.trim() : undefined;
+    if (projectSlug !== undefined && !/^[a-z0-9][a-z0-9-]{1,60}$/.test(projectSlug)) {
+      return c.json(apiError("VALIDATION_ERROR", "invalid projectSlug"), 422);
+    }
+    if (notebookSlug !== undefined && !/^[a-z0-9][a-z0-9-]{1,60}$/.test(notebookSlug)) {
+      return c.json(apiError("VALIDATION_ERROR", "invalid notebookSlug"), 422);
+    }
+    if (notebookSlug !== undefined && projectSlug === undefined) {
+      return c.json(apiError("VALIDATION_ERROR", "projectSlug is required to search a notebook"), 422);
+    }
+    const limit = Math.min(Math.max(Number(body.limit ?? 5) || 5, 1), 50);
+    try {
+      const data =
+        projectSlug && notebookSlug
+          ? await search.execute(projectSlug, notebookSlug, body.query, limit)
+          : await search.searchAcrossProjects(body.query, limit, projectSlug);
+      return c.json({ data });
+    } catch (error) {
+      return integrationError(c, error);
+    }
   });
 
   // Project-scoped secrets
@@ -1560,9 +1587,13 @@ export async function createApplication(config: AppConfig): Promise<Application>
   app.post("/api/projects/:slug/notebooks/:notebookSlug/search", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { query?: string; limit?: number };
     if (!body.query) return c.json(apiError("VALIDATION_ERROR", "query is required"), 422);
-    return c.json({
-      data: await search.execute(c.req.param("slug"), c.req.param("notebookSlug"), body.query, body.limit ?? 5),
-    });
+    try {
+      return c.json({
+        data: await search.execute(c.req.param("slug"), c.req.param("notebookSlug"), body.query, body.limit ?? 5),
+      });
+    } catch (error) {
+      return integrationError(c, error);
+    }
   });
   app.delete("/api/projects/:slug/notebooks/:notebookSlug", async (c) => {
     const slug = c.req.param("slug");

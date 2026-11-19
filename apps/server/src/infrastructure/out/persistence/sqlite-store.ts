@@ -1,4 +1,4 @@
-import { and, desc, eq, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, or, sql, type SQL } from "drizzle-orm";
 import type {
   ApprovalRecord,
   ChatMessageRecord,
@@ -23,7 +23,7 @@ import type {
   QueuedRunRecord,
 } from "../../../domain/entities.ts";
 import type { WorkflowGraph } from "@platform/shared";
-import type { Store } from "../../../application/ports/store.ts";
+import type { RunListFilters, Store } from "../../../application/ports/store.ts";
 import { openDatabase, type DatabaseHandle } from "./db.ts";
 import { migrate } from "./migrate.ts";
 import {
@@ -81,6 +81,16 @@ interface ChatTurnRow {
   entry_point: string;
   created_at: string;
   updated_at: string;
+}
+
+function runFilterWhere(filters: RunListFilters): SQL | undefined {
+  const conditions: SQL[] = [];
+  if (filters.status !== undefined) conditions.push(eq(workflowRuns.status, filters.status));
+  if (filters.project !== undefined) conditions.push(eq(workflowRuns.projectSlug, filters.project));
+  if (filters.entryPoint !== undefined) conditions.push(eq(workflowRuns.entryPoint, filters.entryPoint));
+  if (filters.from !== undefined) conditions.push(gte(workflowRuns.startedAt, filters.from));
+  if (filters.to !== undefined) conditions.push(lte(workflowRuns.startedAt, filters.to));
+  return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
 export class SqliteStore implements Store {
@@ -510,6 +520,24 @@ export class SqliteStore implements Store {
         .limit(limit)
         .all()
         .map((row) => this.mapRun(row)!),
+    listFiltered: (input: RunListFilters & { limit: number; offset: number }): WorkflowRunRecord[] =>
+      this.handle.db
+        .select()
+        .from(workflowRuns)
+        .where(runFilterWhere(input))
+        .orderBy(desc(workflowRuns.startedAt))
+        .limit(input.limit)
+        .offset(input.offset)
+        .all()
+        .map((row) => this.mapRun(row)!),
+    countFiltered: (filters: RunListFilters): number => {
+      const row = this.handle.db
+        .select({ value: sql<number>`count(*)` })
+        .from(workflowRuns)
+        .where(runFilterWhere(filters))
+        .get();
+      return Number(row?.value ?? 0);
+    },
     insertStep: (record: StepRunRecord): void => {
       this.handle.db
         .insert(workflowStepRuns)

@@ -7,10 +7,12 @@ import { streamSSE } from "hono/streaming";
 import {
   apiError,
   evaluateToolPermission,
+  WorkflowRunStatusSchema,
   type AgentExecutionContext,
   type EffectiveSetting,
   type WorkflowGraph,
 } from "@platform/shared";
+import type { RunListFilters } from "./application/ports/store.ts";
 import type { IntegrationRecord, UserRecord } from "./domain/entities.ts";
 import { InMemoryMetrics } from "./domain/telemetry/metrics.ts";
 import type { Logger } from "./domain/telemetry/index.ts";
@@ -170,6 +172,16 @@ function integrationError(c: { json(body: unknown, status?: number): Response },
     return c.json(apiError(error.code, error.message), error.code === "UNSAFE_URL" ? 422 : 400);
   }
   throw error;
+}
+
+const ISO_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Normalizes a query date bound to a UTC ISO instant; date-only values cover the whole day. */
+function parseIsoBound(value: string, kind: "from" | "to"): string | null {
+  if (ISO_DATE_ONLY.test(value)) return kind === "to" ? `${value}T23:59:59.999Z` : `${value}T00:00:00.000Z`;
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return null;
+  return new Date(parsed).toISOString();
 }
 
 export async function createApplication(config: AppConfig): Promise<Application> {
@@ -1634,10 +1646,36 @@ export async function createApplication(config: AppConfig): Promise<Application>
     }
   });
   app.get("/api/control/runs", (c) => {
-    const limit = Math.min(Number(c.req.query("limit") ?? 20) || 20, 100);
-    return c.json({
-      data: store.runs.listRecent(limit).map((run) => ({ ...run, steps: store.runs.listSteps(run.id) })),
-    });
+    const rawStatus = c.req.query("status");
+    const status = rawStatus === undefined ? undefined : WorkflowRunStatusSchema.safeParse(rawStatus);
+    if (status && !status.success) return c.json(apiError("VALIDATION_ERROR", "invalid status filter"), 400);
+    const rawFrom = c.req.query("from");
+    const rawTo = c.req.query("to");
+    const from = rawFrom === undefined ? undefined : parseIsoBound(rawFrom, "from");
+    const to = rawTo === undefined ? undefined : parseIsoBound(rawTo, "to");
+    if ((rawFrom !== undefined && from === null) || (rawTo !== undefined && to === null)) {
+      return c.json(apiError("VALIDATION_ERROR", "from and to must be ISO date strings"), 400);
+    }
+    const filters: RunListFilters = {};
+    if (status?.success) filters.status = status.data;
+    const project = c.req.query("project");
+    if (project !== undefined) filters.project = project;
+    const rawEntryPoint = c.req.query("entryPoint");
+    if (rawEntryPoint !== undefined) filters.entryPoint = rawEntryPoint as RunListFilters["entryPoint"];
+    if (from) filters.from = from;
+    if (to) filters.to = to;
+    const limit = Math.min(Math.max(Math.floor(Number(c.req.query("limit") ?? 20) || 20), 1), 200);
+    const offset = Math.max(Math.floor(Number(c.req.query("offset") ?? 0) || 0), 0);
+    const total = store.runs.countFiltered(filters);
+    const data = store.runs
+      .listFiltered({ ...filters, limit, offset })
+      .map((run) => ({ ...run, steps: store.runs.listSteps(run.id) }));
+    return c.json({ data, total, limit, offset });
+  });
+  app.get("/api/control/runs/:runId", (c) => {
+    const run = store.runs.findById(c.req.param("runId"));
+    if (!run) return c.json(apiError("NOT_FOUND", "run not found"), 404);
+    return c.json({ ...run, steps: store.runs.listSteps(run.id) });
   });
   app.get("/api/control/errors", (c) => {
     const limit = Math.min(Number(c.req.query("limit") ?? 50) || 50, 200);

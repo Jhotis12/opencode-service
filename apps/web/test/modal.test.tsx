@@ -85,6 +85,60 @@ describe("Modal", () => {
     root.remove();
   });
 
+  it("returns focus to the trigger after Escape closes the dialog", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Abrir dialogo
+          </button>
+          {open && (
+            <Modal title="Cierre con Escape" onClose={() => setOpen(false)}>
+              {/* A field that autofocuses moves focus inside the dialog before the modal's own effects run. */}
+              <input aria-label="Nombre" autoFocus />
+            </Modal>
+          )}
+        </>
+      );
+    }
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Abrir dialogo" });
+    await userEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Cierre con Escape" });
+    expect(within(dialog).getByLabelText("Nombre")).toBeInTheDocument();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cerrar" })).toHaveFocus());
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
+  it("returns focus to the trigger after a backdrop click", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Abrir desde fondo
+          </button>
+          {open && (
+            <Modal title="Cierre por fondo" onClose={() => setOpen(false)}>
+              <p>Contenido</p>
+            </Modal>
+          )}
+        </>
+      );
+    }
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "Abrir desde fondo" });
+    await userEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Cierre por fondo" });
+    fireEvent.click(dialog.parentElement!);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
   it("maps each size to a distinct width", () => {
     const { rerender } = render(
       <Modal title="Size" onClose={vi.fn()} size="sm">

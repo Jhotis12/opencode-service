@@ -30,7 +30,13 @@ export function Modal({
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLElement | null>(null);
+  // Captured during render, before commit: a child autoFocus inside the dialog runs
+  // before this component's effects, so an effect would remember the wrong element.
+  const [trigger] = useState<HTMLElement | null>(() =>
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const onCloseRef = useRef(onClose);
   const [state, setState] = useState<"closed" | "open" | "closing">("closed");
@@ -44,7 +50,6 @@ export function Modal({
   }, [onClose]);
 
   useEffect(() => {
-    triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const root = document.getElementById("root");
     const previousOverflow = document.body.style.overflow;
     const rootWasInert = root?.hasAttribute("inert") ?? false;
@@ -57,10 +62,9 @@ export function Modal({
       clearTimeout(closeTimer.current);
       if (root && !rootWasInert) root.removeAttribute("inert");
       document.body.style.overflow = previousOverflow;
-      const trigger = triggerRef.current;
       if (trigger?.isConnected && !trigger.hasAttribute("disabled")) trigger.focus();
     };
-  }, []);
+  }, [trigger]);
 
   const requestClose = useCallback(() => {
     if (stateRef.current === "closing") return;

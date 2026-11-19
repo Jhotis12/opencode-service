@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IntegrationRecord, NodeSpec } from "@platform/shared";
 import { renderWithProviders } from "./render.tsx";
@@ -64,7 +64,7 @@ describe("NodeConfigFields", () => {
     expect(screen.getByText("Datos de entrada")).toBeInTheDocument();
   });
 
-  it("replaces incompatible config when the trigger kind changes", async () => {
+  it("asks for confirmation before replacing incompatible trigger config", async () => {
     const onReplaceConfig = vi.fn();
     renderWithProviders(
       <NodeConfigFields
@@ -76,11 +76,12 @@ describe("NodeConfigFields", () => {
         onEnableDecisionCode={vi.fn()}
       />,
     );
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     await userEvent.selectOptions(screen.getByLabelText("Entrada del flujo"), "manual");
+    const dialog = await screen.findByRole("dialog", { name: "Cambiar el tipo de trigger" });
+    expect(onReplaceConfig).not.toHaveBeenCalled();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cambiar tipo" }));
     expect(onReplaceConfig).toHaveBeenCalledWith(expect.objectContaining({ kind: "manual" }));
     expect(onReplaceConfig.mock.calls[0]?.[0]).not.toHaveProperty("integrationId");
-    confirm.mockRestore();
   });
 
   it("selects a discovered voice for a speak node", async () => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { Link } from "react-router-dom";
 import type { WorkflowGraph, WorkflowVersion } from "@platform/shared";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Modal } from "./Modal.tsx";
 import { badge, button, buttonGhost, buttonPrimary, focusRing, statusBadge } from "../ui.ts";
 
@@ -71,6 +72,7 @@ export function ProjectTopBar({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [rollbackTarget, setRollbackTarget] = useState<WorkflowVersion>();
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -103,6 +105,17 @@ export function ProjectTopBar({
     }
     updateTabOverflow();
   }, [tab, updateTabOverflow]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "s") return;
+      event.preventDefault();
+      if (!dirty || saving || issueCount > 0) return;
+      onSave();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [dirty, saving, issueCount, onSave]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -286,7 +299,17 @@ export function ProjectTopBar({
               </div>
             )}
           </div>
-          <button type="button" className={button} onClick={onSave} disabled={saving || issueCount > 0}>
+          <button
+            type="button"
+            className={button}
+            onClick={onSave}
+            disabled={saving || issueCount > 0}
+            title={
+              issueCount > 0
+                ? `Corrige ${issueCount === 1 ? "el problema" : `los ${issueCount} problemas`} del flujo para guardar.`
+                : undefined
+            }
+          >
             Guardar<span className="hidden min-[1400px]:inline"> flujo</span>
           </button>
           <button type="button" className={buttonPrimary} onClick={onRun}>
@@ -372,8 +395,8 @@ export function ProjectTopBar({
                       type="button"
                       className={buttonGhost}
                       onClick={() => {
-                        onRollbackVersion(item.version);
                         setVersionsOpen(false);
+                        setRollbackTarget(item);
                       }}
                     >
                       Restaurar v{item.version}
@@ -384,6 +407,26 @@ export function ProjectTopBar({
             </div>
           )}
         </Modal>
+      )}
+
+      {rollbackTarget && (
+        <ConfirmDialog
+          title={`Restaurar v${rollbackTarget.version}`}
+          confirmLabel={`Restaurar v${rollbackTarget.version}`}
+          onCancel={() => {
+            setRollbackTarget(undefined);
+            setVersionsOpen(true);
+          }}
+          onConfirm={() => {
+            onRollbackVersion?.(rollbackTarget.version);
+            setRollbackTarget(undefined);
+          }}
+        >
+          <p className="text-sm text-muted">
+            Se reemplazará el borrador actual por la v{rollbackTarget.version} guardada el{" "}
+            {new Date(rollbackTarget.createdAt).toLocaleString()}. Los cambios no guardados se descartan.
+          </p>
+        </ConfirmDialog>
       )}
     </>
   );

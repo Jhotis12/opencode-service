@@ -158,14 +158,24 @@ describe("WorkflowCanvas", () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith("start"));
   });
 
-  it("persists keyboard node removal through onChange", async () => {
+  it("routes keyboard node removal through the delete action so the owner can confirm it", async () => {
     const onChange = vi.fn();
-    const { container } = renderCanvas({ onChange });
+    const { container, props } = renderCanvas({ onChange });
     fireEvent.click(container.querySelector('[data-node-id="code"]')!);
     fireEvent.keyDown(document, { key: "Delete", code: "Delete" });
-    await waitFor(() => expect(onChange).toHaveBeenCalled());
-    const next = onChange.mock.calls.at(-1)?.[0] as WorkflowGraph;
-    expect(next.nodes.some((item) => item.id === "code")).toBe(false);
+    await waitFor(() => expect(vi.mocked(props.onDeleteNode)).toHaveBeenCalledWith("code"));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("shows the live zoom percentage and lists the editor shortcuts", async () => {
+    renderCanvas();
+    await waitFor(() => expect(screen.getByText(/Zoom \d+%/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Atajos de teclado" }));
+    const dialog = screen.getByRole("dialog", { name: "Atajos de teclado" });
+    expect(within(dialog).getByText("Guardar el flujo")).toBeInTheDocument();
+    expect(within(dialog).getByText("Ctrl/Cmd")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Atajos de teclado" })).not.toBeInTheDocument();
   });
 });
 
@@ -541,7 +551,7 @@ describe("NodeInspectorModal", () => {
     expect(onRemove).toHaveBeenCalled();
   });
 
-  it("resets incompatible trigger config when the kind changes", async () => {
+  it("resets incompatible trigger config after the kind change is confirmed", async () => {
     const trigger = node("start", "trigger", {
       config: { kind: "integration", integrationId: "tg1", event: "message.received" },
     });
@@ -550,14 +560,15 @@ describe("NodeInspectorModal", () => {
       graph: graph([trigger]),
       lastStep: undefined,
     });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const dialog = screen.getByRole("dialog", { name: "Nodo: start" });
     await userEvent.selectOptions(within(dialog).getByLabelText("Entrada del flujo"), "manual");
+    expect(onReplaceConfig).not.toHaveBeenCalled();
+    const confirmDialog = screen.getByRole("dialog", { name: "Cambiar el tipo de trigger" });
+    await userEvent.click(within(confirmDialog).getByRole("button", { name: "Cambiar tipo" }));
     expect(onReplaceConfig).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "manual" }),
     );
     expect(onReplaceConfig.mock.calls[0]?.[0]).not.toHaveProperty("integrationId");
-    confirm.mockRestore();
   });
 
   it("shows inline errors for incomplete node configuration", () => {
@@ -673,6 +684,9 @@ describe("ProjectTopBar", () => {
     await userEvent.click(screen.getByRole("menuitem", { name: /Versiones del flujo/ }));
     const versionsDialog = screen.getByRole("dialog", { name: "Versiones del flujo" });
     await userEvent.click(within(versionsDialog).getByRole("button", { name: "Restaurar v1" }));
+    const rollbackDialog = screen.getByRole("dialog", { name: "Restaurar v1" });
+    expect(onRollbackVersion).not.toHaveBeenCalled();
+    await userEvent.click(within(rollbackDialog).getByRole("button", { name: "Restaurar v1" }));
     expect(onRollbackVersion).toHaveBeenCalledWith(1);
     await userEvent.click(screen.getByRole("button", { name: "Más acciones del flujo" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Ajustes del flujo" }));
@@ -685,6 +699,26 @@ describe("ProjectTopBar", () => {
     expect(onRun).toHaveBeenCalled();
     expect(onChat).toHaveBeenCalled();
     expect(onSave).toHaveBeenCalled();
+  });
+
+  it("saves with Ctrl/Cmd+S only when the draft is dirty and the graph is valid", () => {
+    const onSave = vi.fn();
+    const first = renderTopBar("flow", { dirty: true, onSave });
+    expect(screen.getByRole("status", { name: "Cambios sin guardar" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    const second = renderTopBar("flow", { dirty: false, onSave });
+    fireEvent.keyDown(document, { key: "s", metaKey: true });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    second.unmount();
+
+    renderTopBar("flow", { dirty: true, issueCount: 2, onSave });
+    expect(screen.getByText("2 problemas")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Guardar flujo" })).toBeDisabled();
+    fireEvent.keyDown(document, { key: "s", metaKey: true });
+    expect(onSave).toHaveBeenCalledTimes(1);
   });
 
   it("opens the overflow menu with the keyboard and closes it with Escape", async () => {

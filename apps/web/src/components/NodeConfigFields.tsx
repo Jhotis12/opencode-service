@@ -11,6 +11,7 @@ import {
   type ValidateRule,
 } from "@platform/shared";
 import { getConfigValue, isFieldVisible, setConfigValue, toList } from "./config-field-utils.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
 import { buttonGhost, fieldError } from "../ui.ts";
 
@@ -219,6 +220,7 @@ export function NodeConfigFields({
 }) {
   const definition = NODE_CONFIG_REGISTRY[node.type];
   const config = node.config;
+  const [pendingTriggerKind, setPendingTriggerKind] = useState<string>();
   const errors = new Map<string, string>();
   for (const field of definition.fields) {
     if (!isFieldVisible(config, field)) continue;
@@ -244,17 +246,22 @@ export function NodeConfigFields({
     onConfig({ [field.key]: value });
   }
 
-  function changeTriggerKind(next: string) {
-    if (next === String(config.kind ?? "manual")) return;
-    const incompatible = Boolean(config.integrationId || config.cron || config.runAt || config.secretAlias);
-    if (incompatible && !window.confirm("Cambiar el tipo de trigger descartará la configuración incompatible. ¿Continuar?")) {
-      return;
-    }
+  function applyTriggerKind(next: string) {
     const base = structuredClone(NODE_CONFIG_REGISTRY.trigger.defaults);
     const nextConfig: Record<string, unknown> = { ...base, kind: next };
     if (next === "integration") nextConfig.accepts = ["text"];
     if (config.inputSchema) nextConfig.inputSchema = config.inputSchema;
     onReplaceConfig(nextConfig);
+  }
+
+  function changeTriggerKind(next: string) {
+    if (next === String(config.kind ?? "manual")) return;
+    const incompatible = Boolean(config.integrationId || config.cron || config.runAt || config.secretAlias);
+    if (!incompatible) {
+      applyTriggerKind(next);
+      return;
+    }
+    setPendingTriggerKind(next);
   }
 
   function renderField(field: ConfigField) {
@@ -652,6 +659,22 @@ export function NodeConfigFields({
         <p className="text-[11px] text-muted md:col-span-2">
           Este nodo usa un sub-agente del proyecto. El chat del proyecto usa el agente principal, que es otro perfil.
         </p>
+      )}
+      {pendingTriggerKind !== undefined && (
+        <ConfirmDialog
+          title="Cambiar el tipo de trigger"
+          confirmLabel="Cambiar tipo"
+          onCancel={() => setPendingTriggerKind(undefined)}
+          onConfirm={() => {
+            applyTriggerKind(pendingTriggerKind);
+            setPendingTriggerKind(undefined);
+          }}
+        >
+          <p className="text-sm text-muted">
+            El trigger tiene configuración incompatible (integración, cron, fecha de ejecución o secreto). Cambiar a
+            «{pendingTriggerKind}» descartará esa configuración. ¿Continuar?
+          </p>
+        </ConfirmDialog>
       )}
     </>
   );

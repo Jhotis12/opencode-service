@@ -5,6 +5,8 @@ import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { NodePaletteModal } from "../components/NodePaletteModal.tsx";
 import { NodeInspectorModal } from "../components/NodeInspectorModal.tsx";
+import { ConfirmDialog } from "../components/ConfirmDialog.tsx";
+import { GraphIssuesSummary } from "../components/GraphIssuesSummary.tsx";
 import { WorkflowCanvas } from "../components/WorkflowCanvas.tsx";
 import {
   changeEdgeCondition as changeEdgeConditionInGraph,
@@ -37,6 +39,14 @@ export function ProjectFlowPage() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [inspectorInitialTab, setInspectorInitialTab] = useState<"settings" | "connections" | "execution">("settings");
   const [connecting, setConnecting] = useState<{ sourceId: string; condition?: "true" | "false" }>();
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
+  const [dismissedIssueSignature, setDismissedIssueSignature] = useState("");
+
+  const issueSignature = workspace.graphIssues.map((issue) => issue.id).join("|");
+  const pendingDeleteNodes = useMemo(
+    () => (graph?.nodes ?? []).filter((node) => pendingDeleteIds.includes(node.id)),
+    [graph, pendingDeleteIds],
+  );
 
   const selected = useMemo(() => graph?.nodes.find((node) => node.id === selectedId), [graph, selectedId]);
   const lastStep = useMemo(
@@ -208,15 +218,26 @@ export function ProjectFlowPage() {
     }
   }
 
-  function removeNode(nodeId: string) {
-    if (!graph) return;
+  function removeNodes(nodeIds: string[]) {
+    if (!graph || nodeIds.length === 0) return;
+    const removing = new Set(nodeIds);
     workspace.changeGraph({
       ...graph,
-      nodes: graph.nodes.filter((node) => node.id !== nodeId),
-      edges: graph.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
+      nodes: graph.nodes.filter((node) => !removing.has(node.id)),
+      edges: graph.edges.filter((edge) => !removing.has(edge.source) && !removing.has(edge.target)),
     });
-    if (selectedId === nodeId) closeInspector();
-    if (connecting?.sourceId === nodeId) setConnecting(undefined);
+    if (selectedId && removing.has(selectedId)) closeInspector();
+    if (connecting && removing.has(connecting.sourceId)) setConnecting(undefined);
+  }
+
+  function requestDeleteNodes(nodeIds: string[]) {
+    if (nodeIds.length === 0) return;
+    setPendingDeleteIds((current) => [...new Set([...current, ...nodeIds])]);
+  }
+
+  function confirmDeleteNodes() {
+    removeNodes(pendingDeleteIds);
+    setPendingDeleteIds([]);
   }
 
   function connect(sourceId: string, targetId: string, condition?: "true" | "false") {
@@ -275,35 +296,43 @@ export function ProjectFlowPage() {
   if (!graph) return null;
 
   return (
-    <div className="relative min-h-0 flex-1">
-      <WorkflowCanvas
-        graph={graph}
-        selectedId={selectedId}
-        runningNodeId={workspace.runningNodeId}
-        nodeStatuses={nodeStatuses}
-        runProgress={runProgress}
-        agentStatus={workspace.chatBusy ? { busy: true, activity: workspace.chatActivity } : undefined}
-        agentTouchedNodeIds={workspace.agentTouchedNodeIds}
-        issues={workspace.graphIssues}
-        connecting={connecting}
-        className="h-full"
-        onSelect={(nodeId) => openInspector(nodeId)}
-        onChange={workspace.changeGraph}
-        onConnect={connect}
-        onConnectRejected={workspace.setError}
-        onStartConnect={handleStartConnect}
-        onCancelConnect={() => setConnecting(undefined)}
-        onDuplicateNode={(nodeId) => void duplicateNode(nodeId)}
-        onDeleteNode={removeNode}
-        onDeleteEdge={deleteEdge}
-        onChangeEdgeCondition={changeEdgeCondition}
-        onOpenPalette={() => setPaletteOpen(true)}
-        onOpenRuns={() => workspace.requestNavigate(projectTabPath(slug, "runs"))}
-        onOpenChat={() => {
-          workspace.setChatOpen(true);
-          workspace.setChatUnread(false);
-        }}
-      />
+    <div className="flex min-h-0 flex-1 flex-col">
+      {workspace.graphIssues.length > 0 && dismissedIssueSignature !== issueSignature && (
+        <GraphIssuesSummary
+          issues={workspace.graphIssues}
+          onDismiss={() => setDismissedIssueSignature(issueSignature)}
+        />
+      )}
+      <div className="relative min-h-0 flex-1">
+        <WorkflowCanvas
+          graph={graph}
+          selectedId={selectedId}
+          runningNodeId={workspace.runningNodeId}
+          nodeStatuses={nodeStatuses}
+          runProgress={runProgress}
+          agentStatus={workspace.chatBusy ? { busy: true, activity: workspace.chatActivity } : undefined}
+          agentTouchedNodeIds={workspace.agentTouchedNodeIds}
+          issues={workspace.graphIssues}
+          connecting={connecting}
+          className="h-full"
+          onSelect={(nodeId) => openInspector(nodeId)}
+          onChange={workspace.changeGraph}
+          onConnect={connect}
+          onConnectRejected={workspace.setError}
+          onStartConnect={handleStartConnect}
+          onCancelConnect={() => setConnecting(undefined)}
+          onDuplicateNode={(nodeId) => void duplicateNode(nodeId)}
+          onDeleteNode={(nodeId) => requestDeleteNodes([nodeId])}
+          onDeleteEdge={deleteEdge}
+          onChangeEdgeCondition={changeEdgeCondition}
+          onOpenPalette={() => setPaletteOpen(true)}
+          onOpenRuns={() => workspace.requestNavigate(projectTabPath(slug, "runs"))}
+          onOpenChat={() => {
+            workspace.setChatOpen(true);
+            workspace.setChatUnread(false);
+          }}
+        />
+      </div>
       {paletteOpen && (
         <NodePaletteModal graph={graph} onClose={() => setPaletteOpen(false)} onAdd={(type) => void addNode(type)} />
       )}
@@ -326,7 +355,7 @@ export function ProjectFlowPage() {
           onPatch={updateNode}
           onConfig={updateConfig}
           onReplaceConfig={replaceConfig}
-          onRemove={() => removeNode(selected.id)}
+          onRemove={() => requestDeleteNodes([selected.id])}
           onDuplicate={() => void duplicateNode(selected.id)}
           onConnect={connect}
           onStartCanvasConnect={startCanvasConnect}
@@ -339,6 +368,21 @@ export function ProjectFlowPage() {
           onSaveCode={() => selected.codeFile && saveNode.mutate({ file: selected.codeFile, code: nodeCode })}
           onEnableDecisionCode={() => void enableDecisionCode()}
         />
+      )}
+      {pendingDeleteNodes.length > 0 && (
+        <ConfirmDialog
+          title={pendingDeleteNodes.length === 1 ? "Eliminar nodo" : "Eliminar nodos"}
+          confirmLabel={pendingDeleteNodes.length === 1 ? "Eliminar nodo" : `Eliminar ${pendingDeleteNodes.length} nodos`}
+          onCancel={() => setPendingDeleteIds([])}
+          onConfirm={confirmDeleteNodes}
+        >
+          <p className="text-sm text-muted">
+            {pendingDeleteNodes.length === 1
+              ? `Se eliminará «${pendingDeleteNodes[0]!.label ?? pendingDeleteNodes[0]!.id}» y sus conexiones.`
+              : `Se eliminarán ${pendingDeleteNodes.length} nodos y sus conexiones.`}{" "}
+            El cambio forma parte del borrador hasta que guardes el flujo.
+          </p>
+        </ConfirmDialog>
       )}
     </div>
   );

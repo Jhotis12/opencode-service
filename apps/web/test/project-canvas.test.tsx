@@ -58,6 +58,23 @@ const graph: WorkflowGraph = {
   updatedAt: new Date().toISOString(),
 };
 
+const issueGraph: WorkflowGraph = {
+  ...graph,
+  nodes: [
+    graph.nodes[0]!,
+    {
+      id: "code",
+      type: "code",
+      label: "Consultar",
+      position: { x: 220, y: 0 },
+      config: {},
+      notebookIds: [],
+      timeoutMs: 30000,
+      retryPolicy: { maxRetries: 0 },
+    },
+  ],
+};
+
 function setupApi() {
   apiMock.getWorkflow.mockResolvedValue(graph);
   apiMock.listRuns.mockResolvedValue({ data: [] });
@@ -200,6 +217,56 @@ describe("ProjectLayout flow section", () => {
 
     finishChat?.({ reply: "Listo", sessionId: "session", threadId: "thread" });
     await waitFor(() => expect(screen.queryByTestId("agent-progress")).not.toBeInTheDocument());
+  });
+
+  it("saves a dirty draft with Ctrl+S", async () => {
+    renderPage();
+    expect(await screen.findByText("Demo")).toBeInTheDocument();
+    fireEvent.click(document.querySelector('[data-node-id="code"]')!);
+    const inspector = await screen.findByRole("dialog", { name: "Nodo: Consultar" });
+    await userEvent.clear(within(inspector).getByLabelText("Etiqueta"));
+    await userEvent.type(within(inspector).getByLabelText("Etiqueta"), "Consultar API");
+    await userEvent.click(within(inspector).getByRole("button", { name: "Cerrar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Nodo:/ })).not.toBeInTheDocument());
+
+    fireEvent.keyDown(document, { key: "s", ctrlKey: true });
+    await waitFor(() => expect(apiMock.saveWorkflow).toHaveBeenCalled());
+    const saved = apiMock.saveWorkflow.mock.calls.at(-1)?.[1] as WorkflowGraph;
+    expect(saved.nodes.find((node) => node.id === "code")?.label).toBe("Consultar API");
+  });
+
+  it("blocks Ctrl+S and shows the issue count when the graph has problems", async () => {
+    apiMock.getWorkflow.mockResolvedValue(issueGraph);
+    renderPage();
+    expect(await screen.findByText("Demo")).toBeInTheDocument();
+
+    const summary = await screen.findByRole("region", { name: "Problemas del flujo" });
+    expect(within(summary).getByText(/Guardar deshabilitado: el flujo tiene 1 problema\./)).toBeInTheDocument();
+    expect(within(summary).getByText(/necesita un archivo TypeScript/)).toBeInTheDocument();
+    expect(screen.getByText("1 problema")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Guardar flujo" })).toBeDisabled();
+
+    fireEvent.keyDown(document, { key: "s", metaKey: true });
+    expect(apiMock.saveWorkflow).not.toHaveBeenCalled();
+
+    await userEvent.click(within(summary).getByRole("button", { name: "Descartar" }));
+    expect(screen.queryByRole("region", { name: "Problemas del flujo" })).not.toBeInTheDocument();
+    expect(screen.getByText("1 problema")).toBeInTheDocument();
+  });
+
+  it("asks for confirmation before deleting a node", async () => {
+    const { container } = renderPage();
+    expect(await screen.findByText("Demo")).toBeInTheDocument();
+    fireEvent.click(container.querySelector('[data-node-id="code"]')!);
+    const inspector = await screen.findByRole("dialog", { name: "Nodo: Consultar" });
+    await userEvent.click(within(inspector).getByRole("button", { name: "Eliminar" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Eliminar nodo" });
+    expect(dialog).toHaveTextContent("Se eliminará «Consultar»");
+    expect(container.querySelector('[data-node-id="code"]')).not.toBeNull();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Eliminar nodo" })).not.toBeInTheDocument());
+    expect(container.querySelector('[data-node-id="code"]')).not.toBeNull();
   });
 
   it("shows mapped and unmapped server validation issues", async () => {

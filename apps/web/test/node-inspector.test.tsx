@@ -120,4 +120,62 @@ describe("NodeConfigFields", () => {
     );
     expect(screen.getAllByText(/obligatorio|Required/).length).toBeGreaterThan(0);
   });
+
+  it("associates the required URL error with its input", () => {
+    renderWithProviders(
+      <NodeConfigFields
+        node={node({}, "http")}
+        integrations={[]}
+        destinations={[]}
+        onConfig={vi.fn()}
+        onReplaceConfig={vi.fn()}
+        onEnableDecisionCode={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText("URL");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    const described = (input.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
+    expect(described).toContain("node-config-url-error");
+    for (const id of described) {
+      expect(document.getElementById(id)).not.toBeNull();
+    }
+    expect(document.getElementById("node-config-url-error")).toHaveTextContent("Este campo es obligatorio.");
+  });
+
+  it("associates the missing database integration error with its select", () => {
+    renderWithProviders(
+      <NodeConfigFields
+        node={node({}, "database")}
+        integrations={[]}
+        destinations={[]}
+        onConfig={vi.fn()}
+        onReplaceConfig={vi.fn()}
+        onEnableDecisionCode={vi.fn()}
+      />,
+    );
+    const select = screen.getByLabelText("Integración de base de datos");
+    expect(select).toHaveAttribute("aria-invalid", "true");
+    const described = (select.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
+    expect(described).toContain("node-config-integrationId-error");
+    for (const id of described) {
+      expect(document.getElementById(id)).not.toBeNull();
+    }
+  });
+
+  it("attaches no error id when the config is valid", () => {
+    renderWithProviders(
+      <NodeConfigFields
+        node={node({ method: "GET", url: "https://api.example.com", headers: "{}", body: "" }, "http")}
+        integrations={[]}
+        destinations={[]}
+        onConfig={vi.fn()}
+        onReplaceConfig={vi.fn()}
+        onEnableDecisionCode={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText("URL");
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(input.getAttribute("aria-describedby") ?? "").not.toContain("node-config-url-error");
+    expect(document.getElementById("node-config-url-error")).toBeNull();
+  });
 });

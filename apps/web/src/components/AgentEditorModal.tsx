@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { SubagentProfile } from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
+import { Field } from "./Field.tsx";
 import { Modal } from "./Modal.tsx";
 import { buttonGhost, buttonPrimary } from "../ui.ts";
 
@@ -128,6 +129,7 @@ export function AgentEditorModal({
           submit();
         }}
         aria-label={editing ? "Editar agente" : "Nuevo agente"}
+        aria-describedby={error ? "agent-form-error" : undefined}
       >
         <section className="flex flex-col gap-3">
           <div>
@@ -135,45 +137,36 @@ export function AgentEditorModal({
             <p className="text-xs text-muted">Categoría y rol forman el identificador del agente.</p>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <label>
-                Categoría
-                <input
-                  value={form.category}
-                  onChange={(event) => patch({ category: event.target.value })}
-                  placeholder="ventas"
-                  disabled={editing}
-                  autoFocus={!editing}
-                />
-              </label>
-              <small className="text-[11px] text-muted">Minúsculas, números y guiones.</small>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label>
-                Rol
-                <input
-                  value={form.role}
-                  onChange={(event) => patch({ role: event.target.value })}
-                  placeholder="calificador"
-                  disabled={editing}
-                />
-              </label>
-              <small className="text-[11px] text-muted">Se muestra como categoría/rol.</small>
-            </div>
+            <Field id="agent-category" label="Categoría" hint="Minúsculas, números y guiones.">
+              <input
+                value={form.category}
+                onChange={(event) => patch({ category: event.target.value })}
+                placeholder="ventas"
+                disabled={editing}
+                autoFocus={!editing}
+              />
+            </Field>
+            <Field id="agent-role" label="Rol" hint="Se muestra como categoría/rol.">
+              <input
+                value={form.role}
+                onChange={(event) => patch({ role: event.target.value })}
+                placeholder="calificador"
+                disabled={editing}
+              />
+            </Field>
           </div>
           {editing && (
             <p className="text-[11px] text-muted">
               El identificador no cambia al editar. Para renombrarlo, crea un agente nuevo.
             </p>
           )}
-          <label>
-            Descripción
+          <Field id="agent-description" label="Descripción">
             <input
               value={form.description}
               onChange={(event) => patch({ description: event.target.value })}
               placeholder="Califica leads entrantes"
             />
-          </label>
+          </Field>
         </section>
 
         <section className="flex flex-col gap-3">
@@ -182,24 +175,22 @@ export function AgentEditorModal({
             <p className="text-xs text-muted">Define cómo se comporta el agente y qué instrucciones recibe.</p>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            <label>
-              Modo
+            <Field id="agent-mode" label="Modo">
               <select value={form.mode} onChange={(event) => patch({ mode: event.target.value as AgentMode })}>
                 <option value="subagent">Sub-agente</option>
                 <option value="primary">Principal</option>
                 <option value="all">Principal y sub-agente</option>
               </select>
-            </label>
+            </Field>
           </div>
-          <label>
-            Instrucciones (.md)
+          <Field id="agent-body" label="Instrucciones (.md)">
             <textarea
               rows={8}
               value={form.body}
               onChange={(event) => patch({ body: event.target.value })}
               placeholder="Eres el especialista de…"
             />
-          </label>
+          </Field>
         </section>
 
         <section className="flex flex-col gap-3">
@@ -208,8 +199,7 @@ export function AgentEditorModal({
             <p className="text-xs text-muted">El modelo vacío hereda el del flujo. Los notebooks son opcionales.</p>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
-            <label>
-              Modelo
+            <Field id="agent-model" label="Modelo">
               <select value={form.model} onChange={(event) => patch({ model: event.target.value })}>
                 <option value="">Heredar del flujo</option>
                 {modelOptions.map((model) => (
@@ -218,15 +208,14 @@ export function AgentEditorModal({
                   </option>
                 ))}
               </select>
-            </label>
-            <label>
-              Notebooks (separados por coma)
+            </Field>
+            <Field id="agent-notebooks" label="Notebooks (separados por coma)">
               <input
                 value={form.notebooks}
                 onChange={(event) => patch({ notebooks: event.target.value })}
                 placeholder="manual-ventas, politicas"
               />
-            </label>
+            </Field>
           </div>
         </section>
 
@@ -235,18 +224,17 @@ export function AgentEditorModal({
             <h3 className="text-sm font-semibold text-slate-100">Permisos</h3>
             <p className="text-xs text-muted">Las herramientas bloqueadas se rechazan con HTTP 403.</p>
           </div>
-          <label>
-            Herramientas bloqueadas (separadas por coma)
+          <Field id="agent-denied-tools" label="Herramientas bloqueadas (separadas por coma)">
             <input
               value={form.deniedTools}
               onChange={(event) => patch({ deniedTools: event.target.value })}
               placeholder="workflow_upsert, subagent_upsert, db_query"
             />
-          </label>
+          </Field>
         </section>
 
         {error && (
-          <p className="text-sm text-danger" role="alert">
+          <p id="agent-form-error" className="text-sm text-danger" role="alert">
             {error}
           </p>
         )}

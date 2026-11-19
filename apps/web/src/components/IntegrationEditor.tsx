@@ -284,14 +284,21 @@ export function IntegrationEditor({
         return (
           <label key={field.key}>
             {label}
-            <select aria-label={label} value={current} onChange={(event) => setField(field, event.target.value)}>
+            <select
+              aria-label={label}
+              aria-describedby={`integration-config-${field.key}-hint`}
+              value={current}
+              onChange={(event) => setField(field, event.target.value)}
+            >
               {options.map((model) => (
                 <option key={model} value={model}>
                   {model}
                 </option>
               ))}
             </select>
-            <small className="text-xs text-muted">{models.length} modelos disponibles en la conexión.</small>
+            <small id={`integration-config-${field.key}-hint`} className="text-xs text-muted">
+              {models.length} modelos disponibles en la conexión.
+            </small>
           </label>
         );
       }
@@ -322,14 +329,21 @@ export function IntegrationEditor({
         return (
           <label key={field.key}>
             {label}
-            <select aria-label={label} value={current} onChange={(event) => setField(field, event.target.value)}>
+            <select
+              aria-label={label}
+              aria-describedby={`integration-config-${field.key}-hint`}
+              value={current}
+              onChange={(event) => setField(field, event.target.value)}
+            >
               {options.map((voice) => (
                 <option key={voice} value={voice}>
                   {voice}
                 </option>
               ))}
             </select>
-            <small className="text-xs text-muted">{voices.length} voces disponibles en la conexión.</small>
+            <small id={`integration-config-${field.key}-hint`} className="text-xs text-muted">
+              {voices.length} voces disponibles en la conexión.
+            </small>
           </label>
         );
       }
@@ -418,12 +432,17 @@ export function IntegrationEditor({
   }
 
   return (
-    <form className={`${card} !grid gap-3 md:grid-cols-2`} onSubmit={submit} aria-label={integration ? "Editar integración" : "Crear integración"}>
+    <form
+      className={`${card} !grid gap-3 md:grid-cols-2`}
+      onSubmit={submit}
+      aria-label={integration ? "Editar integración" : "Crear integración"}
+      aria-describedby={error ? "integration-form-error" : undefined}
+    >
       <h2 className="text-base font-semibold text-slate-100 md:col-span-2">
         {integration ? "Editar integración" : "Nueva integración"}
       </h2>
       {error && (
-        <p className="text-sm text-danger md:col-span-2" role="alert" title={rawError}>
+        <p id="integration-form-error" className="text-sm text-danger md:col-span-2" role="alert" title={rawError}>
           {error}
         </p>
       )}

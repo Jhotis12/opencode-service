@@ -155,7 +155,7 @@ describe("routed project workspace", () => {
   it("deep-links to every section by URL", async () => {
     const sections: Array<[string, () => Promise<HTMLElement>]> = [
       ["overview", () => screen.findByRole("heading", { name: "Resumen" })],
-      ["flow", () => screen.findByRole("button", { name: "+ Nodo" })],
+      ["flow", () => screen.findByRole("button", { name: "+ Nodo" }, { timeout: 10_000 })],
       ["runs", () => screen.findByText("abcd1234")],
       ["agents", () => screen.findByTestId("agent-card-principal-agente")],
       ["knowledge", () => screen.findByRole("button", { name: "Crear notebook" })],

@@ -1,4 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
+import { renderWithProviders } from "./render.tsx";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ConfirmDialog } from "../src/components/ConfirmDialog.tsx";
@@ -16,7 +17,7 @@ const items = [
 
 describe("Tabs", () => {
   it("links every tab to its labelled panel and exposes one roving tab stop", () => {
-    render(<Tabs items={items} aria-label="Secciones del proyecto" />);
+    renderWithProviders(<Tabs items={items} aria-label="Secciones del proyecto" />);
 
     const tablist = screen.getByRole("tablist", { name: "Secciones del proyecto" });
     const tabs = within(tablist).getAllByRole("tab");
@@ -44,7 +45,7 @@ describe("Tabs", () => {
     { key: "{End}", initial: "overview", target: "Agentes" },
   ])("moves selection and focus to $target with $key", async ({ key, initial, target }) => {
     const user = userEvent.setup();
-    render(<Tabs items={items} aria-label="Secciones del proyecto" defaultValue={initial} />);
+    renderWithProviders(<Tabs items={items} aria-label="Secciones del proyecto" defaultValue={initial} />);
     const selectedBefore = screen.getByRole("tab", { selected: true });
     selectedBefore.focus();
 
@@ -64,7 +65,7 @@ describe("ConfirmDialog", () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();
     const onConfirm = vi.fn();
-    render(
+    renderWithProviders(
       <ConfirmDialog title="Eliminar proyecto" confirmLabel="Eliminar proyecto" onCancel={onCancel} onConfirm={onConfirm}>
         <p>Esta acción no se puede deshacer.</p>
       </ConfirmDialog>,
@@ -80,7 +81,7 @@ describe("ConfirmDialog", () => {
   it("runs the danger confirmation action", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
-    render(
+    renderWithProviders(
       <ConfirmDialog title="Eliminar proyecto" confirmLabel="Eliminar proyecto" onCancel={vi.fn()} onConfirm={onConfirm}>
         <p>Esta acción no se puede deshacer.</p>
       </ConfirmDialog>,
@@ -96,7 +97,7 @@ describe("ConfirmDialog", () => {
   it("blocks confirmation until the required text matches", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
-    render(
+    renderWithProviders(
       <ConfirmDialog
         title="Eliminar proyecto"
         confirmLabel="Eliminar definitivamente"
@@ -120,7 +121,7 @@ describe("ConfirmDialog", () => {
 
 describe("Field", () => {
   it("associates the label, hint and error with the wrapped control", () => {
-    render(
+    renderWithProviders(
       <Field id="agent-name" label="Nombre del agente" hint="Visible en el catálogo" error="Escribe un nombre">
         <input />
       </Field>,
@@ -139,7 +140,7 @@ describe("EmptyState", () => {
   it("renders its guidance and invokes the optional action", async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn();
-    render(
+    renderWithProviders(
       <EmptyState
         icon={<svg data-testid="empty-state-icon" />}
         title="Todavía no hay proyectos"
@@ -158,7 +159,7 @@ describe("EmptyState", () => {
 
 describe("Skeleton", () => {
   it("uses fixed geometry and an opacity-only loading animation", () => {
-    const { container } = render(
+    const { container } = renderWithProviders(
       <div>
         <Skeleton />
         <Skeleton shape="circle" size="sm" />
@@ -174,7 +175,7 @@ describe("Skeleton", () => {
 
 describe("PageHeader", () => {
   it("renders the title, description, breadcrumbs and actions slots", () => {
-    render(
+    renderWithProviders(
       <PageHeader
         title="Proyectos"
         description="Gestiona tus automatizaciones."

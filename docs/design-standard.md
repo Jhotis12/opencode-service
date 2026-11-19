@@ -182,6 +182,21 @@ Use the tokens and rules in `docs/ui-motion.md`:
   pulses and smooth scrolling.
 - Do not animate keyboard-initiated high-frequency actions.
 
+## Guia externa
+
+External guidance is installed as two skills, both vendored under
+`.agents/skills/` and pinned by commit in `skills-lock.json`:
+`modern-web-guidance` (source `GoogleChrome/modern-web-guidance`) and
+`frontend-design` (source `anthropics/skills`).
+
+- **`modern-web-guidance`** — use before every HTML/CSS/client-side JS UI
+  decision (patterns, APIs, forms, accessibility, performance). Exact command:
+  `npx modern-web-guidance search "<topic>"`, then follow the returned guide
+  with `npx modern-web-guidance retrieve "<id>"`.
+- **`frontend-design`** — use for aesthetic direction: visual identity,
+  palette, typography and layout composition. It does not replace the
+  platform-pattern search above.
+
 ## 7. Accessibility
 
 - Target WCAG 2.2 AA.

@@ -457,3 +457,37 @@ describe("Listbox — scroll shadows", () => {
     expect(container.querySelector('[data-scroll-shadow="bottom"]')).toBeNull();
   });
 });
+
+describe("Listbox — selection", () => {
+  it("marks committed values independently of the active row", () => {
+    const { container } = render(
+      <Listbox
+        id="selection-listbox"
+        options={grouped}
+        activeValue="openai/mini"
+        selectedValues={["deepseek/pro"]}
+        emptyLabel="Sin opciones"
+      />,
+    );
+
+    const selected = optionRow(container, "DeepSeek Pro");
+    expect(selected).toHaveAttribute("aria-selected", "true");
+    expect(selected).not.toHaveAttribute("data-active");
+
+    const active = optionRow(container, "OpenAI Mini");
+    expect(active).toHaveAttribute("data-active");
+    expect(active).toHaveAttribute("aria-selected", "false");
+
+    const listbox = container.querySelector<HTMLElement>('[role="listbox"]')!;
+    expect(document.getElementById(listbox.getAttribute("aria-activedescendant")!)).toBe(active);
+  });
+
+  it("defaults aria-selected to the active row when selectedValues is omitted", () => {
+    const { container } = render(
+      <Listbox id="selection-listbox" options={grouped} activeValue="openai/mini" emptyLabel="Sin opciones" />,
+    );
+
+    expect(optionRow(container, "OpenAI Mini")).toHaveAttribute("aria-selected", "true");
+    expect(optionRow(container, "DeepSeek Pro")).toHaveAttribute("aria-selected", "false");
+  });
+});

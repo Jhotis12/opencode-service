@@ -9,8 +9,18 @@ import {
 } from "./options.ts";
 import { badge, focusRing } from "../../ui.ts";
 
+/** A row: an option plus an optional muted suffix rendered after its label. */
+export type ListboxRow = SelectOption & { readonly suffix?: string };
+
 export type ListboxProps = {
   readonly options: readonly SelectOption[];
+  /** Rows rendered before every group and kept in the active-descendant order. */
+  readonly pinnedOptions?: readonly ListboxRow[];
+  /**
+   * Values that stay selected regardless of the keyboard-active row. Omit it for a
+   * single-select listbox, where the active row is also the selected one.
+   */
+  readonly selectedValues?: readonly string[];
   readonly activeValue?: string;
   readonly onHover?: (option: SelectOption) => void;
   readonly onSelect?: (option: SelectOption) => void;
@@ -26,7 +36,7 @@ export type ListboxProps = {
 };
 
 type Entry = {
-  readonly option: SelectOption;
+  readonly option: ListboxRow;
   readonly id: string;
 };
 
@@ -77,6 +87,8 @@ function chipClassName(tone: SelectMetaTone): string {
 
 export function Listbox({
   options,
+  pinnedOptions,
+  selectedValues,
   activeValue,
   onHover,
   onSelect,
@@ -105,18 +117,32 @@ export function Listbox({
 
   useLayoutEffect(() => {
     syncShadows();
-  }, [syncShadows, options, loading, error]);
+  }, [syncShadows, options, pinnedOptions, loading, error]);
 
   const showRows = !loading && !error;
+  const pinned = pinnedOptions ?? [];
   const entries: readonly Entry[] = showRows
-    ? orderOptions(options).map((option, index) => ({ option, id: `${id}-option-${index}` }))
+    ? [
+        ...pinned.map((option, index) => ({ option, id: `${id}-option-${index}` })),
+        ...orderOptions(options).map((option, index) => ({
+          option,
+          id: `${id}-option-${index + pinned.length}`,
+        })),
+      ]
     : [];
+  const pinnedEntries = entries.slice(0, pinned.length);
+  const optionEntries = entries.slice(pinned.length);
+  const selectedSet = selectedValues === undefined ? undefined : new Set(selectedValues);
   const activeId = entries.find((entry) => entry.option.value === activeValue)?.id;
-  const ungrouped = entries.filter((entry) => !entry.option.group);
+  const ungrouped = optionEntries.filter((entry) => !entry.option.group);
 
   const renderRow = (entry: Entry) => {
     const option = entry.option;
     const active = entry.id === activeId;
+    // Selection and keyboard focus are separate axes: `aria-selected` follows the
+    // committed values when the caller supplies them, `data-active` always follows
+    // the active row. Without `selectedValues` the single-select default applies.
+    const selected = selectedSet === undefined ? active : selectedSet.has(option.value);
     const hovered = entry.id === hoveredId;
     const disabled = option.disabled === true;
     return (
@@ -124,7 +150,7 @@ export function Listbox({
         key={entry.id}
         id={entry.id}
         role="option"
-        aria-selected={active}
+        aria-selected={selected}
         aria-disabled={disabled ? "true" : undefined}
         data-active={active ? "" : undefined}
         className={rowClassName(active, hovered, disabled)}
@@ -147,6 +173,12 @@ export function Listbox({
           <span className="min-w-0 truncate text-body text-slate-200" title={option.label}>
             {option.label}
           </span>
+          {option.suffix ? (
+            <span data-listbox-suffix="" className="shrink-0 text-micro text-muted">
+              {" "}
+              {option.suffix}
+            </span>
+          ) : null}
           {option.meta?.map((meta: SelectMeta, index: number) => (
             <span
               key={`${meta.label}-${index}`}
@@ -175,7 +207,7 @@ export function Listbox({
     ? null
     : loading
       ? (loadingLabel ?? DEFAULT_LOADING_LABEL)
-      : options.length === 0
+      : entries.length === 0
         ? (noResultsLabel ?? emptyLabel)
         : null;
 
@@ -195,6 +227,7 @@ export function Listbox({
           aria-activedescendant={activeId}
           className={LISTBOX_CLASS}
         >
+          {showRows ? pinnedEntries.map((entry) => renderRow(entry)) : null}
           {showRows
             ? groupOrder(options).map((group, index) => {
                 const headerId = `${id}-group-${index}`;
@@ -203,7 +236,7 @@ export function Listbox({
                     <div id={headerId} data-listbox-group-header="" className={GROUP_HEADER_CLASS}>
                       {group}
                     </div>
-                    {entries
+                    {optionEntries
                       .filter((entry) => entry.option.group === group)
                       .map((entry) => renderRow(entry))}
                   </div>

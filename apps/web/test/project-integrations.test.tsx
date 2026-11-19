@@ -1,0 +1,315 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import type { IntegrationRecord, WorkflowGraph } from "@platform/shared";
+import { renderWithProviders } from "./render.tsx";
+
+vi.mock("qrcode", () => ({
+  default: { toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,stub") },
+}));
+
+const apiMock = vi.hoisted(() => ({
+  getWorkflow: vi.fn(),
+  listRuns: vi.fn(),
+  listAgents: vi.fn(),
+  listModels: vi.fn(),
+  chatHistory: vi.fn(),
+  listIntegrations: vi.fn(),
+  listDestinations: vi.fn(),
+  listSchedules: vi.fn(),
+  getProjectSettings: vi.fn(),
+  listWorkflowVersions: vi.fn(),
+  listNotebooks: vi.fn(),
+  listProjectSecrets: vi.fn(),
+  readNode: vi.fn(),
+  writeNode: vi.fn(),
+  saveWorkflow: vi.fn(),
+  runWorkflow: vi.fn(),
+  replayRun: vi.fn(),
+  chat: vi.fn(),
+  testIntegration: vi.fn(),
+  connectIntegration: vi.fn(),
+  disconnectIntegration: vi.fn(),
+  deleteIntegration: vi.fn(),
+  clearIntegrationWebhook: vi.fn(),
+  integrationQr: vi.fn(),
+}));
+
+vi.mock("../src/api.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/api.ts")>();
+  return { ...actual, api: apiMock };
+});
+
+vi.mock("../src/components/CodeEditor.tsx", () => ({
+  CodeEditor: ({ value, onChange }: { value: string; onChange(value: string): void }) => (
+    <textarea aria-label="Editor de código" value={value} onChange={(event) => onChange(event.target.value)} />
+  ),
+}));
+
+import { ProjectLayout } from "../src/pages/ProjectLayout.tsx";
+import { ProjectIntegrationsPage } from "../src/pages/ProjectIntegrationsPage.tsx";
+
+const graph: WorkflowGraph = {
+  version: 1,
+  id: "p1",
+  name: "Demo",
+  description: "",
+  nodes: [
+    { id: "start", type: "trigger", label: "Inicio", position: { x: 0, y: 0 }, config: {}, notebookIds: [], timeoutMs: 30000, retryPolicy: { maxRetries: 0 } },
+  ],
+  edges: [],
+  updatedAt: new Date().toISOString(),
+};
+
+function makeIntegration(overrides: Partial<IntegrationRecord> & Pick<IntegrationRecord, "id" | "kind" | "name" | "slug" | "status">): IntegrationRecord {
+  const now = new Date().toISOString();
+  return {
+    scope: "project",
+    projectSlug: "demo",
+    config: {},
+    secretRefs: {},
+    capabilities: [],
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+const fixtures: IntegrationRecord[] = [
+  makeIntegration({ id: "tg-1", kind: "telegram", name: "Telegram de operaciones", slug: "telegram-ops", status: "connected", config: { botUsername: "ops_bot" } }),
+  makeIntegration({ id: "wa-1", kind: "whatsapp", name: "WhatsApp alertas", slug: "whatsapp-alertas", status: "needs_config" }),
+  makeIntegration({ id: "db-1", kind: "sqlite", name: "SQLite CRM", slug: "sqlite-crm", status: "connected" }),
+  makeIntegration({ id: "http-1", kind: "http", name: "HTTP pagos", slug: "http-pagos", status: "error", lastError: "upstream 503" }),
+];
+
+const settings = {
+  project: { id: "p1", slug: "demo", name: "Demo", description: "", createdAt: new Date().toISOString() },
+  integrations: [],
+  notebooks: [],
+  readiness: [],
+};
+
+function setupApi() {
+  apiMock.getWorkflow.mockResolvedValue(graph);
+  apiMock.listRuns.mockResolvedValue({ data: [] });
+  apiMock.listAgents.mockResolvedValue({ data: [] });
+  apiMock.listModels.mockResolvedValue({ data: [] });
+  apiMock.chatHistory.mockResolvedValue({ data: [] });
+  apiMock.listIntegrations.mockResolvedValue({ data: fixtures });
+  apiMock.listDestinations.mockResolvedValue({ data: [] });
+  apiMock.listSchedules.mockResolvedValue({ data: [] });
+  apiMock.getProjectSettings.mockResolvedValue(settings);
+  apiMock.listWorkflowVersions.mockResolvedValue({ data: [] });
+  apiMock.listNotebooks.mockResolvedValue({ data: [] });
+  apiMock.listProjectSecrets.mockResolvedValue({ data: [] });
+}
+
+function renderPage() {
+  return renderWithProviders(
+    <MemoryRouter initialEntries={["/projects/demo/integrations"]}>
+      <Routes>
+        <Route path="/projects/:slug" element={<ProjectLayout />}>
+          <Route path="integrations" element={<ProjectIntegrationsPage />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  setupApi();
+});
+
+describe("ProjectIntegrationsPage", () => {
+  it("groups integrations by kind in the canonical kind order", async () => {
+    const { container } = renderPage();
+    await waitFor(() => expect(screen.getByTestId("integration-group-telegram")).toBeInTheDocument());
+    const groups = Array.from(container.querySelectorAll<HTMLElement>('[data-testid^="integration-group-"]'));
+    expect(groups.map((group) => group.dataset.testid)).toEqual([
+      "integration-group-telegram",
+      "integration-group-whatsapp",
+      "integration-group-sqlite",
+      "integration-group-http",
+    ]);
+    expect(within(groups[0]!).getByText("Telegram")).toBeInTheDocument();
+    expect(within(groups[1]!).getByText("WhatsApp")).toBeInTheDocument();
+    expect(within(groups[2]!).getByText("SQLite")).toBeInTheDocument();
+    expect(within(groups[3]!).getByText("HTTP API")).toBeInTheDocument();
+    expect(within(groups[0]!).getByTestId("integration-card-tg-1")).toBeInTheDocument();
+    expect(within(groups[3]!).getByTestId("integration-card-http-1")).toBeInTheDocument();
+  });
+
+  it("shows the localized status badge on each card", async () => {
+    renderPage();
+    const telegramCard = await screen.findByTestId("integration-card-tg-1");
+    expect(within(telegramCard).getByText("Conectado")).toBeInTheDocument();
+    expect(within(telegramCard).getByTitle("connected")).toBeInTheDocument();
+    const whatsappCard = screen.getByTestId("integration-card-wa-1");
+    expect(within(whatsappCard).getByText("Falta configurar")).toBeInTheDocument();
+    const httpCard = screen.getByTestId("integration-card-http-1");
+    expect(within(httpCard).getByText("Error")).toBeInTheDocument();
+    expect(within(httpCard).getByText("upstream 503")).toBeInTheDocument();
+  });
+
+  it("keeps two visible actions per card and moves the rest to the overflow menu", async () => {
+    renderPage();
+    const telegramCard = await screen.findByTestId("integration-card-tg-1");
+    const visibleButtons = within(telegramCard).getAllByRole("button");
+    expect(visibleButtons.map((button) => button.getAttribute("aria-label") ?? button.textContent)).toEqual([
+      "Probar",
+      "Editar",
+      "Más acciones de Telegram de operaciones",
+    ]);
+    expect(within(telegramCard).queryByRole("menuitem")).toBeNull();
+
+    await userEvent.click(within(telegramCard).getByRole("button", { name: "Más acciones de Telegram de operaciones" }));
+    const menu = within(telegramCard).getByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: "Desconectar" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Limpiar webhook" })).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: "Borrar" })).toBeInTheDocument();
+
+    const whatsappCard = screen.getByTestId("integration-card-wa-1");
+    await userEvent.click(within(whatsappCard).getByRole("button", { name: "Más acciones de WhatsApp alertas" }));
+    const whatsappMenu = within(whatsappCard).getByRole("menu");
+    expect(within(whatsappMenu).getByRole("menuitem", { name: "Conectar" })).toBeInTheDocument();
+    expect(within(whatsappMenu).getByRole("menuitem", { name: "Ver QR" })).toBeInTheDocument();
+  });
+
+  it("shows the WhatsApp QR inside a modal fetched from the QR endpoint", async () => {
+    apiMock.integrationQr.mockResolvedValue({ qr: "qr-payload-wa" });
+    renderPage();
+    const whatsappCard = await screen.findByTestId("integration-card-wa-1");
+    await userEvent.click(within(whatsappCard).getByRole("button", { name: "Más acciones de WhatsApp alertas" }));
+    await userEvent.click(within(whatsappCard).getByRole("menuitem", { name: "Ver QR" }));
+
+    expect(await screen.findByRole("dialog", { name: "QR de WhatsApp" })).toBeInTheDocument();
+    expect(apiMock.integrationQr).toHaveBeenCalledWith("demo", "wa-1");
+    const image = await screen.findByTestId("qr-image");
+    expect(image).toHaveAttribute("alt", "Código QR de WhatsApp alertas");
+    expect(image).toHaveAttribute("src", "data:image/png;base64,stub");
+
+    await userEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "QR de WhatsApp" })).toBeNull());
+  });
+
+  it("shows a Spanish error with retry in the QR modal when the QR endpoint fails", async () => {
+    apiMock.integrationQr.mockRejectedValue(new Error("no QR available"));
+    renderPage();
+    const whatsappCard = await screen.findByTestId("integration-card-wa-1");
+    await userEvent.click(within(whatsappCard).getByRole("button", { name: "Más acciones de WhatsApp alertas" }));
+    await userEvent.click(within(whatsappCard).getByRole("menuitem", { name: "Ver QR" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "QR de WhatsApp" });
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(/Todavía no hay un QR disponible/);
+    expect(within(dialog).getByRole("alert")).not.toHaveTextContent("no QR available");
+    expect(within(dialog).getByTitle("no QR available")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
+  });
+
+  it("opens the overflow menu with the keyboard and restores focus on Escape", async () => {
+    renderPage();
+    const telegramCard = await screen.findByTestId("integration-card-tg-1");
+    const trigger = within(telegramCard).getByRole("button", { name: "Más acciones de Telegram de operaciones" });
+    trigger.focus();
+    await userEvent.keyboard("{ArrowDown}");
+
+    const menu = within(telegramCard).getByRole("menu");
+    await waitFor(() => expect(within(menu).getByRole("menuitem", { name: "Desconectar" })).toHaveFocus());
+    await userEvent.keyboard("{ArrowDown}");
+    expect(within(menu).getByRole("menuitem", { name: "Limpiar webhook" })).toHaveFocus();
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(within(telegramCard).queryByRole("menu")).toBeNull());
+    expect(trigger).toHaveFocus();
+  });
+
+  it("does not delete an integration when the confirmation is cancelled", async () => {
+    renderPage();
+    const telegramCard = await screen.findByTestId("integration-card-tg-1");
+    await userEvent.click(within(telegramCard).getByRole("button", { name: "Más acciones de Telegram de operaciones" }));
+    await userEvent.click(within(telegramCard).getByRole("menuitem", { name: "Borrar" }));
+
+    expect(await screen.findByRole("dialog", { name: "Eliminar integración" })).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog", { name: "Eliminar integración" })).getByText(/Telegram de operaciones/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Eliminar integración" })).toBeNull());
+    expect(apiMock.deleteIntegration).not.toHaveBeenCalled();
+  });
+
+  it("deletes the integration after confirming the dialog", async () => {
+    apiMock.deleteIntegration.mockResolvedValue({ ok: true });
+    renderPage();
+    const telegramCard = await screen.findByTestId("integration-card-tg-1");
+    await userEvent.click(within(telegramCard).getByRole("button", { name: "Más acciones de Telegram de operaciones" }));
+    await userEvent.click(within(telegramCard).getByRole("menuitem", { name: "Borrar" }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Eliminar" }));
+    await waitFor(() => expect(apiMock.deleteIntegration).toHaveBeenCalledWith("demo", "tg-1"));
+    expect(await screen.findByText("Integración eliminada")).toBeInTheDocument();
+  });
+
+  it("keeps the confirmation open with the error when delete fails", async () => {
+    apiMock.deleteIntegration.mockRejectedValue(new Error("failed to fetch"));
+    renderPage();
+    const telegramCard = await screen.findByTestId("integration-card-tg-1");
+    await userEvent.click(within(telegramCard).getByRole("button", { name: "Más acciones de Telegram de operaciones" }));
+    await userEvent.click(within(telegramCard).getByRole("menuitem", { name: "Borrar" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Eliminar integración" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Eliminar" }));
+    await waitFor(() => expect(within(dialog).getByRole("alert")).toHaveTextContent(/No se pudo conectar con el servidor/));
+    expect(within(dialog).getByRole("button", { name: "Eliminar" })).toBeEnabled();
+    expect(apiMock.deleteIntegration).toHaveBeenCalledWith("demo", "tg-1");
+  });
+
+  it("does not disconnect an integration when the confirmation is cancelled", async () => {
+    renderPage();
+    const telegramCard = await screen.findByTestId("integration-card-tg-1");
+    await userEvent.click(within(telegramCard).getByRole("button", { name: "Más acciones de Telegram de operaciones" }));
+    await userEvent.click(within(telegramCard).getByRole("menuitem", { name: "Desconectar" }));
+
+    expect(await screen.findByRole("dialog", { name: "Desconectar integración" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Desconectar integración" })).toBeNull());
+    expect(apiMock.disconnectIntegration).not.toHaveBeenCalled();
+  });
+
+  it("disconnects the integration after confirming the dialog", async () => {
+    apiMock.disconnectIntegration.mockResolvedValue({ ok: true });
+    renderPage();
+    const telegramCard = await screen.findByTestId("integration-card-tg-1");
+    await userEvent.click(within(telegramCard).getByRole("button", { name: "Más acciones de Telegram de operaciones" }));
+    await userEvent.click(within(telegramCard).getByRole("menuitem", { name: "Desconectar" }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Desconectar" }));
+    await waitFor(() => expect(apiMock.disconnectIntegration).toHaveBeenCalledWith("demo", "tg-1"));
+    expect(await screen.findByText("Integración desconectada")).toBeInTheDocument();
+  });
+
+  it("shows the empty state when the project has no integrations", async () => {
+    apiMock.listIntegrations.mockResolvedValue({ data: [] });
+    renderPage();
+    expect(await screen.findByText("Sin integraciones todavía")).toBeInTheDocument();
+    const createActions = screen.getAllByRole("button", { name: "Nueva integración" });
+    expect(createActions).toHaveLength(2); // header action + empty-state CTA
+    expect(screen.queryByTestId("integration-group-telegram")).toBeNull();
+
+    await userEvent.click(createActions[0]!);
+    expect(await screen.findByRole("heading", { name: "Nueva integración" })).toBeInTheDocument();
+  });
+
+  it("shows a scoped error with retry instead of the empty state when the list fails", async () => {
+    apiMock.listIntegrations.mockRejectedValue(new Error("failed to fetch"));
+    renderPage();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/No se pudo conectar con el servidor/);
+    expect(screen.queryByText("Sin integraciones todavía")).toBeNull();
+
+    apiMock.listIntegrations.mockResolvedValue({ data: fixtures });
+    await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    await waitFor(() => expect(screen.getByTestId("integration-group-telegram")).toBeInTheDocument());
+  });
+});

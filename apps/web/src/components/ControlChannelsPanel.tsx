@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import QRCode from "qrcode";
 import type { IntegrationRecord } from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { OverflowMenu, type OverflowMenuItem } from "./OverflowMenu.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { IntegrationEditor, type SavedIntegration } from "./IntegrationEditor.tsx";
-import { buttonDanger, buttonGhost, card, friendlyError } from "../ui.ts";
+import { QrDisplay } from "./QrDisplay.tsx";
+import { buttonGhost, friendlyError } from "../ui.ts";
 
 export function ControlChannelsPanel() {
   const queryClient = useQueryClient();
@@ -16,7 +18,9 @@ export function ControlChannelsPanel() {
   const [editorKey, setEditorKey] = useState(0);
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
-  const [qr, setQr] = useState<{ id: string; qr: string }>();
+  const [qrFor, setQrFor] = useState<IntegrationRecord>();
+  const [confirmAction, setConfirmAction] = useState<{ kind: "delete" | "disconnect"; integration: IntegrationRecord }>();
+  const [confirmError, setConfirmError] = useState<string>();
   const integrations = query.data ?? [];
 
   async function refresh() {
@@ -56,7 +60,12 @@ export function ControlChannelsPanel() {
     mutationFn: (id: string) => api.disconnectControlIntegration(id),
     onSuccess: async () => {
       setStatus("Canal desconectado");
+      setConfirmAction(undefined);
+      setConfirmError(undefined);
       await refresh();
+    },
+    onError: (cause) => {
+      setConfirmError(friendlyError(cause, "No se pudo desconectar el canal."));
     },
   });
 
@@ -64,7 +73,13 @@ export function ControlChannelsPanel() {
     mutationFn: (id: string) => api.deleteControlIntegration(id),
     onSuccess: async () => {
       setStatus("Canal eliminado");
+      setConfirmAction(undefined);
+      setConfirmError(undefined);
+      setEditingId(undefined);
       await refresh();
+    },
+    onError: (cause) => {
+      setConfirmError(friendlyError(cause, "No se pudo eliminar el canal."));
     },
   });
 
@@ -77,21 +92,33 @@ export function ControlChannelsPanel() {
     onError: (cause) => setError(friendlyError(cause, "No se pudo limpiar el webhook.")),
   });
 
-  async function showQr(id: string) {
-    try {
-      const result = await api.controlIntegrationQr(id);
-      setQr({ id, qr: await QRCode.toDataURL(result.qr, { margin: 1, width: 220 }) });
-    } catch {
-      setStatus("Todavía no hay un QR disponible para ese canal");
-    }
-  }
-
   function saved(result: SavedIntegration) {
     setCreated(result);
     setStatus(`Canal ${result.integration.name} guardado`);
     setEditingId(undefined);
     setEditorKey((current) => current + 1);
     void refresh();
+  }
+
+  function askConfirm(action: { kind: "delete" | "disconnect"; integration: IntegrationRecord }) {
+    setConfirmError(undefined);
+    setConfirmAction(action);
+  }
+
+  function channelMenu(integration: IntegrationRecord): OverflowMenuItem[] {
+    const items: OverflowMenuItem[] = [
+      integration.status === "connected"
+        ? { id: "disconnect", label: "Desconectar", onSelect: () => askConfirm({ kind: "disconnect", integration }) }
+        : { id: "connect", label: "Conectar", onSelect: () => connect.mutate(integration.id) },
+    ];
+    if (integration.kind === "telegram") {
+      items.push({ id: "clear-webhook", label: "Limpiar webhook", onSelect: () => clearWebhook.mutate(integration.id) });
+    }
+    if (integration.kind === "whatsapp") {
+      items.push({ id: "qr", label: "Ver QR", onSelect: () => setQrFor(integration) });
+    }
+    items.push({ id: "delete", label: "Borrar", danger: true, onSelect: () => askConfirm({ kind: "delete", integration }) });
+    return items;
   }
 
   return (
@@ -114,32 +141,19 @@ export function ControlChannelsPanel() {
                 </small>
                 {integration.lastError && <small className="block text-xs text-danger">{integration.lastError}</small>}
               </span>
-              <span className="flex flex-wrap gap-1.5">
-                <button className={buttonGhost} onClick={() => test.mutate(integration)}>
+              <span className="flex flex-wrap items-center gap-1.5">
+                <button type="button" className={buttonGhost} onClick={() => test.mutate(integration)}>
                   Probar
                 </button>
-                <button className={buttonGhost} onClick={() => connect.mutate(integration.id)}>
-                  Conectar
-                </button>
-                <button className={buttonGhost} onClick={() => disconnect.mutate(integration.id)}>
-                  Desconectar
-                </button>
-                <button className={buttonGhost} onClick={() => setEditingId(integration.id)}>
+                <button
+                  type="button"
+                  className={buttonGhost}
+                  onClick={() => setEditingId(integration.id)}
+                  disabled={editingId === integration.id}
+                >
                   Editar
                 </button>
-                {integration.kind === "telegram" && (
-                  <button className={buttonGhost} onClick={() => clearWebhook.mutate(integration.id)}>
-                    Limpiar webhook
-                  </button>
-                )}
-                {integration.kind === "whatsapp" && (
-                  <button className={buttonGhost} onClick={() => void showQr(integration.id)}>
-                    QR
-                  </button>
-                )}
-                <button className={buttonDanger} onClick={() => remove.mutate(integration.id)}>
-                  Borrar
-                </button>
+                <OverflowMenu label={`Más acciones de ${integration.name}`} items={channelMenu(integration)} />
               </span>
             </div>
             {editingId === integration.id && (
@@ -156,11 +170,42 @@ export function ControlChannelsPanel() {
         {integrations.length === 0 && <p className="text-sm text-muted">Aún no hay canales del orquestador.</p>}
       </div>
 
-      {qr && (
-        <div className={card}>
-          <strong className="text-sm">QR de WhatsApp · {qr.id}</strong>
-          <img className="h-[200px] w-[200px] rounded-lg bg-white" src={qr.qr} alt="Código QR de WhatsApp" />
-        </div>
+      {qrFor && (
+        <QrDisplay
+          title="QR de WhatsApp"
+          integrationName={qrFor.name}
+          integrationId={qrFor.id}
+          loadQr={(id) => api.controlIntegrationQr(id).then((result) => result.qr)}
+          onClose={() => setQrFor(undefined)}
+        />
+      )}
+
+      {confirmAction && (
+        <ConfirmDialog
+          title={confirmAction.kind === "delete" ? "Eliminar canal" : "Desconectar canal"}
+          confirmLabel={confirmAction.kind === "delete" ? "Eliminar" : "Desconectar"}
+          pending={confirmAction.kind === "delete" ? remove.isPending : disconnect.isPending}
+          onCancel={() => {
+            setConfirmAction(undefined);
+            setConfirmError(undefined);
+          }}
+          onConfirm={() => {
+            const action = confirmAction;
+            if (action.kind === "delete") remove.mutate(action.integration.id);
+            else disconnect.mutate(action.integration.id);
+          }}
+        >
+          <p className="text-sm text-muted">
+            {confirmAction.kind === "delete"
+              ? `Se eliminará ${confirmAction.integration.name} (${confirmAction.integration.slug}). Esta acción no se puede deshacer.`
+              : `Se desconectará ${confirmAction.integration.name}. Podrás volver a conectarlo cuando lo necesites.`}
+          </p>
+          {confirmError && (
+            <p className="text-sm text-danger" role="alert">
+              {confirmError}
+            </p>
+          )}
+        </ConfirmDialog>
       )}
 
       <IntegrationEditor key={editorKey} scope="global" onSaved={saved} />

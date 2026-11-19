@@ -68,6 +68,7 @@ const STATUS_LABELS: Record<string, { label: string; tone: StatusTone }> = {
   down: { label: "Caído", tone: "danger" },
   connecting: { label: "Conectando", tone: "info" },
   connected: { label: "Conectado", tone: "success" },
+  disconnected: { label: "Desconectado", tone: "neutral" },
   needs_config: { label: "Falta configurar", tone: "warning" },
   qr_pending: { label: "QR pendiente", tone: "warning" },
   error: { label: "Error", tone: "danger" },

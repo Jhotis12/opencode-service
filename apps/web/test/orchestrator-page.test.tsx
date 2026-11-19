@@ -209,6 +209,30 @@ describe("orchestrator page", () => {
     await waitFor(() => expect(screen.getByText("¿Cómo va la plataforma?")).toBeInTheDocument());
   });
 
+  it("puts the chat first in DOM order and keeps the xl split with a dvh single scroll", async () => {
+    vi.mocked(api.controlOverview).mockResolvedValue(overviewFixture);
+    const { container } = renderPage();
+
+    await screen.findByText("Fallos recientes");
+
+    const aside = container.querySelector('aside[aria-label="Chat del orquestador global"]') as HTMLElement;
+    expect(aside).not.toBeNull();
+    const grid = aside.parentElement as HTMLElement;
+    expect(grid.className).toContain("xl:grid-cols-[minmax(0,1fr)_420px]");
+    expect(grid.firstElementChild).toBe(aside);
+
+    const cardsColumn = aside.nextElementSibling as HTMLElement;
+    expect(cardsColumn).not.toBeNull();
+    expect(aside.compareDocumentPosition(cardsColumn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(cardsColumn).getByRole("heading", { name: "Proyectos" })).toBeInTheDocument();
+    expect(within(cardsColumn).getByRole("heading", { name: "Ejecuciones recientes" })).toBeInTheDocument();
+    expect(within(cardsColumn).getAllByText("Fallos recientes").length).toBeGreaterThan(0);
+
+    expect(aside.className).toContain("xl:order-last");
+    expect(aside.className).toContain("100dvh");
+    expect(aside.className).not.toContain("100vh");
+  });
+
   it("shows a visible error in the chat when the turn fails", async () => {
     vi.mocked(api.controlOverview).mockResolvedValue(emptyOverview);
     vi.mocked(api.controlChat).mockRejectedValue(new Error("El proveedor no respondió"));

@@ -142,6 +142,30 @@ export function OrchestratorPage() {
       />
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <aside
+            className="flex flex-col gap-3 xl:order-last xl:sticky xl:top-5 xl:max-h-[calc(100dvh-2.5rem)] xl:overflow-y-auto"
+            aria-label="Chat del orquestador global"
+          >
+            <ChatPanel
+              onSend={(message, onEvent) => chat.mutateAsync({ message, onEvent })}
+              onAttachTurn={(turnId, onEvent) => api.attachControlChatTurn(turnId, onEvent)}
+              onCancelTurn={(turnId) => api.cancelControlChatTurn(turnId)}
+              onRetryTurn={(turnId) => api.retryControlChatTurn(turnId)}
+              hint="Pregunta por fallos, estado de proyectos o conocimiento. El orquestador consulta datos reales y no edita proyectos."
+              initialMessages={chatQuery.data ?? []}
+              historyStatus={chatQuery.isPending ? "loading" : chatQuery.isError ? "error" : "ready"}
+              historyError={
+                chatQuery.isError
+                  ? friendlyError(chatQuery.error, "No se pudo cargar el historial del chat.")
+                  : undefined
+              }
+              onRetryHistory={() => void chatQuery.refetch()}
+              title="Orquestador global"
+              welcome="Hola. Soy el orquestador global. Puedo reportar fallos, estado de proyectos y conocimiento de toda la plataforma. No modifico proyectos sin confirmación."
+              storageKey="global"
+            />
+          </aside>
+
         <div className="flex flex-col gap-4">
           {overviewQuery.isPending ? (
             <OverviewSkeleton />
@@ -311,30 +335,6 @@ export function OrchestratorPage() {
             </>
           ) : null}
         </div>
-
-        <aside
-          className="flex flex-col gap-3 xl:sticky xl:top-5 xl:max-h-[calc(100vh-40px)] xl:overflow-auto"
-          aria-label="Chat del orquestador global"
-        >
-          <ChatPanel
-            onSend={(message, onEvent) => chat.mutateAsync({ message, onEvent })}
-            onAttachTurn={(turnId, onEvent) => api.attachControlChatTurn(turnId, onEvent)}
-            onCancelTurn={(turnId) => api.cancelControlChatTurn(turnId)}
-            onRetryTurn={(turnId) => api.retryControlChatTurn(turnId)}
-            hint="Pregunta por fallos, estado de proyectos o conocimiento. El orquestador consulta datos reales y no edita proyectos."
-            initialMessages={chatQuery.data ?? []}
-            historyStatus={chatQuery.isPending ? "loading" : chatQuery.isError ? "error" : "ready"}
-            historyError={
-              chatQuery.isError
-                ? friendlyError(chatQuery.error, "No se pudo cargar el historial del chat.")
-                : undefined
-            }
-            onRetryHistory={() => void chatQuery.refetch()}
-            title="Orquestador global"
-            welcome="Hola. Soy el orquestador global. Puedo reportar fallos, estado de proyectos y conocimiento de toda la plataforma. No modifico proyectos sin confirmación."
-            storageKey="global"
-          />
-        </aside>
       </div>
     </section>
   );

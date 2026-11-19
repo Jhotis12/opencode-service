@@ -78,6 +78,22 @@ describe("ChatPanel", () => {
     vi.unstubAllGlobals();
   });
 
+  it("lets the page scroll once on the primary surface, with no list cap", () => {
+    renderWithProviders(<ChatPanel storageKey="primary-surface-test" onSend={async () => "ok"} />);
+    const list = screen.getByTestId("chat-messages");
+    expect(list.className).not.toContain("max-h-");
+    expect(list.className).not.toContain("overflow");
+  });
+
+  it("keeps the capped scroll of the message list in the minimizable docked panel", () => {
+    renderWithProviders(
+      <ChatPanel storageKey="docked-cap-test" onSend={async () => "ok"} onMinimize={() => undefined} />,
+    );
+    const list = screen.getByTestId("chat-messages");
+    expect(list.className).toContain("max-h-80");
+    expect(list.className).toContain("overflow-y-auto");
+  });
+
   it("sends a message and appends the reply", async () => {
     const onSend = vi.fn().mockResolvedValue("respuesta del agente");
     renderWithProviders(<ChatPanel storageKey="send-test" onSend={onSend} />);

@@ -487,7 +487,9 @@ export function ChatPanel({
       )}
       <div
         ref={listRef}
-        className={`flex flex-col gap-2 overflow-auto pr-1 ${fill ? "min-h-0 flex-1" : "max-h-80"}`}
+        className={`flex flex-col gap-2 pr-1 ${
+          fill ? "min-h-0 flex-1 overflow-y-auto" : onMinimize ? "max-h-80 overflow-y-auto" : ""
+        }`}
         onScroll={handleScroll}
         aria-live="polite"
         data-testid="chat-messages"

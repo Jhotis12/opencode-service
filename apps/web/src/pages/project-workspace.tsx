@@ -12,6 +12,7 @@ import type {
 import {
   api,
   ApiClientError,
+  RUNS_LIST_LIMIT,
   type ChatHistoryMessage,
   type ChatTurnResult,
   type ModelInfo,
@@ -93,7 +94,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
   });
   const runsQuery = useQuery({
     queryKey: qk.runs(slug),
-    queryFn: () => api.listRuns(slug).then((result) => result.data),
+    queryFn: () => api.listRuns(slug, RUNS_LIST_LIMIT).then((result) => result.data),
     enabled: Boolean(slug),
   });
   const agentsQuery = useQuery({

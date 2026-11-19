@@ -91,6 +91,7 @@ export interface RunRecord {
   workflowId: string;
   status: string;
   entryPoint: string;
+  parentRunId?: string;
   launchedBy?: string;
   graphHash?: string;
   integrationId?: string;
@@ -100,6 +101,41 @@ export interface RunRecord {
   startedAt: string;
   finishedAt?: string;
   steps: StepRun[];
+}
+
+export const RUNS_LIST_LIMIT = 100;
+
+/** Etiquetas visibles en español para el campo "Origen" (`entryPoint`). */
+export function runOriginLabel(entryPoint: string): string {
+  switch (entryPoint) {
+    case "web_ui":
+      return "Interfaz web";
+    case "global_orchestrator":
+      return "Orquestador global";
+    case "schedule":
+    case "scheduler":
+      return "Programado";
+    case "webhook":
+      return "Webhook";
+    case "telegram":
+      return "Telegram";
+    case "whatsapp":
+      return "WhatsApp";
+    case "email":
+      return "Correo";
+    case "external_chat":
+      return "Chat externo";
+    case "replay":
+      return "Re-ejecución";
+    case "bootstrap":
+      return "Arranque";
+    case "worker":
+      return "Proceso interno";
+    case "system":
+      return "Sistema";
+    default:
+      return entryPoint;
+  }
 }
 
 export interface ScheduleState {
@@ -163,6 +199,7 @@ export interface SourceSummary {
   title: string;
   kind: string;
   summary: string;
+  uri?: string;
   createdAt: string;
 }
 
@@ -389,7 +426,8 @@ export const api = {
       `/api/projects/${slug}/workflow/versions/${version}/rollback`,
       { method: "POST" },
     ),
-  listRuns: (slug: string) => request<{ data: RunRecord[] }>(`/api/projects/${slug}/runs?limit=20`),
+  listRuns: (slug: string, limit = RUNS_LIST_LIMIT) =>
+    request<{ data: RunRecord[] }>(`/api/projects/${slug}/runs?limit=${limit}`),
   runWorkflow: (slug: string, payload: unknown, idempotencyKey?: string) =>
     request<RunRecord>(`/api/projects/${slug}/runs`, {
       method: "POST",
@@ -532,6 +570,8 @@ export const api = {
   listNotebooks: (slug: string) => request<{ data: NotebookSummary[] }>(`/api/projects/${slug}/notebooks`),
   createNotebook: (slug: string, input: { slug: string; name: string; description?: string }) =>
     request<NotebookSummary>(`/api/projects/${slug}/notebooks`, { method: "POST", body: JSON.stringify(input) }),
+  deleteNotebook: (slug: string, notebookSlug: string) =>
+    request<{ ok: boolean }>(`/api/projects/${slug}/notebooks/${notebookSlug}`, { method: "DELETE" }),
   listSources: (slug: string, notebookSlug: string) =>
     request<{ data: SourceSummary[] }>(`/api/projects/${slug}/notebooks/${notebookSlug}/sources`),
   uploadSource: (slug: string, notebookSlug: string, file: File) => {
@@ -546,6 +586,10 @@ export const api = {
     request<{ source: SourceSummary; chunks: number }>(`/api/projects/${slug}/notebooks/${notebookSlug}/url`, {
       method: "POST",
       body: JSON.stringify({ url }),
+    }),
+  deleteSource: (slug: string, notebookSlug: string, sourceId: string) =>
+    request<{ ok: boolean }>(`/api/projects/${slug}/notebooks/${notebookSlug}/sources/${sourceId}`, {
+      method: "DELETE",
     }),
   searchNotebook: (slug: string, notebookSlug: string, query: string) =>
     request<{ data: SearchHit[] }>(`/api/projects/${slug}/notebooks/${notebookSlug}/search`, {

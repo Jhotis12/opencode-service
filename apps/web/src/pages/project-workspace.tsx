@@ -35,6 +35,9 @@ export interface ProjectWorkspace {
   replayRun(runId: string, fromNodeId?: string): void;
   rollbackVersion(version: number): void;
   runs: RunRecord[];
+  runsLoading: boolean;
+  runsError: Error | null;
+  refetchRuns(): void;
   agents: SubagentProfile[];
   agentsLoading: boolean;
   agentsError: Error | null;
@@ -129,10 +132,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
   });
   const versionsQuery = useQuery({
     queryKey: qk.workflowVersions(slug),
-    queryFn: () =>
-      typeof api.listWorkflowVersions === "function"
-        ? api.listWorkflowVersions(slug).then((result) => result.data)
-        : Promise.resolve([]),
+    queryFn: () => api.listWorkflowVersions(slug).then((result) => result.data),
     enabled: Boolean(slug),
   });
 
@@ -398,6 +398,9 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     replayRun: (runId, fromNodeId) => replayRunMutation.mutate({ id: runId, fromNodeId }),
     rollbackVersion: (version) => rollbackVersionMutation.mutate(version),
     runs,
+    runsLoading: runsQuery.isLoading,
+    runsError: runsQuery.error,
+    refetchRuns: () => void runsQuery.refetch(),
     agents,
     agentsLoading: agentsQuery.isLoading,
     agentsError: agentsQuery.error,

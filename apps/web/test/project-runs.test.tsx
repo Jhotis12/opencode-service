@@ -4,19 +4,22 @@ import userEvent from "@testing-library/user-event";
 import type { RunRecord, StepRun } from "../src/api.ts";
 import { RUNS_LIST_LIMIT, runOriginLabel } from "../src/api.ts";
 import {
-  ProjectRunsPage,
   RUN_EXPORT_FIELDS,
   exportableRun,
   filterRuns,
   groupRunsByParent,
   runsToCsv,
   runsToJson,
-} from "../src/pages/ProjectRunsPage.tsx";
+} from "../src/components/RunsTable.tsx";
+import { ProjectRunsPage } from "../src/pages/ProjectRunsPage.tsx";
 import { renderWithProviders } from "./render.tsx";
 
 const workspace = vi.hoisted(() => ({
   slug: "demo",
   runs: [] as RunRecord[],
+  runsLoading: false,
+  runsError: null as Error | null,
+  refetchRuns: vi.fn(),
   setLaunchOpen: vi.fn(),
   setDetailRun: vi.fn(),
   replayRun: vi.fn(),
@@ -83,6 +86,8 @@ describe("ProjectRunsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     workspace.runs = [];
+    workspace.runsLoading = false;
+    workspace.runsError = null;
   });
 
   it("renders each run with its origin label and the visible count", () => {
@@ -147,9 +152,8 @@ describe("ProjectRunsPage", () => {
     expect(rows[0]).not.toHaveAttribute("data-child");
     expect(rows[1]).toHaveAttribute("data-child", "true");
     expect(within(rows[1]).getByText("hija1234")).toBeInTheDocument();
-    expect(within(rows[1]).getByText(/Ejecución hija de padre123/)).toBeInTheDocument();
-    expect(rows[1].parentElement).toHaveClass("ml-6");
-    expect(rows[0].parentElement).not.toHaveClass("ml-6");
+    expect(within(rows[1]).getByText(/de padre123/)).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Hija")).toBeInTheDocument();
   });
 
   it("groups and orders runs from the server's recency order", () => {
@@ -181,6 +185,24 @@ describe("ProjectRunsPage", () => {
     expect(screen.getByRole("heading", { name: "Sin ejecuciones todavía" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Ejecutar flujo" }));
     expect(workspace.setLaunchOpen).toHaveBeenCalledWith(true);
+  });
+
+  it("shows a loading skeleton instead of the empty state while runs load", () => {
+    workspace.runsLoading = true;
+    renderRuns();
+    expect(screen.getByLabelText("Cargando ejecuciones")).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByRole("heading", { name: "Sin ejecuciones todavía" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("run-row")).not.toBeInTheDocument();
+  });
+
+  it("shows a scoped error with retry instead of the empty state", async () => {
+    workspace.runsError = new Error("failed to fetch");
+    renderRuns();
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("No se pudo conectar con el servidor");
+    expect(screen.queryByRole("heading", { name: "Sin ejecuciones todavía" })).not.toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
+    expect(workspace.refetchRuns).toHaveBeenCalledTimes(1);
   });
 
   it("opens the detail modal and re-executes from a run row", () => {

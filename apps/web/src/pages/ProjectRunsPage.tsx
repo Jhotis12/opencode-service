@@ -1,169 +1,20 @@
 import { useMemo, useState } from "react";
-import { RUNS_LIST_LIMIT, runOriginLabel, type RunRecord } from "../api.ts";
+import { RUNS_LIST_LIMIT } from "../api.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { Field } from "../components/Field.tsx";
 import { RunsNavIcon } from "../components/Layout.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
-import { previewValue } from "../components/RunDetailModal.tsx";
-import { StatusBadge } from "../components/StatusBadge.tsx";
-import { button, buttonGhost, card, input, statusLabel } from "../ui.ts";
+import {
+  RUN_ORIGIN_OPTIONS,
+  RUN_STATUS_OPTIONS,
+  RunsTable,
+  downloadRunsExport,
+  filterRuns,
+  groupRunsByParent,
+} from "../components/RunsTable.tsx";
+import { Skeleton } from "../components/Skeleton.tsx";
+import { button, buttonGhost, card, friendlyError, input, statusLabel } from "../ui.ts";
 import { ProjectSectionBody, useProjectWorkspace } from "./project-workspace.tsx";
-
-const RUN_STATUS_VALUES = [
-  "queued",
-  "running",
-  "paused",
-  "succeeded",
-  "failed",
-  "timed_out",
-  "cancelled",
-] as const;
-
-const RUN_ORIGIN_VALUES = [
-  "web_ui",
-  "global_orchestrator",
-  "schedule",
-  "scheduler",
-  "webhook",
-  "telegram",
-  "whatsapp",
-  "email",
-  "external_chat",
-  "replay",
-  "bootstrap",
-  "worker",
-  "system",
-] as const;
-
-/** Campos exportables en JSON/CSV. Excluye entrada, salida, logs y errores. */
-export const RUN_EXPORT_FIELDS = [
-  "id",
-  "projectSlug",
-  "workflowId",
-  "status",
-  "entryPoint",
-  "launchedBy",
-  "startedAt",
-  "finishedAt",
-] as const;
-
-export type ExportableRun = {
-  id: string;
-  projectSlug: string;
-  workflowId: string;
-  status: string;
-  entryPoint: string;
-  launchedBy?: string;
-  startedAt: string;
-  finishedAt?: string;
-  steps: Array<{
-    nodeId: string;
-    status: string;
-    durationMs: number;
-    startedAt: string;
-    finishedAt?: string;
-  }>;
-};
-
-export type RunFilters = { status: string; origin: string; from: string; to: string };
-
-function startedWithinDayRange(startedAt: string, fromDayInclusive: string, toDayInclusive: string): boolean {
-  const day = startedAt.slice(0, 10);
-  if (fromDayInclusive && day < fromDayInclusive) return false;
-  if (toDayInclusive && day > toDayInclusive) return false;
-  return true;
-}
-
-export function filterRuns(runs: RunRecord[], filters: RunFilters): RunRecord[] {
-  return runs.filter((run) => {
-    if (filters.status && run.status !== filters.status) return false;
-    if (filters.origin && runOriginLabel(run.entryPoint) !== filters.origin) return false;
-    if (!startedWithinDayRange(run.startedAt, filters.from, filters.to)) return false;
-    return true;
-  });
-}
-
-export function groupRunsByParent(runs: RunRecord[]): Array<{ run: RunRecord; child: boolean }> {
-  const byId = new Map(runs.map((run) => [run.id, run]));
-  const childrenByParent = new Map<string, RunRecord[]>();
-  const roots: RunRecord[] = [];
-  for (const run of runs) {
-    const parent = run.parentRunId !== undefined ? byId.get(run.parentRunId) : undefined;
-    if (parent) {
-      childrenByParent.set(parent.id, [...(childrenByParent.get(parent.id) ?? []), run]);
-    } else {
-      roots.push(run);
-    }
-  }
-  const rows: Array<{ run: RunRecord; child: boolean }> = [];
-  for (const root of roots) {
-    rows.push({ run: root, child: false });
-    for (const child of childrenByParent.get(root.id) ?? []) {
-      rows.push({ run: child, child: true });
-    }
-  }
-  return rows;
-}
-
-export function exportableRun(run: RunRecord): ExportableRun {
-  return {
-    id: run.id,
-    projectSlug: run.projectSlug,
-    workflowId: run.workflowId,
-    status: run.status,
-    entryPoint: run.entryPoint,
-    launchedBy: run.launchedBy,
-    startedAt: run.startedAt,
-    finishedAt: run.finishedAt,
-    steps: run.steps.map((step) => ({
-      nodeId: step.nodeId,
-      status: step.status,
-      durationMs: step.durationMs,
-      startedAt: step.startedAt,
-      finishedAt: step.finishedAt,
-    })),
-  };
-}
-
-export function runsToJson(runs: RunRecord[]): string {
-  return JSON.stringify(runs.map(exportableRun), null, 2);
-}
-
-function csvCell(value: string): string {
-  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
-export function runsToCsv(runs: RunRecord[]): string {
-  const lines = [[...RUN_EXPORT_FIELDS, "steps"].join(",")];
-  for (const run of runs) {
-    const exported = exportableRun(run);
-    lines.push(
-      [
-        exported.id,
-        exported.projectSlug,
-        exported.workflowId,
-        exported.status,
-        exported.entryPoint,
-        exported.launchedBy ?? "",
-        exported.startedAt,
-        exported.finishedAt ?? "",
-        JSON.stringify(exported.steps),
-      ]
-        .map(csvCell)
-        .join(","),
-    );
-  }
-  return lines.join("\n");
-}
-
-function downloadFile(filename: string, content: string, mediaType: string): void {
-  const url = URL.createObjectURL(new Blob([content], { type: mediaType }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
 
 export function ProjectRunsPage() {
   const workspace = useProjectWorkspace();
@@ -178,7 +29,6 @@ export function ProjectRunsPage() {
     [runs, statusFilter, originFilter, from, to],
   );
   const rows = useMemo(() => groupRunsByParent(filtered), [filtered]);
-  const originOptions = useMemo(() => [...new Set(RUN_ORIGIN_VALUES.map(runOriginLabel))], []);
   const filtersActive = Boolean(statusFilter || originFilter || from || to);
 
   function clearFilters() {
@@ -189,10 +39,7 @@ export function ProjectRunsPage() {
   }
 
   function exportRuns(format: "json" | "csv") {
-    const stamp = new Date().toISOString().slice(0, 10);
-    const mediaType = format === "json" ? "application/json" : "text/csv";
-    const content = format === "json" ? runsToJson(filtered) : runsToCsv(filtered);
-    downloadFile(`ejecuciones-${workspace.slug}-${stamp}.${format}`, content, mediaType);
+    downloadRunsExport(format, filtered, `ejecuciones-${workspace.slug}`);
   }
 
   return (
@@ -201,7 +48,22 @@ export function ProjectRunsPage() {
         title="Ejecuciones"
         description="Historial del proyecto con filtros por estado, origen y fecha, jerarquía de ejecuciones hijas y exportación en JSON/CSV."
       />
-      {runs.length === 0 ? (
+      {workspace.runsLoading ? (
+        <div className="flex flex-col gap-2" aria-busy="true" aria-label="Cargando ejecuciones">
+          {Array.from({ length: 5 }, (_, index) => (
+            <Skeleton key={index} shape="block" size="sm" />
+          ))}
+        </div>
+      ) : workspace.runsError ? (
+        <div className={`${card} items-start`} role="alert">
+          <p className="text-sm text-danger">
+            {friendlyError(workspace.runsError, "No se pudieron cargar las ejecuciones.")}
+          </p>
+          <button type="button" className={button} onClick={workspace.refetchRuns}>
+            Reintentar
+          </button>
+        </div>
+      ) : runs.length === 0 ? (
         <EmptyState
           icon={<RunsNavIcon />}
           title="Sin ejecuciones todavía"
@@ -223,7 +85,7 @@ export function ProjectRunsPage() {
                   onChange={(event) => setStatusFilter(event.target.value)}
                 >
                   <option value="">Todos</option>
-                  {RUN_STATUS_VALUES.map((status) => (
+                  {RUN_STATUS_OPTIONS.map((status) => (
                     <option key={status} value={status}>
                       {statusLabel(status)}
                     </option>
@@ -237,7 +99,7 @@ export function ProjectRunsPage() {
                   onChange={(event) => setOriginFilter(event.target.value)}
                 >
                   <option value="">Todos</option>
-                  {originOptions.map((origin) => (
+                  {RUN_ORIGIN_OPTIONS.map((origin) => (
                     <option key={origin} value={origin}>
                       {origin}
                     </option>
@@ -311,58 +173,13 @@ export function ProjectRunsPage() {
               }
             />
           ) : (
-            <div className="flex flex-col gap-3">
-              {rows.map(({ run, child }) => (
-                <div
-                  key={run.id}
-                  className={child ? "ml-6 border-l-2 border-l-accent/50 pl-4" : undefined}
-                >
-                  <article
-                    className={`${card} gap-2`}
-                    data-testid="run-row"
-                    data-child={child ? "true" : undefined}
-                  >
-                    <header className="flex flex-wrap items-center justify-between gap-3">
-                      <strong className="text-sm">
-                        {child ? <span className="mr-1.5 text-faint" aria-hidden="true">↳</span> : null}
-                        {run.id.slice(0, 8)}
-                      </strong>
-                      <StatusBadge status={run.status} />
-                    </header>
-                    <small className="text-xs text-muted">
-                      {new Date(run.startedAt).toLocaleString()} · {run.launchedBy ?? "sistema"} ·{" "}
-                      <span title={run.entryPoint}>{runOriginLabel(run.entryPoint)}</span>
-                      {run.sourceDetail ? ` · ${run.sourceDetail}` : ""}
-                    </small>
-                    {child && run.parentRunId && (
-                      <small className="text-xs text-faint">
-                        Ejecución hija de {run.parentRunId.slice(0, 8)}.
-                      </small>
-                    )}
-                    {run.error && <p className="text-sm text-danger">{run.error}</p>}
-                    {run.output !== undefined && (
-                      <p className="text-xs text-muted">Resultado: {previewValue(run.output)}</p>
-                    )}
-                    <div className="flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        className={buttonGhost}
-                        onClick={() => workspace.setDetailRun(run)}
-                      >
-                        Ver detalle
-                      </button>
-                      <button
-                        type="button"
-                        className={buttonGhost}
-                        onClick={() => workspace.replayRun(run.id)}
-                      >
-                        Re-ejecutar
-                      </button>
-                    </div>
-                  </article>
-                </div>
-              ))}
-            </div>
+            <RunsTable
+              rows={rows}
+              caption="Ejecuciones del proyecto"
+              showProject={false}
+              onOpenDetail={(run) => workspace.setDetailRun(run)}
+              onReplay={(run) => workspace.replayRun(run.id)}
+            />
           )}
         </>
       )}

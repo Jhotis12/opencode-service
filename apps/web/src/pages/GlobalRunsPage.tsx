@@ -136,9 +136,11 @@ export function GlobalRunsPage() {
 
   const countLabel = runsQuery.isLoading
     ? "Cargando ejecuciones…"
-    : total === 0
-      ? "0 ejecuciones"
-      : `Mostrando ${first}–${last} de ${total} ejecuciones`;
+    : runsQuery.isError
+      ? "No se pudieron cargar las ejecuciones"
+      : total === 0
+        ? "0 ejecuciones"
+        : `Mostrando ${first}–${last} de ${total} ejecuciones`;
 
   return (
     <section className="flex flex-col gap-5">

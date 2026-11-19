@@ -208,6 +208,8 @@ describe("GlobalRunsPage", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("No se pudo conectar con el servidor");
     expect(screen.queryByRole("heading", { name: "Sin ejecuciones todavía" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("global-runs-count")).toHaveTextContent("No se pudieron cargar las ejecuciones");
+    expect(screen.getByTestId("global-runs-count")).not.toHaveTextContent("0 ejecuciones");
 
     await userEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
 

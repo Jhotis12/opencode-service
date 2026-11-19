@@ -13,7 +13,27 @@ export const RUN_STATUS_OPTIONS = [
   "cancelled",
 ] as const;
 
+export const RUN_ORIGIN_VALUES = [
+  "web_ui",
+  "global_orchestrator",
+  "schedule",
+  "scheduler",
+  "webhook",
+  "telegram",
+  "whatsapp",
+  "email",
+  "external_chat",
+  "replay",
+  "bootstrap",
+  "worker",
+  "system",
+] as const;
+
+export const RUN_ORIGIN_OPTIONS = [...new Set(RUN_ORIGIN_VALUES.map(runOriginLabel))];
+
 export type RunRow = { readonly run: RunRecord; readonly child: boolean };
+
+export type RunFilters = { readonly status: string; readonly origin: string; readonly from: string; readonly to: string };
 
 export function groupRunsByParent(runs: readonly RunRecord[]): RunRow[] {
   const byId = new Map(runs.map((run) => [run.id, run]));
@@ -35,6 +55,22 @@ export function groupRunsByParent(runs: readonly RunRecord[]): RunRow[] {
     }
   }
   return rows;
+}
+
+function startedWithinDayRange(startedAt: string, fromDayInclusive: string, toDayInclusive: string): boolean {
+  const day = startedAt.slice(0, 10);
+  if (fromDayInclusive && day < fromDayInclusive) return false;
+  if (toDayInclusive && day > toDayInclusive) return false;
+  return true;
+}
+
+export function filterRuns(runs: readonly RunRecord[], filters: RunFilters): RunRecord[] {
+  return runs.filter((run) => {
+    if (filters.status && run.status !== filters.status) return false;
+    if (filters.origin && runOriginLabel(run.entryPoint) !== filters.origin) return false;
+    if (!startedWithinDayRange(run.startedAt, filters.from, filters.to)) return false;
+    return true;
+  });
 }
 
 const durationFormatter = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 1 });
@@ -169,15 +205,19 @@ export function downloadRunsExport(
 export function RunsTable({
   rows,
   onOpenDetail,
+  onReplay,
   caption = "Ejecuciones",
+  showProject = true,
 }: {
   readonly rows: readonly RunRow[];
   readonly onOpenDetail: (run: RunRecord) => void;
+  readonly onReplay?: (run: RunRecord) => void;
   readonly caption?: string;
+  readonly showProject?: boolean;
 }) {
   return (
     <div className={`${card} overflow-x-auto p-0`} role="region" aria-label={caption} tabIndex={0}>
-      <table className="w-full min-w-[880px] border-collapse text-sm">
+      <table className={`w-full ${showProject ? "min-w-[880px]" : "min-w-[760px]"} border-collapse text-sm`}>
         <caption className="sr-only">{caption}</caption>
         <thead className="sticky top-0 z-[1] bg-panel">
           <tr className="border-b border-line text-left text-[11px] uppercase tracking-wide text-muted">
@@ -187,9 +227,11 @@ export function RunsTable({
             <th scope="col" className="px-4 py-2.5 font-medium">
               Estado
             </th>
-            <th scope="col" className="px-4 py-2.5 font-medium">
-              Proyecto
-            </th>
+            {showProject && (
+              <th scope="col" className="px-4 py-2.5 font-medium">
+                Proyecto
+              </th>
+            )}
             <th scope="col" className="px-4 py-2.5 font-medium">
               Origen
             </th>
@@ -240,18 +282,20 @@ export function RunsTable({
               <td className="px-4 py-3">
                 <StatusBadge status={run.status} />
               </td>
-              <td className="px-4 py-3">
-                <Link
-                  to={projectRunHref(run)}
-                  className="inline-flex items-center gap-1 text-xs text-slate-200 underline decoration-line underline-offset-4 hover:text-accent hover:decoration-accent"
-                  title={`Abrir la ejecución ${run.id} en el proyecto ${run.projectSlug}`}
-                >
-                  {run.projectSlug}
-                  <span aria-hidden="true" className="text-[10px] text-faint">
-                    ↗
-                  </span>
-                </Link>
-              </td>
+              {showProject && (
+                <td className="px-4 py-3">
+                  <Link
+                    to={projectRunHref(run)}
+                    className="inline-flex items-center gap-1 text-xs text-slate-200 underline decoration-line underline-offset-4 hover:text-accent hover:decoration-accent"
+                    title={`Abrir la ejecución ${run.id} en el proyecto ${run.projectSlug}`}
+                  >
+                    {run.projectSlug}
+                    <span aria-hidden="true" className="text-[11px] text-faint">
+                      ↗
+                    </span>
+                  </Link>
+                </td>
+              )}
               <td className="px-4 py-3">
                 <span className="text-xs text-slate-200" title={run.entryPoint}>
                   {runOriginLabel(run.entryPoint)}
@@ -277,9 +321,16 @@ export function RunsTable({
                 </span>
               </td>
               <td className="px-4 py-3 text-right">
-                <button type="button" className={buttonGhost} onClick={() => onOpenDetail(run)}>
-                  Ver detalle
-                </button>
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  <button type="button" className={buttonGhost} onClick={() => onOpenDetail(run)}>
+                    Ver detalle
+                  </button>
+                  {onReplay && (
+                    <button type="button" className={buttonGhost} onClick={() => onReplay(run)}>
+                      Re-ejecutar
+                    </button>
+                  )}
+                </div>
               </td>
             </tr>
           ))}

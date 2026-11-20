@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 vi.mock("qrcode", () => ({
   default: { toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,stub") },
@@ -58,6 +58,22 @@ vi.mock("../src/api.ts", () => ({
         { providerID: "opencode-go", modelID: "vision", name: "Vision", input: ["text", "image"] },
       ],
     }),
+    getWorkflow: vi.fn().mockResolvedValue({
+      version: 1,
+      id: "p1",
+      name: "Ventas",
+      description: "",
+      nodes: [
+        { id: "start", type: "trigger", label: "Inicio", position: { x: 0, y: 0 }, config: {}, notebookIds: [], timeoutMs: 30000, retryPolicy: { maxRetries: 0 } },
+      ],
+      edges: [],
+      updatedAt: new Date().toISOString(),
+    }),
+    listSchedules: vi.fn().mockResolvedValue({ data: [] }),
+    listRuns: vi.fn().mockResolvedValue({ data: [] }),
+    listAgents: vi.fn().mockResolvedValue({ data: [] }),
+    chatHistory: vi.fn().mockResolvedValue({ data: [] }),
+    listWorkflowVersions: vi.fn().mockResolvedValue({ data: [] }),
     controlIntegrations: vi.fn().mockResolvedValue({
       data: [
         {
@@ -225,11 +241,25 @@ vi.mock("../src/api.ts", () => ({
 }));
 
 import { PlatformSettingsPage as SettingsPage } from "../src/pages/PlatformSettingsPage.tsx";
+import { ProjectLayout } from "../src/pages/ProjectLayout.tsx";
+import { ProjectIntegrationsPage } from "../src/pages/ProjectIntegrationsPage.tsx";
 import { ProjectKnowledgePanel } from "../src/components/ProjectKnowledgePanel.tsx";
 import { ProjectSettingsPanel } from "../src/components/ProjectSettingsPanel.tsx";
-import { ProjectResourcesPanel } from "../src/components/ProjectResourcesPanel.tsx";
 import { api } from "../src/api.ts";
 import { chooseOption, renderWithProviders } from "./render.tsx";
+
+/** Renders the shipped integrations screen the way the router does, inside the project shell. */
+function renderIntegrationsPage() {
+  return renderWithProviders(
+    <MemoryRouter initialEntries={["/projects/ventas/integrations"]}>
+      <Routes>
+        <Route path="/projects/:slug" element={<ProjectLayout />}>
+          <Route path="integrations" element={<ProjectIntegrationsPage />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  );
+}
 
 describe("SettingsPage", () => {
   it("renders the addressable platform settings sections and global orchestrator channels", async () => {
@@ -305,11 +335,13 @@ describe("ProjectSettingsPanel", () => {
   });
 });
 
-describe("ProjectResourcesPanel", () => {
+describe("ProjectIntegrationsPage", () => {
   it("creates a transcription connection from guided fields", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ProjectResourcesPanel projectSlug="ventas" />);
+    renderIntegrationsPage();
     await screen.findByText("ASR local");
+    await user.click(screen.getByRole("button", { name: "Nueva integración" }));
+    expect(await screen.findByRole("heading", { name: "Nueva integración" })).toBeInTheDocument();
     await chooseOption(user, "Tipo", "Transcripción (ASR)");
     expect(screen.getByRole("combobox", { name: "Tipo" })).toHaveTextContent("Transcripción (ASR)");
     expect(screen.getByLabelText("URL base del proveedor")).toBeInTheDocument();
@@ -331,10 +363,55 @@ describe("ProjectResourcesPanel", () => {
   });
 
   it("shows discovered models after testing a transcription connection", async () => {
-    renderWithProviders(<ProjectResourcesPanel projectSlug="ventas" />);
-    await screen.findByText("ASR local");
-    await userEvent.click(screen.getAllByRole("button", { name: "Probar" })[0]!);
+    renderIntegrationsPage();
+    const card = await screen.findByTestId("integration-card-asr1");
+    await userEvent.click(within(card).getByRole("button", { name: "Probar" }));
     expect(await screen.findByText(/modelos: small, base/)).toBeInTheDocument();
+  });
+
+  it("renders the shared integration card with the localized kind label and the database policy", async () => {
+    const now = new Date().toISOString();
+    vi.mocked(api.listIntegrations).mockResolvedValueOnce({
+      data: [
+        {
+          id: "db1",
+          scope: "project",
+          projectSlug: "ventas",
+          kind: "sqlite",
+          name: "CRM",
+          slug: "crm",
+          config: { kind: "sqlite", filename: "/tmp/crm.sqlite", access: "read", maxRows: 1000, allowDdl: false },
+          secretRefs: {},
+          capabilities: ["query"],
+          status: "connected",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    } as never);
+    renderIntegrationsPage();
+    const card = await screen.findByTestId("integration-card-db1");
+    expect(within(card).getByText("CRM")).toBeInTheDocument();
+    expect(card).toHaveTextContent("SQLite · crm");
+    expect(within(card).getByText("Política de base de datos")).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Más acciones de CRM" })).toBeInTheDocument();
+  });
+
+  it("maps an integration transport failure to actionable Spanish copy", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.createIntegration).mockRejectedValueOnce(new Error("failed to fetch"));
+    renderIntegrationsPage();
+    await screen.findByText("ASR local");
+    await user.click(screen.getByRole("button", { name: "Nueva integración" }));
+    await screen.findByRole("heading", { name: "Nueva integración" });
+
+    await user.type(screen.getByLabelText("Nombre"), "Bot de prueba");
+    await user.type(screen.getByLabelText("Slug"), "bot-prueba");
+    await user.click(screen.getByRole("button", { name: "Crear integración" }));
+
+    const error = await screen.findByText(/No se pudo conectar con el servidor/);
+    expect(error).toHaveAttribute("title", "failed to fetch");
+    expect(error).toHaveClass("text-danger");
   });
 });
 

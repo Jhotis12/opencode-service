@@ -34,6 +34,15 @@ const apiMock = vi.hoisted(() => ({
   deleteIntegration: vi.fn(),
   clearIntegrationWebhook: vi.fn(),
   integrationQr: vi.fn(),
+  controlIntegrations: vi.fn(),
+  testControlIntegration: vi.fn(),
+  connectControlIntegration: vi.fn(),
+  disconnectControlIntegration: vi.fn(),
+  deleteControlIntegration: vi.fn(),
+  clearControlIntegrationWebhook: vi.fn(),
+  controlIntegrationQr: vi.fn(),
+  createIntegration: vi.fn(),
+  createControlIntegration: vi.fn(),
 }));
 
 vi.mock("../src/api.ts", async (importOriginal) => {
@@ -47,6 +56,7 @@ vi.mock("../src/components/CodeEditor.tsx", () => ({
   ),
 }));
 
+import { ControlChannelsPanel } from "../src/components/ControlChannelsPanel.tsx";
 import { ProjectLayout } from "../src/pages/ProjectLayout.tsx";
 import { ProjectIntegrationsPage } from "../src/pages/ProjectIntegrationsPage.tsx";
 
@@ -103,6 +113,24 @@ function setupApi() {
   apiMock.listWorkflowVersions.mockResolvedValue({ data: [] });
   apiMock.listNotebooks.mockResolvedValue({ data: [] });
   apiMock.listProjectSecrets.mockResolvedValue({ data: [] });
+  apiMock.controlIntegrations.mockResolvedValue({ data: [] });
+}
+
+function visibleActions(card: HTMLElement): (string | null)[] {
+  return within(card)
+    .getAllByRole("button")
+    .map((button) => (button.getAttribute("aria-label")?.startsWith("Más acciones de") ? "Más acciones" : button.textContent));
+}
+
+async function menuLabels(card: HTMLElement): Promise<(string | null)[]> {
+  await userEvent.click(within(card).getByRole("button", { name: /^Más acciones de/ }));
+  const menu = within(card).getByRole("menu");
+  const labels = within(menu)
+    .getAllByRole("menuitem")
+    .map((item) => item.textContent);
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(within(card).queryByRole("menu")).toBeNull());
+  return labels;
 }
 
 function renderPage() {
@@ -320,5 +348,70 @@ describe("ProjectIntegrationsPage", () => {
     apiMock.listIntegrations.mockResolvedValue({ data: fixtures });
     await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
     await waitFor(() => expect(screen.getByTestId("integration-group-telegram")).toBeInTheDocument());
+  });
+});
+
+describe("shared integration card", () => {
+  it("exposes the same action set for the same kind in the project and orchestrator scopes", async () => {
+    const projectTelegram = makeIntegration({ id: "tg-project", kind: "telegram", name: "Telegram de proyecto", slug: "telegram-proyecto", status: "connected", config: { botUsername: "proyecto_bot" } });
+    const projectWhatsapp = makeIntegration({ id: "wa-project", kind: "whatsapp", name: "WhatsApp de proyecto", slug: "whatsapp-proyecto", status: "needs_config" });
+    apiMock.listIntegrations.mockResolvedValue({ data: [projectTelegram, projectWhatsapp] });
+    apiMock.controlIntegrations.mockResolvedValue({
+      data: [
+        { ...projectTelegram, id: "tg-channel", scope: "global", projectSlug: undefined, name: "Telegram del orquestador" },
+        { ...projectWhatsapp, id: "wa-channel", scope: "global", projectSlug: undefined, name: "WhatsApp del orquestador" },
+      ],
+    });
+
+    renderPage();
+    renderWithProviders(<ControlChannelsPanel />);
+
+    const pairs = [
+      { project: "tg-project", channel: "tg-channel", menu: ["Desconectar", "Limpiar webhook", "Borrar"] },
+      { project: "wa-project", channel: "wa-channel", menu: ["Conectar", "Ver QR", "Borrar"] },
+    ];
+    for (const pair of pairs) {
+      const projectCard = await screen.findByTestId("integration-card-" + pair.project);
+      const channelCard = await screen.findByTestId("integration-card-" + pair.channel);
+      expect(visibleActions(projectCard)).toEqual(visibleActions(channelCard));
+      expect(await menuLabels(projectCard)).toEqual(pair.menu);
+      expect(await menuLabels(channelCard)).toEqual(pair.menu);
+    }
+  });
+
+  it("renders the empty state in both scopes when there are no integrations", async () => {
+    apiMock.listIntegrations.mockResolvedValue({ data: [] });
+    renderPage();
+    renderWithProviders(<ControlChannelsPanel />);
+
+    expect(await screen.findByText("Sin integraciones todavía")).toBeInTheDocument();
+    expect(screen.getByText("Aún no hay canales del orquestador.")).toBeInTheDocument();
+  });
+
+  it("shows the shared credential notice after creating a project integration", async () => {
+    const created = makeIntegration({ id: "tg-nuevo", kind: "telegram", name: "Telegram nuevo", slug: "telegram-nuevo", status: "needs_config" });
+    apiMock.createIntegration.mockResolvedValue({ integration: created, apiKey: "sk-project" });
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Nueva integración" }));
+    await userEvent.type(screen.getByLabelText("Nombre"), "Telegram nuevo");
+    await userEvent.type(screen.getByLabelText("Slug"), "telegram-nuevo");
+    await userEvent.type(screen.getByLabelText("Token del bot (@BotFather)"), "123:ABC");
+    await userEvent.click(screen.getByRole("button", { name: "Crear integración" }));
+
+    expect(await screen.findByText(/Guarda estas credenciales ahora/)).toBeInTheDocument();
+    expect(screen.getByText("sk-project")).toBeInTheDocument();
+  });
+
+  it("shows the shared credential notice after creating an orchestrator channel", async () => {
+    const created = makeIntegration({ id: "tg-canal", kind: "telegram", name: "Canal nuevo", slug: "canal-nuevo", status: "needs_config", scope: "global", projectSlug: undefined });
+    apiMock.createControlIntegration.mockResolvedValue({ integration: created, apiKey: "sk-global" });
+    renderWithProviders(<ControlChannelsPanel />);
+    await userEvent.type(screen.getByLabelText("Nombre"), "Canal nuevo");
+    await userEvent.type(screen.getByLabelText("Slug"), "canal-nuevo");
+    await userEvent.type(screen.getByLabelText("Token del bot (@BotFather)"), "456:DEF");
+    await userEvent.click(screen.getByRole("button", { name: "Crear integración" }));
+
+    expect(await screen.findByText(/Guarda estas credenciales ahora/)).toBeInTheDocument();
+    expect(screen.getByText("sk-global")).toBeInTheDocument();
   });
 });

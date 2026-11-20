@@ -36,7 +36,6 @@ export const NATIVE_SELECT_ALLOWLIST: readonly string[] = [
   "NodeInspectorModal.tsx",
   "PlatformEdge.tsx",
   "ProjectDestinationsPanel.tsx",
-  "ProjectResourcesPanel.tsx",
   "ProjectSettingsPanel.tsx",
   "ProjectTopBar.tsx",
   "RunLaunchModal.tsx",

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import type { IntegrationRecord } from "@platform/shared";
 import { renderWithProviders, chooseOption } from "./render.tsx";
 
 vi.mock("qrcode", () => ({
@@ -10,52 +10,48 @@ vi.mock("qrcode", () => ({
 
 const apiMock = vi.hoisted(() => ({
   listIntegrations: vi.fn().mockResolvedValue({ data: [] }),
-  listProjectSecrets: vi.fn().mockResolvedValue({ data: [] }),
-  createIntegration: vi.fn().mockRejectedValue(new Error("failed to fetch")),
+  createIntegration: vi.fn(),
   updateIntegration: vi.fn(),
   testIntegration: vi.fn(),
   connectIntegration: vi.fn(),
   disconnectIntegration: vi.fn(),
   deleteIntegration: vi.fn(),
   clearIntegrationWebhook: vi.fn(),
+  integrationQr: vi.fn(),
   listDestinations: vi.fn().mockResolvedValue({ data: [] }),
-  saveProjectSecret: vi.fn(),
-  deleteProjectSecret: vi.fn(),
 }));
 
 vi.mock("../src/api.ts", () => ({ api: apiMock }));
 
-import { ProjectResourcesPanel } from "../src/components/ProjectResourcesPanel.tsx";
+import { DatabasePolicyEditor } from "../src/components/DatabasePolicyEditor.tsx";
 
-describe("ProjectResourcesPanel", () => {
-  it("saves the database access policy from the resource card", async () => {
-    const now = new Date().toISOString();
+function databaseIntegration(overrides: Partial<IntegrationRecord> = {}): IntegrationRecord {
+  const now = new Date().toISOString();
+  return {
+    id: "db1",
+    scope: "project",
+    projectSlug: "demo",
+    kind: "sqlite",
+    name: "CRM",
+    slug: "crm",
+    config: { kind: "sqlite", filename: "/tmp/crm.sqlite", access: "read", maxRows: 1000, allowDdl: false },
+    secretRefs: {},
+    capabilities: ["query"],
+    status: "connected",
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+describe("DatabasePolicyEditor", () => {
+  it("saves the database access policy", async () => {
     const user = userEvent.setup();
-    apiMock.listIntegrations.mockResolvedValueOnce({
-      data: [
-        {
-          id: "db1",
-          scope: "project",
-          projectSlug: "demo",
-          kind: "sqlite",
-          name: "CRM",
-          slug: "crm",
-          config: { kind: "sqlite", filename: "/tmp/crm.sqlite", access: "read", maxRows: 1000, allowDdl: false },
-          secretRefs: {},
-          capabilities: ["query"],
-          status: "connected",
-          createdAt: now,
-          updatedAt: now,
-        },
-      ],
-    });
+    const onSaved = vi.fn();
     apiMock.updateIntegration.mockResolvedValueOnce({ ok: true });
     renderWithProviders(
-      <MemoryRouter>
-        <ProjectResourcesPanel projectSlug="demo" />
-      </MemoryRouter>,
+      <DatabasePolicyEditor projectSlug="demo" integration={databaseIntegration()} onSaved={onSaved} />,
     );
-    expect(await screen.findByText("Política de base de datos")).toBeInTheDocument();
     await chooseOption(user, "Acceso", "Lectura y escritura");
     await user.click(screen.getByRole("button", { name: "Guardar política" }));
     await waitFor(() =>
@@ -65,36 +61,24 @@ describe("ProjectResourcesPanel", () => {
         expect.objectContaining({ config: expect.objectContaining({ access: "write" }) }),
       ),
     );
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
   });
 
   it("keeps the policy operable when the saved access value is unknown", async () => {
-    const now = new Date().toISOString();
     const user = userEvent.setup();
-    apiMock.listIntegrations.mockResolvedValueOnce({
-      data: [
-        {
+    apiMock.updateIntegration.mockResolvedValueOnce({ ok: true });
+    renderWithProviders(
+      <DatabasePolicyEditor
+        projectSlug="demo"
+        integration={databaseIntegration({
           id: "db2",
-          scope: "project",
-          projectSlug: "demo",
-          kind: "sqlite",
           name: "Ventas",
           slug: "ventas",
           config: { kind: "sqlite", filename: "/tmp/ventas.sqlite", access: "admin", maxRows: 500, allowDdl: false },
-          secretRefs: {},
-          capabilities: ["query"],
-          status: "connected",
-          createdAt: now,
-          updatedAt: now,
-        },
-      ],
-    });
-    apiMock.updateIntegration.mockResolvedValueOnce({ ok: true });
-    renderWithProviders(
-      <MemoryRouter>
-        <ProjectResourcesPanel projectSlug="demo" />
-      </MemoryRouter>,
+        })}
+        onSaved={vi.fn()}
+      />,
     );
-    expect(await screen.findByText("Política de base de datos")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Acceso" })).toHaveTextContent("Lectura y escritura");
     await chooseOption(user, "Acceso", "Solo lectura");
     await user.click(screen.getByRole("button", { name: "Guardar política" }));
@@ -105,22 +89,5 @@ describe("ProjectResourcesPanel", () => {
         expect.objectContaining({ config: expect.objectContaining({ access: "read", maxRows: 500 }) }),
       ),
     );
-  });
-
-  it("maps an integration transport failure to actionable Spanish copy", async () => {
-    renderWithProviders(
-      <MemoryRouter>
-        <ProjectResourcesPanel projectSlug="demo" />
-      </MemoryRouter>,
-    );
-
-    await screen.findByRole("heading", { name: "Nueva integración" });
-    await userEvent.type(screen.getByLabelText("Nombre"), "Bot de prueba");
-    await userEvent.type(screen.getByLabelText("Slug"), "bot-prueba");
-    await userEvent.click(screen.getByRole("button", { name: "Crear integración" }));
-
-    const error = await screen.findByText(/No se pudo conectar con el servidor/);
-    expect(error).toHaveAttribute("title", "failed to fetch");
-    expect(error).toHaveClass("text-danger");
   });
 });

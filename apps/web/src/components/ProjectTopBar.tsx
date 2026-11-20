@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Link } from "react-router-dom";
 import type { WorkflowGraph, WorkflowVersion } from "@platform/shared";
 import type { ModelInfo } from "../api.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
 import { Modal } from "./Modal.tsx";
+import { OverflowMenu } from "./OverflowMenu.tsx";
 import { Select } from "./Select.tsx";
 import { WorkflowLibraryPanel } from "./WorkflowLibraryPanel.tsx";
 import { modelOptions } from "./select/options.ts";
@@ -118,15 +119,12 @@ export function ProjectTopBar({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [rollbackTarget, setRollbackTarget] = useState<WorkflowVersion>();
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
   const modelChoices = modelOptions(models);
   // The empty row is last: `orderOptions` renders grouped options first and the
   // ungrouped inherit row closes the list.
   const modelPickerOptions = [...modelChoices, { value: "", label: INHERIT_MODEL_LABEL }];
-  const menuRef = useRef<HTMLDivElement>(null);
-  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const navRef = useRef<HTMLElement>(null);
 
   const updateTabOverflow = useCallback(() => {
@@ -168,54 +166,12 @@ export function ProjectTopBar({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [dirty, saving, issueCount, onSave]);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setMenuOpen(false);
-        menuButtonRef.current?.focus();
-      }
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [menuOpen]);
-
-  function focusFirstMenuItem() {
-    requestAnimationFrame(() => {
-      menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    });
-  }
-
-  function onMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
-    if (items.length === 0) return;
-    const current = items.indexOf(document.activeElement as HTMLElement);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const delta = event.key === "ArrowDown" ? 1 : -1;
-      const next = (current + delta + items.length) % items.length;
-      items[next]?.focus();
-    } else if (event.key === "Home" || event.key === "End") {
-      event.preventDefault();
-      items[event.key === "Home" ? 0 : items.length - 1]?.focus();
-    }
-  }
-
   function closeVersions() {
     setVersionsOpen(false);
-    menuButtonRef.current?.focus();
   }
 
   function closeSettings() {
     setSettingsOpen(false);
-    menuButtonRef.current?.focus();
   }
 
   function guardNavigation(event: ReactMouseEvent<HTMLAnchorElement>, target: string) {
@@ -229,7 +185,6 @@ export function ProjectTopBar({
 
   function closeLibrary() {
     setLibraryOpen(false);
-    menuButtonRef.current?.focus();
   }
 
   return (
@@ -314,72 +269,24 @@ export function ProjectTopBar({
                 !
               </span>
             )}
-            {/* Below `sm` the menu anchors to the actions cluster instead of this
-                button, so its right edge lands on the header padding and the
+            {/* Below `sm` the shared panel anchors to this cluster instead of the
+                trigger (`className="max-sm:static"` drops the trigger wrapper's
+                positioning), so its right edge lands on the header padding and the
                 210px panel cannot spill past the left viewport edge at 320px. */}
-            <div ref={menuRef} className="relative max-sm:static">
-              <button
-                ref={menuButtonRef}
-                type="button"
-                className={`${buttonGhost} max-sm:border max-sm:border-line max-sm:bg-panel-2 !px-2`}
-                aria-label="Más acciones del flujo"
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                title="Más acciones del flujo"
-                onClick={() => setMenuOpen((open) => !open)}
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowDown") {
-                    event.preventDefault();
-                    setMenuOpen(true);
-                    focusFirstMenuItem();
-                  }
-                }}
-              >
-                ...
-              </button>
-              {menuOpen && (
-                <div
-                  role="menu"
-                  aria-label="Más acciones del flujo"
-                  className="absolute right-0 top-full z-50 mt-2 flex min-w-[210px] flex-col gap-1 rounded-xl border border-line bg-panel p-1.5 shadow-2xl"
-                  onKeyDown={onMenuKeyDown}
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={`rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 ${focusRing}`}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setVersionsOpen(true);
-                    }}
-                  >
-                    Versiones del flujo{versions.length > 0 ? ` (v${versions[0]!.version})` : ""}
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={`rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 ${focusRing}`}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setLibraryOpen(true);
-                    }}
-                  >
-                    Biblioteca del flujo
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={`rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 ${focusRing}`}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setSettingsOpen(true);
-                    }}
-                  >
-                    Ajustes del flujo
-                  </button>
-                </div>
-              )}
-            </div>
+            <OverflowMenu
+              label="Más acciones del flujo"
+              className="max-sm:static"
+              triggerClassName="max-sm:border max-sm:border-line max-sm:bg-panel-2"
+              items={[
+                {
+                  id: "versions",
+                  label: `Versiones del flujo${versions.length > 0 ? ` (v${versions[0]!.version})` : ""}`,
+                  onSelect: () => setVersionsOpen(true),
+                },
+                { id: "library", label: "Biblioteca del flujo", onSelect: () => setLibraryOpen(true) },
+                { id: "settings", label: "Ajustes del flujo", onSelect: () => setSettingsOpen(true) },
+              ]}
+            />
             <button
               type="button"
               className={`${button} max-sm:px-2`}

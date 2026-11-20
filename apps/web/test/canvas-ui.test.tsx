@@ -790,26 +790,37 @@ describe("ProjectTopBar", () => {
     expect(within(actions).getByText(/^2$/)).toBeInTheDocument();
   });
 
-  it("anchors the overflow menu inside the viewport below sm", async () => {
+  it("anchors the overflow panel inside the viewport below sm", async () => {
     renderTopBar("flow");
     await userEvent.click(screen.getByRole("button", { name: "Más acciones del flujo" }));
     const menu = await screen.findByRole("menu", { name: "Más acciones del flujo" });
     const bar = screen.getByTestId("project-top-bar");
     const actions = screen.getByTestId("top-bar-actions");
+    const trigger = screen.getByRole("button", { name: "Más acciones del flujo" });
+    const wrapper = trigger.parentElement;
 
-    // The panel is 210px wide. Below `sm` its right edge is anchored to the actions
-    // cluster (`right-0`), and the cluster's right edge sits on the header's 12px
-    // padding, so at 320px the panel spans 98..308 - inside the viewport with >8px
-    // to spare. jsdom performs no layout, so the guarantee is asserted by the
-    // classes that build that anchor: static wrapper, positioned cluster, right-0.
+    // The shared OverflowMenu drives the same three actions in the same order.
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Versiones del flujo (v1)",
+      "Biblioteca del flujo",
+      "Ajustes del flujo",
+    ]);
+
+    // The panel is 210px wide and `right-0`. Below `sm` the wrapper drops its
+    // positioning (`max-sm:static`), so the panel anchors to the actions cluster,
+    // whose right edge sits on the header's 12px padding: at 320px the panel spans
+    // 98..308 - inside the viewport with >8px to spare. jsdom performs no layout, so
+    // the guarantee is asserted by the classes that build that anchor.
     expect(menu.className).toContain("right-0");
     expect(menu.className).toContain("min-w-[210px]");
-    expect(menu.parentElement?.className).toContain("max-sm:static");
+    expect(wrapper?.className).toContain("max-sm:static");
     expect(actions.className).toContain("max-sm:relative");
     expect(bar.className).toContain("px-3");
 
     // Desktop anchoring is untouched: the wrapper stays `relative` for `sm` and up.
-    expect(menu.parentElement?.className).toContain("relative");
+    expect(wrapper?.className).toContain("relative");
+    // Narrow-only chrome keeps the icon-only trigger legible beside the bordered actions.
+    expect(trigger.className).toContain("max-sm:border");
   });
 
   it("saves with Ctrl/Cmd+S only when the draft is dirty and the graph is valid", () => {
@@ -844,5 +855,22 @@ describe("ProjectTopBar", () => {
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it("returns focus to the menu trigger when a flow dialog closes", async () => {
+    renderTopBar("flow", { dirty: true, issueCount: 12 });
+
+    const trigger = screen.getByRole("button", { name: "Más acciones del flujo" });
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Ajustes del flujo" }));
+    expect(screen.getByRole("dialog", { name: "Ajustes del flujo" })).toBeInTheDocument();
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Ajustes del flujo" })).not.toBeInTheDocument());
+    // The dialog node leaves the DOM in the commit, but Modal restores focus (and the page
+    // lock) from its passive effect cleanup, which React can flush after that removal. Await
+    // the state the assertion checks instead of reading focus in the removal frame.
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.getByRole("button", { name: "Guardar flujo" })).toBeDisabled();
   });
 });

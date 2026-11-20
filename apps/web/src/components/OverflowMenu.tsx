@@ -18,9 +18,17 @@ const PANEL_CLASS =
 export function OverflowMenu({
   label,
   items,
+  className = "",
+  triggerClassName = "",
 }: {
   readonly label: string;
   readonly items: readonly OverflowMenuItem[];
+  /** Extra classes for the positioning wrapper. A caller that needs the panel anchored
+   * to a positioned ancestor rather than the trigger (the project top bar at phone
+   * widths) passes `static` for that breakpoint and keeps the ancestor `relative`. */
+  readonly className?: string;
+  /** Extra classes for the trigger, for chrome that differs between callers. */
+  readonly triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -72,11 +80,11 @@ export function OverflowMenu({
   }
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className={`relative ${className}`.trim()}>
       <button
         ref={triggerRef}
         type="button"
-        className={buttonGhost + " !px-2"}
+        className={`${buttonGhost} !px-2 ${triggerClassName}`.trim()}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}

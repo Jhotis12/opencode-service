@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
@@ -229,7 +229,7 @@ import { ProjectKnowledgePanel } from "../src/components/ProjectKnowledgePanel.t
 import { ProjectSettingsPanel } from "../src/components/ProjectSettingsPanel.tsx";
 import { ProjectResourcesPanel } from "../src/components/ProjectResourcesPanel.tsx";
 import { api } from "../src/api.ts";
-import { renderWithProviders } from "./render.tsx";
+import { chooseOption, renderWithProviders } from "./render.tsx";
 
 describe("SettingsPage", () => {
   it("renders the addressable platform settings sections and global orchestrator channels", async () => {
@@ -256,15 +256,28 @@ describe("SettingsPage", () => {
 
 describe("ProjectSettingsPanel", () => {
   it("configures the default transcription connection", async () => {
+    const user = userEvent.setup();
     renderWithProviders(<ProjectSettingsPanel projectSlug="ventas" />);
-    const select = await screen.findByLabelText("Conexión de transcripción por defecto");
-    expect(select).toHaveValue("asr1");
+    expect(await screen.findByRole("combobox", { name: "Conexión de transcripción por defecto" })).toHaveTextContent(
+      "ASR local · Systran/faster-whisper-small",
+    );
+    await user.click(screen.getByRole("combobox", { name: "Modelo por defecto del proyecto" }));
     const fast = screen.getByRole("option", { name: /opencode-go\/fast/ });
     const vision = screen.getByRole("option", { name: /opencode-go\/vision/ });
     expect(fast.textContent).not.toContain("visión");
     expect(vision.textContent).toContain("visión");
-    await userEvent.selectOptions(select, "");
-    await userEvent.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      if (screen.queryByRole("listbox") !== null) throw new Error("El popup del Select sigue abierto.");
+    });
+    await chooseOption(user, "Conexión de transcripción por defecto", "ASR local · Systran/faster-whisper-small");
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+    expect(vi.mocked(api.updateProjectSettings)).toHaveBeenCalledWith(
+      "ventas",
+      expect.objectContaining({ transcriptionIntegrationId: "asr1" }),
+    );
+    await chooseOption(user, "Conexión de transcripción por defecto", "Sin conexión por defecto");
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
     expect(vi.mocked(api.updateProjectSettings)).toHaveBeenCalledWith(
       "ventas",
       expect.objectContaining({ transcriptionIntegrationId: null }),
@@ -272,11 +285,19 @@ describe("ProjectSettingsPanel", () => {
   });
 
   it("configures the default speech connection", async () => {
+    const user = userEvent.setup();
     renderWithProviders(<ProjectSettingsPanel projectSlug="ventas" />);
-    const select = await screen.findByLabelText("Conexión de voz por defecto");
-    expect(select).toHaveValue("tts1");
-    await userEvent.selectOptions(select, "");
-    await userEvent.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+    expect(await screen.findByRole("combobox", { name: "Conexión de voz por defecto" })).toHaveTextContent(
+      "Voz local · ef_dora",
+    );
+    await chooseOption(user, "Conexión de voz por defecto", "Voz local · ef_dora");
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+    expect(vi.mocked(api.updateProjectSettings)).toHaveBeenCalledWith(
+      "ventas",
+      expect.objectContaining({ speechIntegrationId: "tts1" }),
+    );
+    await chooseOption(user, "Conexión de voz por defecto", "Sin conexión por defecto");
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
     expect(vi.mocked(api.updateProjectSettings)).toHaveBeenCalledWith(
       "ventas",
       expect.objectContaining({ speechIntegrationId: null }),
@@ -286,15 +307,17 @@ describe("ProjectSettingsPanel", () => {
 
 describe("ProjectResourcesPanel", () => {
   it("creates a transcription connection from guided fields", async () => {
+    const user = userEvent.setup();
     renderWithProviders(<ProjectResourcesPanel projectSlug="ventas" />);
     await screen.findByText("ASR local");
-    await userEvent.selectOptions(screen.getByLabelText("Tipo"), "transcription");
+    await chooseOption(user, "Tipo", "Transcripción (ASR)");
+    expect(screen.getByRole("combobox", { name: "Tipo" })).toHaveTextContent("Transcripción (ASR)");
     expect(screen.getByLabelText("URL base del proveedor")).toBeInTheDocument();
     expect(screen.getByLabelText("Modelo por defecto")).toBeInTheDocument();
     expect(screen.getByText("Configuración avanzada")).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText("Nombre"), "ASR local 2");
-    await userEvent.type(screen.getByLabelText("Slug"), "asr-local-2");
-    await userEvent.click(screen.getByRole("button", { name: "Crear integración" }));
+    await user.type(screen.getByLabelText("Nombre"), "ASR local 2");
+    await user.type(screen.getByLabelText("Slug"), "asr-local-2");
+    await user.click(screen.getByRole("button", { name: "Crear integración" }));
     expect(vi.mocked(api.createIntegration)).toHaveBeenCalledWith(
       "ventas",
       expect.objectContaining({

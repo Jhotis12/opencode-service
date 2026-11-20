@@ -4,6 +4,7 @@ import { api, runOriginLabel, type HealthPayload } from "../api.ts";
 import { qk } from "../query.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
+import { ResponsiveTable } from "../components/RunsTable.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
 import { StatusBadge } from "../components/StatusBadge.tsx";
 import { badge, button, buttonGhost, buttonPrimary, card, friendlyError, sectionTitle } from "../ui.ts";
@@ -143,30 +144,31 @@ export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Pro
                 action={<button className={button} type="button" onClick={() => void healthQuery.refetch()}>Comprobar servicios</button>}
               />
             ) : (
-              <div className={`${card} p-0`}>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-muted">
-                        <th className="px-4 py-3 font-medium">Servicio</th>
-                        <th className="px-4 py-3 font-medium">Estado</th>
-                        <th className="px-4 py-3 font-medium">Detalle</th>
-                        <th className="px-4 py-3 font-medium">Latencia</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {health.services.map((service) => (
-                        <tr key={service.name} className="border-b border-line/60 last:border-0">
-                          <td className="px-4 py-3">{service.name}</td>
-                          <td className="px-4 py-3"><StatusBadge status={service.status} /></td>
-                          <td className="min-w-52 px-4 py-3 text-muted">{service.detail}</td>
-                          <td className="px-4 py-3 tabular-nums">{service.latencyMs !== undefined ? `${service.latencyMs} ms` : "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                            <ResponsiveTable
+                caption="Estado de los servicios"
+                headRowClassName="border-b border-line text-left text-[11px] uppercase tracking-wider text-muted"
+                rowClassName="border-b border-line/60 last:border-0"
+                rows={health.services}
+                rowKey={(service) => service.name}
+                rowProps={() => ({ testId: "health-service-row" })}
+                columns={[
+                  { key: "name", header: "Servicio", cell: (service) => service.name },
+                  { key: "status", header: "Estado", cell: (service) => <StatusBadge status={service.status} /> },
+                  {
+                    key: "detail",
+                    header: "Detalle",
+                    cell: (service) => service.detail,
+                    cellClassName: "min-w-52 text-muted",
+                    narrowCellClassName: "text-muted",
+                  },
+                  {
+                    key: "latency",
+                    header: "Latencia",
+                    cell: (service) => (service.latencyMs !== undefined ? `${service.latencyMs} ms` : "—"),
+                    cellClassName: "tabular-nums",
+                  },
+                ]}
+              />
             )}
           </section>
 
@@ -209,32 +211,34 @@ export function HealthPage({ loadHealth = api.health }: { loadHealth?: () => Pro
                 action={<a className={button} href="/runs">Revisar ejecuciones</a>}
               />
             ) : (
-              <div className={`${card} p-0`}>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-muted">
-                        <th className="px-4 py-3 font-medium">Severidad</th>
-                        <th className="px-4 py-3 font-medium">Fecha</th>
-                        <th className="px-4 py-3 font-medium">Origen</th>
-                        <th className="px-4 py-3 font-medium">Mensaje</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {health.recentErrors.map((item) => (
-                        <tr key={item.id} className="border-b border-line/60 last:border-0">
-                          <td className="px-4 py-3"><SeverityBadge level={item.level} /></td>
-                          <td className="whitespace-nowrap px-4 py-3 text-xs text-muted">
-                            <time dateTime={item.createdAt}>{timestampFormatter.format(new Date(item.createdAt))}</time>
-                          </td>
-                          <td className="px-4 py-3">{runOriginLabel(item.entryPoint)}</td>
-                          <td className="min-w-64 break-words px-4 py-3">{item.message}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                            <ResponsiveTable
+                caption="Errores recientes"
+                headRowClassName="border-b border-line text-left text-[11px] uppercase tracking-wider text-muted"
+                rowClassName="border-b border-line/60 last:border-0"
+                rows={health.recentErrors}
+                rowKey={(item) => item.id}
+                rowProps={() => ({ testId: "health-error-row" })}
+                columns={[
+                  { key: "level", header: "Severidad", cell: (item) => <SeverityBadge level={item.level} /> },
+                  {
+                    key: "createdAt",
+                    header: "Fecha",
+                    cell: (item) => (
+                      <time dateTime={item.createdAt}>{timestampFormatter.format(new Date(item.createdAt))}</time>
+                    ),
+                    cellClassName: "whitespace-nowrap text-xs text-muted",
+                    narrowCellClassName: "text-xs text-muted",
+                  },
+                  { key: "origin", header: "Origen", cell: (item) => runOriginLabel(item.entryPoint) },
+                  {
+                    key: "message",
+                    header: "Mensaje",
+                    cell: (item) => item.message,
+                    cellClassName: "min-w-64 break-words",
+                    narrowCellClassName: "break-words",
+                  },
+                ]}
+              />
             )}
           </section>
         </>

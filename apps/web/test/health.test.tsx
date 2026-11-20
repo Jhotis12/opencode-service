@@ -3,7 +3,7 @@ import { act, fireEvent, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { HealthPayload } from "../src/api.ts";
 import { HealthPage } from "../src/pages/HealthPage.tsx";
-import { renderWithProviders } from "./render.tsx";
+import { renderWithProviders, setViewportMatches } from "./render.tsx";
 
 const health: HealthPayload = {
   status: "degraded",
@@ -25,6 +25,8 @@ const health: HealthPayload = {
     },
   ],
 };
+
+const normalize = (text: string | null): string => (text ?? "").replace(/\s+/g, " ").trim();
 
 function renderHealth(loadHealth: () => Promise<HealthPayload>) {
   return renderWithProviders(
@@ -119,5 +121,111 @@ describe("HealthPage", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("Consultando salud del sistema");
     expect(screen.getByRole("button", { name: "Actualizando…" })).toBeDisabled();
+  });
+
+  it("stacks each service and error row at 390px without a table", async () => {
+    const restore = setViewportMatches("(max-width: 639px)", true);
+    try {
+      renderHealth(async () => health);
+      await screen.findByTestId("health-status");
+
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      const serviceRows = screen.getAllByTestId("health-service-row");
+      expect(serviceRows).toHaveLength(2);
+      for (const term of ["Servicio", "Estado", "Detalle", "Latencia"]) {
+        expect(within(serviceRows[0]!).getByText(term)).toBeInTheDocument();
+      }
+      expect(within(serviceRows[0]!).getByText("OpenCode V2")).toBeInTheDocument();
+      expect(within(serviceRows[0]!).getByLabelText("Estado: Operativo")).toBeInTheDocument();
+      expect(within(serviceRows[0]!).getByText("OpenCode 2.2.5")).toBeInTheDocument();
+      expect(within(serviceRows[0]!).getByText("3 ms")).toBeInTheDocument();
+      expect(within(serviceRows[1]!).getByText("Database")).toBeInTheDocument();
+      expect(within(serviceRows[1]!).getByLabelText("Estado: Caído")).toBeInTheDocument();
+      expect(within(serviceRows[1]!).getByText("SQLite no responde")).toBeInTheDocument();
+      expect(within(serviceRows[1]!).getByText("1 ms")).toBeInTheDocument();
+
+      const errorRow = screen.getByTestId("health-error-row");
+      for (const term of ["Severidad", "Fecha", "Origen", "Mensaje"]) {
+        expect(within(errorRow).getByText(term)).toBeInTheDocument();
+      }
+      expect(within(errorRow).getByLabelText("Severidad: Crítico")).toBeInTheDocument();
+      expect(within(errorRow).getByText("Fallo de base de datos")).toBeInTheDocument();
+      expect(within(errorRow).getByText("Interfaz web")).toBeInTheDocument();
+      expect(errorRow.querySelector("time")).toHaveAttribute("datetime", health.recentErrors[0]?.createdAt);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+    } finally {
+      restore();
+    }
+  });
+
+  it("shows every desktop cell inside the stacked cards", async () => {
+    const restoreDesktop = setViewportMatches("(max-width: 639px)", false);
+    const desktop = renderHealth(async () => health);
+    await screen.findByTestId("health-status");
+    const desktopCells = screen.getAllByRole("table").map((table) =>
+      [...table.querySelectorAll("tbody tr")].map((row) =>
+        [...row.querySelectorAll("td")].map((cell) => normalize(cell.textContent)),
+      ),
+    );
+    desktop.unmount();
+    restoreDesktop();
+
+    const restoreNarrow = setViewportMatches("(max-width: 639px)", true);
+    try {
+      renderHealth(async () => health);
+      await screen.findByTestId("health-status");
+      const narrowCells = ["health-service-row", "health-error-row"].map((testId) =>
+        screen.getAllByTestId(testId).map((row) =>
+          [...row.querySelectorAll("dd")].map((cell) => normalize(cell.textContent)),
+        ),
+      );
+      expect(narrowCells).toEqual(desktopCells);
+    } finally {
+      restoreNarrow();
+    }
+  });
+
+  it("keeps the failure and empty states readable at 320px", async () => {
+    const restore = setViewportMatches("(max-width: 639px)", true);
+    try {
+      const view = renderHealth(vi.fn().mockRejectedValue(new Error("sin conexión")));
+      expect(await screen.findByRole("alert")).toHaveTextContent("sin conexión");
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(320);
+      view.unmount();
+
+      renderHealth(async () => ({ ...health, status: "down", services: [], recentErrors: [] }));
+      expect(await screen.findByRole("heading", { name: "Sin servicios informados" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Sin errores recientes" })).toBeInTheDocument();
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(320);
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the 1280px table columns unchanged", async () => {
+    const restore = setViewportMatches("(max-width: 639px)", false);
+    try {
+      renderHealth(async () => health);
+      await screen.findByTestId("health-status");
+
+      const tables = screen.getAllByRole("table");
+      expect(tables).toHaveLength(2);
+      expect(within(tables[0]!).getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+        "Servicio",
+        "Estado",
+        "Detalle",
+        "Latencia",
+      ]);
+      expect(within(tables[1]!).getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+        "Severidad",
+        "Fecha",
+        "Origen",
+        "Mensaje",
+      ]);
+      expect(screen.queryByRole("list", { name: "Estado de los servicios" })).not.toBeInTheDocument();
+    } finally {
+      restore();
+    }
   });
 });

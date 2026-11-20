@@ -13,7 +13,7 @@ import {
   runsToJson,
 } from "../src/components/RunsTable.tsx";
 import { GlobalRunsPage } from "../src/pages/GlobalRunsPage.tsx";
-import { renderWithProviders } from "./render.tsx";
+import { renderWithProviders, setViewportMatches } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
   listGlobalRuns: vi.fn(),
@@ -103,6 +103,8 @@ function lastCall() {
   const calls = apiMock.listGlobalRuns.mock.calls;
   return calls[calls.length - 1]?.[0] as Record<string, unknown>;
 }
+
+const normalize = (text: string | null): string => (text ?? "").replace(/\s+/g, " ").trim();
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -339,6 +341,102 @@ describe("GlobalRunsPage", () => {
     } finally {
       URL.createObjectURL = originalCreate;
       URL.revokeObjectURL = originalRevoke;
+    }
+  });
+
+  it("stacks each run row at 390px keeping the id, the status and every fact", async () => {
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi, runningSchedule]));
+    const restore = setViewportMatches("(max-width: 639px)", true);
+    try {
+      renderPage();
+      await screen.findByText("aaaa1111");
+
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      const rows = screen.getAllByTestId("run-row");
+      expect(rows).toHaveLength(2);
+      for (const term of ["Ejecución", "Estado", "Proyecto", "Origen", "Inicio", "Duración", "Acciones"]) {
+        expect(within(rows[0]!).getByText(term)).toBeInTheDocument();
+      }
+      expect(within(rows[0]!).getByLabelText("Estado: Completado")).toBeInTheDocument();
+      expect(within(rows[0]!).getByRole("link", { name: /alpha/ })).toHaveAttribute(
+        "href",
+        "/projects/alpha/runs?run=aaaa1111-succeeded",
+      );
+      expect(within(rows[0]!).getByText("Interfaz web")).toBeInTheDocument();
+      expect(within(rows[0]!).getByText("5 s")).toBeInTheDocument();
+      expect(within(rows[0]!).getByRole("button", { name: "Ver detalle" })).toBeInTheDocument();
+      expect(within(rows[1]!).getByLabelText("Estado: En ejecución")).toBeInTheDocument();
+      expect(within(rows[1]!).getByText("En curso")).toBeInTheDocument();
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+    } finally {
+      restore();
+    }
+  });
+
+  it("shows every desktop cell inside the stacked run cards", async () => {
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi, runningSchedule]));
+    const restoreDesktop = setViewportMatches("(max-width: 639px)", false);
+    const desktop = renderPage();
+    await screen.findByText("aaaa1111");
+    const desktopCells = [...screen.getByRole("table").querySelectorAll("tbody tr")].map((row) =>
+      [...row.querySelectorAll("td")].map((cell) => normalize(cell.textContent)),
+    );
+    desktop.unmount();
+    restoreDesktop();
+
+    const restoreNarrow = setViewportMatches("(max-width: 639px)", true);
+    try {
+      renderPage();
+      await screen.findByText("aaaa1111");
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      const narrowCells = screen.getAllByTestId("run-row").map((row) =>
+        [...row.querySelectorAll("dd")].map((cell) => normalize(cell.textContent)),
+      );
+      expect(narrowCells).toEqual(desktopCells);
+    } finally {
+      restoreNarrow();
+    }
+  });
+
+  it("keeps the empty and error states usable at 320px", async () => {
+    const restore = setViewportMatches("(max-width: 639px)", true);
+    try {
+      apiMock.listGlobalRuns.mockRejectedValueOnce(new Error("failed to fetch"));
+      const view = renderPage();
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("No se pudo conectar con el servidor");
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(320);
+      view.unmount();
+
+      apiMock.listGlobalRuns.mockResolvedValue(pageOf([]));
+      renderPage();
+      expect(await screen.findByRole("heading", { name: "Sin ejecuciones todavía" })).toBeInTheDocument();
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(320);
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the 1280px run columns unchanged", async () => {
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi]));
+    const restore = setViewportMatches("(max-width: 639px)", false);
+    try {
+      renderPage();
+      await screen.findByText("aaaa1111");
+
+      const table = screen.getByRole("table");
+      expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+        "Ejecución",
+        "Estado",
+        "Proyecto",
+        "Origen",
+        "Inicio",
+        "Duración",
+        "Acciones",
+      ]);
+    } finally {
+      restore();
     }
   });
 });

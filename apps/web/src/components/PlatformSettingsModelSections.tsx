@@ -4,8 +4,8 @@ import { PLATFORM_DEFAULT_MODEL } from "@platform/shared";
 import { api, type ModelInfo } from "../api.ts";
 import { qk } from "../query.ts";
 import { friendlyError, smallMuted } from "../ui.ts";
-import { useMediaQuery } from "../useMediaQuery.ts";
 import { Skeleton } from "./Skeleton.tsx";
+import { useIsPickerSheet } from "./Select.tsx";
 import {
   PlatformSettingsFormActions,
   PlatformSettingsModelInput,
@@ -32,10 +32,6 @@ const MODEL_SECTION_COPY = {
   },
 } as const;
 
-// Mirrors the query Select uses to swap its popover for the mobile sheet (SHEET_QUERY in
-// Select.tsx): on that surface a commit closes the sheet, so the commit is the phone's blur.
-const SHEET_QUERY = "(max-width: 639px)";
-
 type ModelSettingKey = keyof typeof MODEL_SECTION_COPY;
 
 type PlatformModelSectionProps = {
@@ -59,7 +55,8 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
   const [draft, setDraft] = useState(selectedValue);
   const [status, setStatus] = useState<string>();
   const validation = usePlatformFieldValidation(validatePlatformModel);
-  const isSheet = useMediaQuery(SHEET_QUERY);
+  // On the sheet surface the commit closes the sheet, so the commit is the phone's blur.
+  const isSheet = useIsPickerSheet();
 
   useEffect(() => setDraft(selectedValue), [selectedValue]);
 

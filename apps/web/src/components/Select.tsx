@@ -58,7 +58,8 @@ export type SelectProps = {
   readonly "aria-invalid"?: boolean | "true" | "false";
 };
 
-const SHEET_QUERY = "(max-width: 639px)";
+/** The one breakpoint that decides the picker surface: desktop popover above, mobile sheet at or below. */
+export const PICKER_SHEET_QUERY = "(max-width: 639px)";
 const DEFAULT_EMPTY_LABEL = "Sin opciones disponibles";
 const DEFAULT_NO_RESULTS_LABEL = "Sin resultados";
 const UNAVAILABLE_SUFFIX = "(no disponible)";
@@ -68,6 +69,11 @@ const TRIGGER_CLASS = `${input} flex items-center justify-between gap-2 text-lef
 const VALUE_CLASS = "min-w-0 truncate";
 const PLACEHOLDER_CLASS = "min-w-0 truncate text-slate-500";
 const CHEVRON_CLASS = "h-4 w-4 shrink-0 text-muted";
+
+/** True when the picker renders as a sheet; share this with anything that mirrors the picker surface. */
+export function useIsPickerSheet(): boolean {
+  return useMediaQuery(PICKER_SHEET_QUERY);
+}
 
 type FocusTarget = "selected" | "first" | "last";
 
@@ -115,7 +121,7 @@ export function Select(props: SelectProps) {
   const helperId = `${triggerId}-helper`;
   const errorId = `${triggerId}-error`;
   const standalone = props.id === undefined;
-  const isSheet = useMediaQuery(SHEET_QUERY);
+  const isSheet = useIsPickerSheet();
 
   const setTrigger = useCallback((element: HTMLElement | null) => {
     triggerRef.current = element;

@@ -84,6 +84,8 @@ function HashProbe() {
   return <output data-testid="hash">{location.hash}</output>;
 }
 
+const MODEL_FORMAT_ERROR = "Usa el formato proveedor/modelo#variante. La variante es opcional.";
+
 describe("PlatformSettingsPage", () => {
   it("deep-links to the vault and keeps the secret when deletion is cancelled", async () => {
     renderSettings("/settings#boveda");
@@ -174,10 +176,49 @@ describe("PlatformSettingsPage", () => {
     await user.click(screen.getByRole("option", { name: "Usar «modelo-sin-proveedor»" }));
     await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
 
-    expect(
-      within(panel).getByText("Usa el formato proveedor/modelo#variante. La variante es opcional."),
-    ).toBeInTheDocument();
+    expect(within(panel).getByText(MODEL_FORMAT_ERROR)).toBeInTheDocument();
     expect(api.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("reports a typed model reference only once the field is left", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
+
+    await user.click(picker);
+    await user.type(picker, "proveedor/");
+    expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+
+    await user.keyboard("{Enter}");
+    expect(picker).toHaveValue("proveedor/");
+    expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+
+    await user.tab();
+
+    expect(within(panel).getByText(MODEL_FORMAT_ERROR)).toBeInTheDocument();
+    expect(picker).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("clears the model error as soon as the empty choice is picked", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
+
+    await user.click(picker);
+    await user.type(picker, "modelo-sin-proveedor");
+    await user.keyboard("{Enter}");
+    await user.tab();
+    expect(within(panel).getByText(MODEL_FORMAT_ERROR)).toBeInTheDocument();
+
+    await user.click(picker);
+    await user.click(screen.getByRole("option", { name: /^Sin modelo/ }));
+
+    expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: null });
   });
 
   it("saves null when the empty choice is picked", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FocusEvent, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PLATFORM_DEFAULT_MODEL } from "@platform/shared";
 import { api, type ModelInfo } from "../api.ts";
@@ -79,9 +79,22 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
     save.mutate();
   }
 
+  // A custom reference is only judged once the user is done with the field: committing
+  // a row clears a stale error when it is now valid, and blur/submit validate the value.
+  function onFieldBlur(event: FocusEvent<HTMLFormElement>) {
+    if (!(event.target instanceof HTMLElement) || event.target.id !== inputId) return;
+    validation.validate(draft);
+  }
+
   return (
     <PlatformSettingsSection id={copy.id} title={copy.title} description={copy.description}>
-      <form className="flex max-w-3xl flex-col gap-4" aria-labelledby={`${copy.id}-title`} noValidate onSubmit={onSubmit}>
+      <form
+        className="flex max-w-3xl flex-col gap-4"
+        aria-labelledby={`${copy.id}-title`}
+        noValidate
+        onSubmit={onSubmit}
+        onBlur={onFieldBlur}
+      >
         <PlatformSettingsModelInput
           id={inputId}
           label="Modelo"
@@ -92,7 +105,7 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
           emptyLabel={copy.emptyLabel}
           onChange={(value) => {
             setDraft(value);
-            validation.validate(value);
+            validation.clear(value);
           }}
         />
         {modelsPending && (

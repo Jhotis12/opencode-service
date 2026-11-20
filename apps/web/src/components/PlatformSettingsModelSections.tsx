@@ -4,6 +4,7 @@ import { PLATFORM_DEFAULT_MODEL } from "@platform/shared";
 import { api, type ModelInfo } from "../api.ts";
 import { qk } from "../query.ts";
 import { friendlyError, smallMuted } from "../ui.ts";
+import { useMediaQuery } from "../useMediaQuery.ts";
 import { Skeleton } from "./Skeleton.tsx";
 import {
   PlatformSettingsFormActions,
@@ -31,6 +32,10 @@ const MODEL_SECTION_COPY = {
   },
 } as const;
 
+// Mirrors the query Select uses to swap its popover for the mobile sheet (SHEET_QUERY in
+// Select.tsx): on that surface a commit closes the sheet, so the commit is the phone's blur.
+const SHEET_QUERY = "(max-width: 639px)";
+
 type ModelSettingKey = keyof typeof MODEL_SECTION_COPY;
 
 type PlatformModelSectionProps = {
@@ -54,6 +59,7 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
   const [draft, setDraft] = useState(selectedValue);
   const [status, setStatus] = useState<string>();
   const validation = usePlatformFieldValidation(validatePlatformModel);
+  const isSheet = useMediaQuery(SHEET_QUERY);
 
   useEffect(() => setDraft(selectedValue), [selectedValue]);
 
@@ -80,7 +86,8 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
   }
 
   // A custom reference is only judged once the user is done with the field: committing
-  // a row clears a stale error when it is now valid, and blur/submit validate the value.
+  // a row clears a stale error when it is now valid, blur/submit validate the value, and on
+  // the sheet the commit that closes it validates too (see onChange below).
   function onFieldBlur(event: FocusEvent<HTMLFormElement>) {
     if (!(event.target instanceof HTMLElement) || event.target.id !== inputId) return;
     validation.validate(draft);
@@ -105,7 +112,10 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
           emptyLabel={copy.emptyLabel}
           onChange={(value) => {
             setDraft(value);
-            validation.clear(value);
+            // On the sheet the commit is also the close, so it replaces the desktop blur:
+            // without this a phone user only ever sees the error after pressing Guardar.
+            if (isSheet) validation.validate(value);
+            else validation.clear(value);
           }}
         />
         {modelsPending && (

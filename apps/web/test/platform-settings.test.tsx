@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { api } from "../src/api.ts";
 import { PlatformSettingsPage as SettingsPage } from "../src/pages/PlatformSettingsPage.tsx";
-import { chooseOption, renderWithProviders } from "./render.tsx";
+import { chooseOption, renderWithProviders, setViewportMatches } from "./render.tsx";
 
 vi.mock("../src/api.ts", () => ({
   api: {
@@ -342,6 +342,60 @@ describe("PlatformSettingsPage", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("No se pudieron cargar los ajustes de plataforma.");
     expect(within(alert).getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
+  });
+});
+
+// Under 640px the picker commits inside a sheet, so the commit *is* the close: it has to judge
+// the committed ref there, because the trigger blurred when the sheet opened and the sheet's own
+// search input never reaches the form's blur handler.
+describe("PlatformSettingsPage on the mobile sheet", () => {
+  async function openSheet(user: ReturnType<typeof userEvent.setup>) {
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    await user.click(within(panel).getByRole("combobox", { name: "Modelo" }));
+    const sheet = await screen.findByRole("dialog", { name: "Modelo" });
+    expect(document.querySelector("[data-popover]")).toBeNull();
+    return { panel, sheet };
+  }
+
+  it("shows the model error when the sheet closes on an invalid committed ref", async () => {
+    const restore = setViewportMatches("(max-width: 639px)", true);
+    try {
+      const user = userEvent.setup();
+      const { panel, sheet } = await openSheet(user);
+      expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+
+      await user.type(within(sheet).getByRole("searchbox", { name: "Buscar" }), "modelo-sin-proveedor");
+      expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+      await user.click(within(sheet).getByRole("option", { name: "Usar «modelo-sin-proveedor»" }));
+
+      expect(screen.queryByRole("listbox")).toBeNull();
+      expect(within(panel).getByText(MODEL_FORMAT_ERROR)).toBeInTheDocument();
+      expect(within(panel).getByRole("combobox", { name: "Modelo" })).toHaveAttribute("aria-invalid", "true");
+      expect(api.saveSettings).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it("never shows the error when the sheet commits a valid ref", async () => {
+    const restore = setViewportMatches("(max-width: 639px)", true);
+    try {
+      const user = userEvent.setup();
+      const { panel, sheet } = await openSheet(user);
+
+      await user.type(within(sheet).getByRole("searchbox", { name: "Buscar" }), "proveedor/modelo#v1");
+      await user.click(within(sheet).getByRole("option", { name: "Usar «proveedor/modelo#v1»" }));
+
+      expect(screen.queryByRole("listbox")).toBeNull();
+      expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+      expect(within(panel).getByRole("combobox", { name: "Modelo" })).toHaveAttribute("aria-invalid", "false");
+
+      await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+      expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "proveedor/modelo#v1" });
+    } finally {
+      restore();
+    }
   });
 });
 

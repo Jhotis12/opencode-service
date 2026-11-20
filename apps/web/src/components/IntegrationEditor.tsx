@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   INTEGRATION_CONFIG_REGISTRY,
@@ -10,6 +10,8 @@ import {
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { getConfigValue, isFieldVisible, setConfigValue, toList } from "./config-field-utils.ts";
+import { Select } from "./Select.tsx";
+import type { SelectOption } from "./select/options.ts";
 import { buttonGhost, buttonPrimary, card, friendlyError } from "../ui.ts";
 
 export interface SavedIntegration {
@@ -23,6 +25,15 @@ type Scope = "project" | "global";
 function labelForField(field: ConfigField): string {
   return field.label;
 }
+
+function optionsForField(field: ConfigField): readonly SelectOption[] {
+  return (field.options ?? []).map((option) => ({ value: option.value, label: option.label }));
+}
+
+const KIND_OPTIONS: readonly SelectOption[] = Object.entries(INTEGRATION_KIND_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
 
 export function IntegrationEditor({
   scope,
@@ -40,6 +51,8 @@ export function IntegrationEditor({
   onCancel?(): void;
 }) {
   const queryClient = useQueryClient();
+  const formId = useId();
+  const formErrorId = `${formId}-error`;
   const initialKind = integration?.kind ?? defaultKind;
   const initialDefinition = INTEGRATION_CONFIG_REGISTRY[initialKind];
   const [kind, setKind] = useState<IntegrationKind>(initialKind);
@@ -74,6 +87,18 @@ export function IntegrationEditor({
     enabled: scope === "project" && Boolean(projectSlug),
   });
   const destinations = destinationsQuery.data ?? [];
+  const destinationOptions = useMemo<readonly SelectOption[]>(
+    () =>
+      destinations.map((destination) => ({
+        value: destination.id,
+        label: `${destination.label} · ${destination.value}`,
+      })),
+    [destinations],
+  );
+  const destinationIds = useMemo(
+    () => new Set(destinationOptions.map((option) => option.value)),
+    [destinationOptions],
+  );
   const definition = INTEGRATION_CONFIG_REGISTRY[kind];
   const groups = useMemo(
     () => [...new Set(definition.fields.map((field) => field.group ?? "General"))],
@@ -208,16 +233,16 @@ export function IntegrationEditor({
 
     if (field.type === "select") {
       return (
-        <label key={field.key}>
-          {label}
-          <select value={String(value ?? "")} onChange={(event) => setField(field, event.target.value)}>
-            {field.options?.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          key={field.key}
+          label={label}
+          options={optionsForField(field)}
+          value={String(value ?? "")}
+          emptyValue=""
+          placeholder={field.placeholder}
+          helper={field.help}
+          onChange={(next) => setField(field, next ?? "")}
+        />
       );
     }
 
@@ -270,116 +295,101 @@ export function IntegrationEditor({
 
     if (field.type === "custom") {
       if (field.widget === "speech-model-picker") {
+        // The catalogue, when the connection exposes one, is a suggestion list, not a
+        // closed set: a raw model id may still be typed (allowCustom).
         const models = toList(config.models);
-        const current = String(value ?? "");
-        if (models.length === 0) {
-          return (
-            <label key={field.key}>
-              {label}
-              <input {...common} value={current} onChange={(event) => setField(field, event.target.value)} />
-            </label>
-          );
-        }
-        const options = current && !models.includes(current) ? [current, ...models] : models;
         return (
-          <label key={field.key}>
-            {label}
-            <select
-              aria-label={label}
-              aria-describedby={`integration-config-${field.key}-hint`}
-              value={current}
-              onChange={(event) => setField(field, event.target.value)}
-            >
-              {options.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-            <small id={`integration-config-${field.key}-hint`} className="text-xs text-muted">
-              {models.length} modelos disponibles en la conexión.
-            </small>
-          </label>
+          <Select
+            key={field.key}
+            label={label}
+            options={models.map((model) => ({ value: model, label: model }))}
+            value={String(value ?? "")}
+            emptyValue=""
+            searchable
+            allowCustom
+            placeholder={field.placeholder}
+            helper={models.length > 0 ? `${models.length} modelos disponibles en la conexión.` : field.help}
+            emptyLabel="Sin modelos disponibles"
+            onChange={(next) => setField(field, next ?? "")}
+          />
         );
       }
       if (field.widget === "voice-picker") {
+        // Discovered voices win; otherwise the registry suggestions seed the catalogue.
+        // Typing a voice the provider knows but did not list stays legal (allowCustom).
         const voices = toList(config.voices);
-        const current = String(value ?? "");
-        if (voices.length === 0) {
-          return (
-            <label key={field.key}>
-              {label}
-              <input
-                {...common}
-                value={current}
-                onChange={(event) => setField(field, event.target.value)}
-                {...(field.suggestions ? { list: `integration-suggestions-${field.key}` } : {})}
-              />
-              {field.suggestions && (
-                <datalist id={`integration-suggestions-${field.key}`}>
-                  {field.suggestions.map((suggestion) => (
-                    <option key={suggestion} value={suggestion} />
-                  ))}
-                </datalist>
-              )}
-            </label>
-          );
-        }
-        const options = current && !voices.includes(current) ? [current, ...voices] : voices;
+        const catalogue = voices.length > 0 ? voices : (field.suggestions ?? []);
         return (
-          <label key={field.key}>
-            {label}
-            <select
-              aria-label={label}
-              aria-describedby={`integration-config-${field.key}-hint`}
-              value={current}
-              onChange={(event) => setField(field, event.target.value)}
-            >
-              {options.map((voice) => (
-                <option key={voice} value={voice}>
-                  {voice}
-                </option>
-              ))}
-            </select>
-            <small id={`integration-config-${field.key}-hint`} className="text-xs text-muted">
-              {voices.length} voces disponibles en la conexión.
-            </small>
-          </label>
+          <Select
+            key={field.key}
+            label={label}
+            options={catalogue.map((voice) => ({ value: voice, label: voice }))}
+            value={String(value ?? "")}
+            emptyValue=""
+            searchable
+            allowCustom
+            placeholder={field.placeholder}
+            helper={
+              voices.length > 0 ? `${voices.length} voces disponibles en la conexión.` : field.help
+            }
+            emptyLabel="Sin voces disponibles"
+            onChange={(next) => setField(field, next ?? "")}
+          />
         );
       }
       if (field.widget === "destination-list") {
+        // The allowlist is a comma list, so the picker keeps multi-value semantics:
+        // choosing a known destination toggles it, typed text is split on commas.
+        // Raw chat ids therefore stay legal even when they are not a destination.
         const list = toList(value);
         return (
-          <label key={field.key}>
-            {label}
-            <input
-              {...common}
-              value={list.join(", ")}
-              onChange={(event) =>
+          <Select
+            key={field.key}
+            label={label}
+            options={destinationOptions}
+            value={list.join(", ")}
+            emptyValue=""
+            searchable
+            allowCustom
+            placeholder={field.placeholder}
+            helper={field.help}
+            emptyLabel="Sin destinos configurados"
+            onChange={(next) => {
+              if (next === undefined) return;
+              if (destinationIds.has(next)) {
                 setField(
                   field,
-                  event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                )
+                  list.includes(next) ? list.filter((item) => item !== next) : [...list, next],
+                );
+                return;
               }
-              list="integration-destinations"
-            />
-          </label>
+              setField(
+                field,
+                next
+                  .split(",")
+                  .map((item) => item.trim())
+                  .filter(Boolean),
+              );
+            }}
+          />
         );
       }
       if (field.widget === "destination-picker") {
+        const current = String(value ?? "");
         return (
-          <label key={field.key}>
-            {label}
-            <input
-              {...common}
-              value={String(value ?? "")}
-              onChange={(event) => setField(field, event.target.value)}
-              list="integration-destinations"
-            />
-          </label>
+          <Select
+            key={field.key}
+            label={label}
+            options={[{ value: "", label: "Sin destinatario" }, ...destinationOptions]}
+            value={current}
+            emptyValue=""
+            searchable
+            allowCustom
+            placeholder={field.placeholder}
+            helper={field.help}
+            emptyLabel="Sin destinos configurados"
+            onChange={(next) => setField(field, next ?? "")}
+          />
         );
       }
       if (field.widget === "alert-events") {
@@ -418,10 +428,10 @@ export function IntegrationEditor({
           type={field.type === "password" ? "password" : field.type === "email" ? "email" : field.type === "url" ? "url" : "text"}
           value={String(value ?? "")}
           onChange={(event) => setField(field, event.target.value)}
-          {...(field.suggestions ? { list: `integration-suggestions-${field.key}` } : {})}
+          {...(field.suggestions ? { list: `${formId}-suggestions-${field.key}` } : {})}
         />
         {field.suggestions && (
-          <datalist id={`integration-suggestions-${field.key}`}>
+          <datalist id={`${formId}-suggestions-${field.key}`}>
             {field.suggestions.map((suggestion) => (
               <option key={suggestion} value={suggestion} />
             ))}
@@ -436,27 +446,26 @@ export function IntegrationEditor({
       className={`${card} !grid gap-3 md:grid-cols-2`}
       onSubmit={submit}
       aria-label={integration ? "Editar integración" : "Crear integración"}
-      aria-describedby={error ? "integration-form-error" : undefined}
+      aria-describedby={error ? formErrorId : undefined}
     >
       <h2 className="text-base font-semibold text-slate-100 md:col-span-2">
         {integration ? "Editar integración" : "Nueva integración"}
       </h2>
       {error && (
-        <p id="integration-form-error" className="text-sm text-danger md:col-span-2" role="alert" title={rawError}>
+        <p id={formErrorId} className="text-sm text-danger md:col-span-2" role="alert" title={rawError}>
           {error}
         </p>
       )}
       {!integration && (
-        <label>
-          Tipo
-          <select value={kind} onChange={(event) => chooseKind(event.target.value as IntegrationKind)}>
-            {Object.entries(INTEGRATION_KIND_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          label="Tipo"
+          options={KIND_OPTIONS}
+          value={kind}
+          emptyValue=""
+          onChange={(next) => {
+            if (next) chooseKind(next as IntegrationKind);
+          }}
+        />
       )}
       <label>
         Nombre
@@ -474,13 +483,6 @@ export function IntegrationEditor({
           <div className="grid gap-3 md:grid-cols-2">{definition.fields.filter((field) => (field.group ?? "General") === group).map(renderField)}</div>
         </fieldset>
       ))}
-      <datalist id="integration-destinations">
-        {destinations.map((destination) => (
-          <option key={destination.id} value={destination.id}>
-            {destination.label} · {destination.value}
-          </option>
-        ))}
-      </datalist>
       <details className="md:col-span-2" open={advancedOpen} onToggle={(event) => setAdvancedOpen((event.target as HTMLDetailsElement).open)}>
         <summary className="cursor-pointer text-xs text-muted">Configuración avanzada</summary>
         <label className="mt-2">

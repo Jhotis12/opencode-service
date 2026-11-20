@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Position, ReactFlow } from "@xyflow/react";
 import type { WorkflowGraph } from "@platform/shared";
-import { renderWithProviders } from "./render.tsx";
+import { PlatformEdge } from "../src/components/PlatformEdge.tsx";
+import { CanvasActionsContext } from "../src/components/nodes/canvas-actions.ts";
+import { chooseOption, renderWithProviders } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
   getWorkflow: vi.fn(),
@@ -115,6 +118,91 @@ function renderPage() {
     </MemoryRouter>,
   );
 }
+
+/**
+ * Edges need measured nodes before React Flow renders them, which jsdom never
+ * provides. This host keeps the real edge wrapper and renders the branches
+ * directly, so the picker is exercised through the component's own props.
+ */
+function renderEdgeHost(branches: ReadonlyArray<{ id: string; condition?: string; selected?: boolean }>) {
+  const actions = {
+    onDuplicateNode: vi.fn(),
+    onStartConnect: vi.fn(),
+    onDeleteNode: vi.fn(),
+    onDeleteEdge: vi.fn(),
+    onChangeEdgeCondition: vi.fn(),
+  };
+  const result = renderWithProviders(
+    <CanvasActionsContext.Provider value={actions}>
+      <div style={{ width: 800, height: 600 }}>
+        <ReactFlow
+          nodes={[]}
+          edges={branches.map((branch) => ({ id: branch.id, source: "a", target: "b" }))}
+          edgeTypes={{ platform: PlatformEdge }}
+          onNodesChange={vi.fn()}
+          onEdgesChange={vi.fn()}
+          onConnect={vi.fn()}
+        >
+          {branches.map((branch, index) => (
+            <svg key={branch.id} width={0} height={0}>
+              <PlatformEdge
+                id={branch.id}
+                source="a"
+                target="b"
+                sourceX={0}
+                sourceY={index * 120}
+                targetX={240}
+                targetY={index * 120}
+                sourcePosition={Position.Right}
+                targetPosition={Position.Left}
+                selected={branch.selected ?? false}
+                data={{ condition: branch.condition, isDecision: true }}
+              />
+            </svg>
+          ))}
+        </ReactFlow>
+      </div>
+    </CanvasActionsContext.Provider>,
+  );
+  return { ...result, actions };
+}
+
+describe("decision edge branches", () => {
+  it("renders both branches of a decision edge", async () => {
+    const { container } = renderEdgeHost([
+      { id: "e-true", condition: "true" },
+      { id: "e-false", condition: "false" },
+    ]);
+    await waitFor(() => expect(container.querySelector(".react-flow__edgelabel-renderer")).not.toBeNull());
+    const labels = container.querySelector(".react-flow__edgelabel-renderer") as HTMLElement;
+    expect(within(labels).getAllByText("sí").length).toBeGreaterThan(0);
+    expect(within(labels).getAllByText("no").length).toBeGreaterThan(0);
+  });
+
+  it("falls back to the sí branch and emits the branch value through the shared picker", async () => {
+    const user = userEvent.setup();
+    const { actions } = renderEdgeHost([{ id: "e1", selected: true }]);
+
+    const trigger = await screen.findByRole("combobox", { name: "Rama de la conexión" });
+    expect(trigger).toHaveTextContent("sí");
+
+    await chooseOption(user, "Rama de la conexión", "no");
+
+    expect(actions.onChangeEdgeCondition).toHaveBeenCalledWith("e1", "false");
+  });
+
+  it("shows a saved false branch through the shared picker", async () => {
+    renderEdgeHost([{ id: "e1", condition: "false", selected: true }]);
+
+    expect(await screen.findByRole("combobox", { name: "Rama de la conexión" })).toHaveTextContent("no");
+  });
+
+  it("displays a saved branch value that is not one of the options", async () => {
+    renderEdgeHost([{ id: "e1", condition: "legacy", selected: true }]);
+
+    expect(await screen.findByRole("combobox", { name: "Rama de la conexión" })).toHaveTextContent("legacy");
+  });
+});
 
 describe("ProjectLayout flow section", () => {
   beforeEach(() => {

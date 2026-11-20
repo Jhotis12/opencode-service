@@ -3,6 +3,8 @@ import { PLATFORM_DEFAULT_MODEL } from "@platform/shared";
 import type { ModelInfo } from "../api.ts";
 import { button, buttonPrimary, card, fieldError, input, sectionTitle, smallMuted } from "../ui.ts";
 import { Field } from "./Field.tsx";
+import { Select } from "./Select.tsx";
+import { modelOptions, type SelectOption } from "./select/options.ts";
 
 export type PlatformFieldValidator = (value: string) => string | undefined;
 
@@ -70,23 +72,55 @@ export const PLATFORM_MODEL_SUGGESTIONS = [
   { value: PLATFORM_DEFAULT_MODEL, label: "DeepSeek V4.1 Flash" },
 ] as const;
 
-export function PlatformSettingsModelInput({ models, ...props }: PlatformSettingsInputProps & { readonly models: readonly ModelInfo[] }) {
-  const listId = `${props.id}-options`;
-  const discovered = models.map((model) => ({ value: `${model.providerID}/${model.modelID}`, label: model.name }));
+export type PlatformSettingsModelInputProps = {
+  readonly id: string;
+  readonly label: string;
+  readonly hint?: ReactNode;
+  readonly error?: ReactNode;
+  /** The raw `proveedor/modelo#variante` value; an unlisted saved value is pinned by the picker. */
+  readonly value: string;
+  readonly models: readonly ModelInfo[];
+  readonly emptyLabel: string;
+  onChange(value: string): void;
+};
+
+/** Catalogue rows grouped by provider, the built-in suggestion when missing, and the empty row last. */
+function platformModelOptions(models: readonly ModelInfo[], emptyLabel: string): readonly SelectOption[] {
+  const discovered = modelOptions(models).map((option) => ({
+    ...option,
+    // A catalogue entry without a name still needs a readable row: fall back to its ref.
+    label: option.label || option.value,
+  }));
   const discoveredValues = new Set(discovered.map((option) => option.value));
-  const options = [
-    ...discovered,
-    ...PLATFORM_MODEL_SUGGESTIONS.filter((suggestion) => !discoveredValues.has(suggestion.value)),
-  ];
+  const suggestions = PLATFORM_MODEL_SUGGESTIONS
+    .filter((suggestion) => !discoveredValues.has(suggestion.value))
+    .map((suggestion) => ({ value: suggestion.value, label: suggestion.label }));
+  return [...discovered, ...suggestions, { value: "", label: emptyLabel }];
+}
+
+export function PlatformSettingsModelInput({
+  id,
+  label,
+  hint,
+  error,
+  value,
+  models,
+  emptyLabel,
+  onChange,
+}: PlatformSettingsModelInputProps) {
   return (
-    <>
-      <PlatformSettingsInput {...props} list={listId} autoComplete="off" autoCapitalize="none" spellCheck={false} />
-      <datalist id={listId}>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
-        ))}
-      </datalist>
-    </>
+    <Field id={id} label={label} hint={hint} error={error}>
+      <Select
+        label={label}
+        options={platformModelOptions(models, emptyLabel)}
+        value={value}
+        emptyValue=""
+        searchable
+        allowCustom
+        placeholder="Selecciona un modelo"
+        onChange={(next) => onChange(next ?? "")}
+      />
+    </Field>
   );
 }
 

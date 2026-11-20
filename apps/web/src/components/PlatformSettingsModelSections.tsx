@@ -20,12 +20,14 @@ const MODEL_SECTION_COPY = {
     title: "Modelo por defecto",
     description: "Se usa cuando el proyecto, el flujo o el nodo no definen un modelo propio. Por defecto: DeepSeek V4.1 Flash.",
     success: "Modelo por defecto guardado.",
+    emptyLabel: "Sin modelo (usar el valor por defecto)",
   },
   orchestratorModel: {
     id: "orquestador",
     title: "Modelo del orquestador",
     description: "Se usa en el plano de control global. Si lo dejas vacío, hereda el modelo por defecto (DeepSeek V4.1 Flash).",
     success: "Modelo del orquestador guardado.",
+    emptyLabel: "Heredar el modelo por defecto",
   },
 } as const;
 
@@ -82,18 +84,16 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
       <form className="flex max-w-3xl flex-col gap-4" aria-labelledby={`${copy.id}-title`} noValidate onSubmit={onSubmit}>
         <PlatformSettingsModelInput
           id={inputId}
-          name={kind}
           label="Modelo"
           hint="Formato: proveedor/modelo#variante. La variante es opcional."
           error={validation.error}
           value={draft}
           models={models}
-          onChange={(event) => {
-            const value = event.target.value;
+          emptyLabel={copy.emptyLabel}
+          onChange={(value) => {
             setDraft(value);
-            validation.clear(value);
+            validation.validate(value);
           }}
-          onBlur={() => validation.validate(draft)}
         />
         {modelsPending && (
           <div className="flex flex-col gap-2" aria-label="Cargando sugerencias de modelos">

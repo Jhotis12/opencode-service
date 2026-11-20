@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { api } from "../src/api.ts";
 import { PlatformSettingsPage as SettingsPage } from "../src/pages/PlatformSettingsPage.tsx";
-import { renderWithProviders } from "./render.tsx";
+import { chooseOption, renderWithProviders } from "./render.tsx";
 
 vi.mock("../src/api.ts", () => ({
   api: {
@@ -122,22 +122,144 @@ describe("PlatformSettingsPage", () => {
     expect(api.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("offers the DeepSeek model id and rejects a model without a provider inline", async () => {
+  it("offers the catalogue grouped by provider plus the DeepSeek suggestion", async () => {
+    const user = userEvent.setup();
     renderSettings("/settings#modelo");
     const panel = await screen.findByRole("tabpanel");
-    expect(document.querySelector('datalist option[value="opencode/deepseek-v4.1-flash-free"]')).not.toBeNull();
-    expect(document.querySelector('datalist option[value="opencode-go/fast"]')).not.toBeNull();
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
+    expect(picker).toHaveValue("Fast");
 
-    const modelInput = within(panel).getByLabelText("Modelo");
-    expect(modelInput).toHaveValue("opencode-go/fast");
-    await userEvent.clear(modelInput);
-    await userEvent.type(modelInput, "modelo-sin-proveedor");
-    await userEvent.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+    await user.click(picker);
+    expect(screen.getByRole("group", { name: "opencode-go" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Fast\b/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /DeepSeek V4\.1 Flash/ })).toBeInTheDocument();
+
+    fireEvent.keyDown(picker, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("saves the model ref chosen in the picker", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+
+    await chooseOption(user, "Modelo", /DeepSeek V4\.1 Flash/);
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "opencode/deepseek-v4.1-flash-free" });
+  });
+
+  it("saves an unlisted provider/model#variant typed into the picker", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
+
+    await user.click(picker);
+    await user.type(picker, "proveedor/modelo#v1");
+    await user.click(screen.getByRole("option", { name: "Usar «proveedor/modelo#v1»" }));
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "proveedor/modelo#v1" });
+  });
+
+  it("rejects a model without a provider inline without saving", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
+
+    await user.click(picker);
+    await user.type(picker, "modelo-sin-proveedor");
+    await user.click(screen.getByRole("option", { name: "Usar «modelo-sin-proveedor»" }));
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
 
     expect(
       within(panel).getByText("Usa el formato proveedor/modelo#variante. La variante es opcional."),
     ).toBeInTheDocument();
     expect(api.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("saves null when the empty choice is picked", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+
+    await chooseOption(user, "Modelo", /^Sin modelo/);
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: null });
+  });
+
+  it("saves null when the orchestrator choice is cleared", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#orquestador");
+    const panel = await screen.findByRole("tabpanel");
+
+    await chooseOption(user, "Modelo", /^Heredar el modelo por defecto/);
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    expect(api.saveSettings).toHaveBeenCalledWith({ orchestratorModel: null });
+  });
+
+  it("keeps a saved model the catalogue no longer offers and saves it unchanged", async () => {
+    vi.mocked(api.getSettings).mockResolvedValueOnce({
+      data: {
+        opencodeMode: "fake",
+        sentryConfigured: false,
+        providerConnected: true,
+        defaultModel: "legacy/model#v2",
+        orchestratorModel: "opencode-go/fast",
+        dataDir: "/data",
+      },
+    });
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
+    expect(picker).toHaveValue("legacy/model#v2");
+
+    await user.click(picker);
+    expect(screen.getByRole("option", { name: /legacy\/model#v2/ })).toHaveTextContent("(no disponible)");
+    fireEvent.keyDown(picker, { key: "Escape" });
+
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "legacy/model#v2" });
+  });
+
+  it("stays usable when the catalogue is empty", async () => {
+    vi.mocked(api.listModels).mockResolvedValueOnce({ data: [] });
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    expect(within(panel).getByRole("combobox", { name: "Modelo" })).toHaveValue("opencode-go/fast");
+
+    await chooseOption(user, "Modelo", /DeepSeek V4\.1 Flash/);
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "opencode/deepseek-v4.1-flash-free" });
+  });
+
+  it("keeps a seeded default visible when the catalogue fails to load", async () => {
+    vi.mocked(api.getSettings).mockResolvedValueOnce({
+      data: {
+        opencodeMode: "fake",
+        sentryConfigured: false,
+        providerConnected: true,
+        defaultModel: undefined,
+        orchestratorModel: undefined,
+        dataDir: "/data",
+      },
+    });
+    vi.mocked(api.listModels).mockRejectedValueOnce(new Error(""));
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+
+    expect(within(panel).getByRole("combobox", { name: "Modelo" })).toHaveValue("DeepSeek V4.1 Flash");
+    expect(await within(panel).findByRole("alert")).toHaveTextContent(
+      "No se pudieron cargar las sugerencias. Puedes escribir el modelo manualmente.",
+    );
+    expect(within(panel).getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
   });
 
   it("preselects DeepSeek V4.1 Flash when no platform override is stored", async () => {
@@ -153,7 +275,7 @@ describe("PlatformSettingsPage", () => {
     });
     renderSettings("/settings#modelo");
     const panel = await screen.findByRole("tabpanel");
-    expect(within(panel).getByLabelText("Modelo")).toHaveValue("opencode/deepseek-v4.1-flash-free");
+    expect(within(panel).getByRole("combobox", { name: "Modelo" })).toHaveValue("DeepSeek V4.1 Flash");
   });
 
   it("updates the URL hash when a section is selected", async () => {

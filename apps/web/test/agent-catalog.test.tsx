@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useQuery } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { SubagentProfile } from "@platform/shared";
+import type { ModelInfo, NotebookSummary } from "../src/api.ts";
 import { qk } from "../src/query.ts";
-import { renderWithProviders } from "./render.tsx";
+import { chooseOption, renderWithProviders } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
   upsertAgent: vi.fn(),
   deleteAgent: vi.fn(),
   listAgents: vi.fn(),
+  listNotebooks: vi.fn(),
 }));
 
 vi.mock("../src/api.ts", async (importOriginal) => {
@@ -18,6 +20,7 @@ vi.mock("../src/api.ts", async (importOriginal) => {
 });
 
 import { AgentCatalog } from "../src/components/AgentCatalog.tsx";
+import { ProjectKnowledgePanel } from "../src/components/ProjectKnowledgePanel.tsx";
 
 const primary: SubagentProfile = {
   category: "principal",
@@ -44,19 +47,59 @@ const subagent: SubagentProfile = {
   body: "Eres el calificador de ventas.",
 };
 
-function renderCatalog(agents: SubagentProfile[] = [subagent, primary]) {
-  return renderWithProviders(
-    <AgentCatalog projectSlug="demo" agents={agents} modelOptions={["opencode-go/deepseek-v4.1-flash"]} />,
-  );
+const catalogue: ModelInfo[] = [
+  { providerID: "opencode-go", modelID: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" },
+];
+
+// `manual-ventas` is deliberately absent: the sub-agent keeps a notebook the
+// catalogue no longer lists, so the chip has to survive without it.
+const notebooks: NotebookSummary[] = [
+  {
+    id: "nb-politicas",
+    projectSlug: "demo",
+    slug: "politicas",
+    name: "Políticas",
+    description: "",
+    sources: 0,
+    createdAt: "2026-11-19T00:00:00.000Z",
+  },
+  {
+    id: "nb-onboarding",
+    projectSlug: "demo",
+    slug: "onboarding",
+    name: "Onboarding",
+    description: "",
+    sources: 2,
+    createdAt: "2026-11-19T00:00:00.000Z",
+  },
+];
+
+type User = ReturnType<typeof userEvent.setup>;
+
+function renderCatalog(agents: SubagentProfile[] = [subagent, primary], models: ModelInfo[] = catalogue) {
+  return renderWithProviders(<AgentCatalog projectSlug="demo" agents={agents} models={models} />);
 }
 
-describe("AgentCatalog", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    apiMock.upsertAgent.mockResolvedValue(subagent);
-    apiMock.deleteAgent.mockResolvedValue({ ok: true });
-  });
+async function fillNewAgent(user: User, dialog: HTMLElement): Promise<void> {
+  await user.type(within(dialog).getByLabelText("Categoría"), "ventas");
+  await user.type(within(dialog).getByLabelText("Rol"), "calificador");
+  await user.type(within(dialog).getByLabelText("Descripción"), "Califica leads");
+  await user.type(within(dialog).getByLabelText("Instrucciones (.md)"), "Eres un calificador.");
+}
 
+function savedPayload() {
+  return apiMock.upsertAgent.mock.calls[0][3] as Record<string, unknown>;
+}
+
+// File-level so both suites get the notebook catalogue regardless of test order or `-t` filters.
+beforeEach(() => {
+  vi.clearAllMocks();
+  apiMock.upsertAgent.mockResolvedValue(subagent);
+  apiMock.deleteAgent.mockResolvedValue({ ok: true });
+  apiMock.listNotebooks.mockResolvedValue({ data: notebooks });
+});
+
+describe("AgentCatalog", () => {
   it("lists the primary agent first, localizes modes and protects it from deletion", () => {
     renderCatalog();
     const cards = screen.getAllByTestId(/^agent-card-/);
@@ -89,7 +132,7 @@ describe("AgentCatalog", () => {
         <AgentCatalog
           projectSlug="demo"
           agents={agentsQuery.data?.data ?? []}
-          modelOptions={[]}
+          models={[]}
           isLoading={agentsQuery.isLoading}
           error={agentsQuery.error}
         />
@@ -109,7 +152,7 @@ describe("AgentCatalog", () => {
 
   it("validates and saves a new agent through the focused editor", async () => {
     renderWithProviders(
-      <AgentCatalog projectSlug="demo" agents={[primary]} modelOptions={[]} />,
+      <AgentCatalog projectSlug="demo" agents={[primary]} models={[]} />,
     );
     await userEvent.click(screen.getByRole("button", { name: "Nuevo agente" }));
     const dialog = screen.getByRole("dialog", { name: "Nuevo agente" });
@@ -133,6 +176,139 @@ describe("AgentCatalog", () => {
       }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Nuevo agente" })).not.toBeInTheDocument());
+  });
+
+  it("labels model choices from the catalogue and saves the provider/model ref", async () => {
+    const user = userEvent.setup();
+    renderCatalog([primary]);
+    await user.click(screen.getByRole("button", { name: "Nuevo agente" }));
+    const dialog = screen.getByRole("dialog", { name: "Nuevo agente" });
+
+    await chooseOption(user, "Modelo", /DeepSeek V4\.1 Flash/);
+    expect(within(dialog).getByRole("combobox", { name: "Modelo" })).toHaveTextContent("DeepSeek V4.1 Flash");
+
+    await fillNewAgent(user, dialog);
+    await user.click(within(dialog).getByRole("button", { name: "Guardar agente" }));
+    await waitFor(() => expect(apiMock.upsertAgent).toHaveBeenCalledTimes(1));
+    expect(savedPayload().model).toBe("opencode-go/deepseek-v4.1-flash");
+  });
+
+  it("inherits the flow model through the empty choice and omits the key", async () => {
+    const user = userEvent.setup();
+    renderCatalog([primary]);
+    await user.click(screen.getByRole("button", { name: "Nuevo agente" }));
+    const dialog = screen.getByRole("dialog", { name: "Nuevo agente" });
+
+    await chooseOption(user, "Modelo", /DeepSeek V4\.1 Flash/);
+    await chooseOption(user, "Modelo", "Heredar del flujo");
+    expect(within(dialog).getByRole("combobox", { name: "Modelo" })).toHaveTextContent("Heredar del flujo");
+
+    await fillNewAgent(user, dialog);
+    await user.click(within(dialog).getByRole("button", { name: "Guardar agente" }));
+    await waitFor(() => expect(apiMock.upsertAgent).toHaveBeenCalledTimes(1));
+
+    const payload = savedPayload();
+    expect("model" in payload).toBe(false);
+    expect(JSON.stringify(payload)).not.toContain('"model"');
+  });
+
+  it("keeps a saved model that the catalogue lost selectable and selected", async () => {
+    const user = userEvent.setup();
+    renderCatalog([subagent, primary], []);
+    await user.click(
+      within(screen.getByTestId("agent-card-ventas-calificador")).getByRole("button", { name: "Editar" }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Editar agente" });
+    const picker = within(dialog).getByRole("combobox", { name: "Modelo" });
+    expect(picker).toHaveTextContent("opencode-go/deepseek-v4.1-flash");
+
+    await user.click(picker);
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    const stale = screen.getByRole("option", { name: /opencode-go\/deepseek-v4\.1-flash/ });
+    await user.click(stale);
+    await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+
+    await user.click(within(dialog).getByRole("button", { name: "Guardar agente" }));
+    await waitFor(() => expect(apiMock.upsertAgent).toHaveBeenCalledTimes(1));
+    expect(savedPayload().model).toBe("opencode-go/deepseek-v4.1-flash");
+  });
+
+  it("falls back to the provider/model reference when a catalogue name is empty", async () => {
+    const user = userEvent.setup();
+    renderCatalog([primary], [{ providerID: "opencode-go", modelID: "sin-nombre", name: "" }]);
+    await user.click(screen.getByRole("button", { name: "Nuevo agente" }));
+    const dialog = screen.getByRole("dialog", { name: "Nuevo agente" });
+
+    await chooseOption(user, "Modelo", /opencode-go\/sin-nombre/);
+    expect(within(dialog).getByRole("combobox", { name: "Modelo" })).toHaveTextContent("opencode-go/sin-nombre");
+  });
+
+  it("emits the API mode values from the mode picker", async () => {
+    const user = userEvent.setup();
+    renderCatalog([primary]);
+    await user.click(screen.getByRole("button", { name: "Nuevo agente" }));
+    const dialog = screen.getByRole("dialog", { name: "Nuevo agente" });
+
+    await fillNewAgent(user, dialog);
+    await chooseOption(user, "Modo", "Principal");
+    expect(within(dialog).getByRole("combobox", { name: "Modo" })).toHaveTextContent("Principal");
+
+    await user.click(within(dialog).getByRole("button", { name: "Guardar agente" }));
+    await waitFor(() => expect(apiMock.upsertAgent).toHaveBeenCalledTimes(1));
+    expect(savedPayload().mode).toBe("primary");
+  });
+
+  it("picks notebooks in the multi-value field and saves the slug array", async () => {
+    const user = userEvent.setup();
+    renderCatalog([primary]);
+    await user.click(screen.getByRole("button", { name: "Nuevo agente" }));
+    const dialog = screen.getByRole("dialog", { name: "Nuevo agente" });
+    await fillNewAgent(user, dialog);
+
+    await user.click(within(dialog).getByRole("button", { name: "Añadir Notebooks" }));
+    await user.click(await screen.findByRole("option", { name: "Políticas" }));
+    await user.click(screen.getByRole("option", { name: "Onboarding" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+    expect(within(dialog).getByRole("button", { name: "Quitar Políticas" })).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Guardar agente" }));
+    await waitFor(() => expect(apiMock.upsertAgent).toHaveBeenCalledTimes(1));
+    expect(savedPayload().notebooks).toEqual(["politicas", "onboarding"]);
+  });
+
+  it("saves an empty notebook array when the catalogue is empty", async () => {
+    const user = userEvent.setup();
+    apiMock.listNotebooks.mockResolvedValueOnce({ data: [] });
+    renderCatalog([primary]);
+    await user.click(screen.getByRole("button", { name: "Nuevo agente" }));
+    const dialog = screen.getByRole("dialog", { name: "Nuevo agente" });
+    await fillNewAgent(user, dialog);
+
+    await user.click(within(dialog).getByRole("button", { name: "Añadir Notebooks" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Sin opciones"));
+    await user.keyboard("{Escape}");
+
+    await user.click(within(dialog).getByRole("button", { name: "Guardar agente" }));
+    await waitFor(() => expect(apiMock.upsertAgent).toHaveBeenCalledTimes(1));
+    expect(savedPayload().notebooks).toEqual([]);
+  });
+
+  it("keeps a saved notebook absent from the catalogue as a removable chip", async () => {
+    const user = userEvent.setup();
+    renderCatalog([subagent, primary]);
+    await user.click(
+      within(screen.getByTestId("agent-card-ventas-calificador")).getByRole("button", { name: "Editar" }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Editar agente" });
+    expect(within(dialog).getByRole("button", { name: "Quitar manual-ventas" })).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Quitar manual-ventas" }));
+    expect(within(dialog).queryByRole("button", { name: "Quitar manual-ventas" })).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Guardar agente" }));
+    await waitFor(() => expect(apiMock.upsertAgent).toHaveBeenCalledTimes(1));
+    expect(savedPayload().notebooks).toEqual([]);
   });
 
   it("prefills the editor for an existing agent and locks its identifier", async () => {
@@ -268,5 +444,45 @@ describe("AgentCatalog", () => {
     expect(apiMock.upsertAgent.mock.calls[0][3].permissions).toEqual([
       { action: "tool", resource: "db_query", effect: "deny" },
     ]);
+  });
+});
+
+// The editor, ProjectKnowledgePanel and ProjectOverviewPage all read `qk.notebooks`,
+// and React Query keys by queryKey alone: whichever view resolves first defines the
+// shape every other view must handle.
+describe("notebooks cache contract", () => {
+  it("stores the unwrapped NotebookSummary[] that the knowledge panel maps over", async () => {
+    let client: QueryClient | undefined;
+    function ClientProbe() {
+      client = useQueryClient();
+      return null;
+    }
+
+    renderWithProviders(
+      <>
+        <ClientProbe />
+        <AgentCatalog projectSlug="demo" agents={[primary]} models={[]} />
+      </>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Nuevo agente" }));
+    await waitFor(() => expect(client?.getQueryData(qk.notebooks("demo"))).toBeDefined());
+
+    const cached = client!.getQueryData<NotebookSummary[]>(qk.notebooks("demo"));
+
+    // Same cache, second consumer: an envelope here makes this render throw
+    // `notebooks.map is not a function`, and an empty list would hide the notebooks.
+    render(
+      <QueryClientProvider client={client!}>
+        <ProjectKnowledgePanel projectSlug="demo" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("Políticas")).toBeInTheDocument();
+    expect(screen.getByText("Onboarding")).toBeInTheDocument();
+    expect(screen.queryByText("Aún no hay notebooks")).not.toBeInTheDocument();
+
+    // The contract the other two consumers already implement: the array, not the envelope.
+    expect(Array.isArray(cached)).toBe(true);
+    expect(cached).toEqual(notebooks);
   });
 });

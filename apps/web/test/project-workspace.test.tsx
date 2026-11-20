@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -48,6 +48,26 @@ vi.mock("../src/components/CodeEditor.tsx", () => ({
 
 import { App } from "../src/App.tsx";
 import { renderWithProviders } from "./render.tsx";
+
+// App.tsx mounts every project section through React.lazy, so the first render of a
+// section suspends while Vite transforms and evaluates that page module. Every spec
+// here mounts the app from scratch, so that cost landed inside the spec's own budget:
+// under a loaded machine the seven-section deep-link loop outlived vitest's 5s
+// testTimeout and the single-section waits expired on the Suspense fallback while the
+// route was already correct. Evaluate the modules the routes lazy-import once, before
+// the first render, so `lazy` resolves from the registry and each spec only waits for
+// router state and the mocked queries.
+beforeAll(async () => {
+  await Promise.all([
+    import("../src/pages/ProjectOverviewPage.tsx"),
+    import("../src/pages/ProjectFlowPage.tsx"),
+    import("../src/pages/ProjectRunsPage.tsx"),
+    import("../src/pages/ProjectAgentsPage.tsx"),
+    import("../src/pages/ProjectKnowledgePage.tsx"),
+    import("../src/pages/ProjectIntegrationsPage.tsx"),
+    import("../src/pages/ProjectSettingsPage.tsx"),
+  ]);
+});
 
 const graph: WorkflowGraph = {
   version: 1,
@@ -127,9 +147,30 @@ function renderApp(entry: string) {
   );
 }
 
+// Every section renders behind the workspace shell: the workflow query resolves, the
+// shell commits, and only then does the router transition commit the section. A single
+// assertion therefore spans several commits, so testing-library's 1 s async budget is a
+// statement about an idle machine, not about correctness - under the 13-process load
+// that exposed this file the redirect was still showing /projects/demo when the default
+// budget expired, with the navigation merely queued. Same budget the flow deep-link
+// already needed for React Flow's first paint.
+const ROUTE_READY = { timeout: 10_000 };
+
 function sectionTabs() {
   return screen.getByRole("navigation", { name: "Secciones del proyecto" });
 }
+
+// One spec per section so each mount keeps its own vitest timeout: as one spec, the
+// seven full app mounts shared a single 5 s budget and timed out under load.
+const deepLinks: Array<[string, string, () => Promise<HTMLElement>]> = [
+  ["overview", "Resumen", () => screen.findByRole("heading", { name: "Resumen" }, ROUTE_READY)],
+  ["flow", "Flujo", () => screen.findByRole("button", { name: "+ Nodo" }, ROUTE_READY)],
+  ["runs", "Ejecuciones", () => screen.findByText("abcd1234", {}, ROUTE_READY)],
+  ["agents", "Agentes", () => screen.findByTestId("agent-card-principal-agente", {}, ROUTE_READY)],
+  ["knowledge", "Conocimiento", () => screen.findByRole("button", { name: "Crear notebook" }, ROUTE_READY)],
+  ["integrations", "Integraciones", () => screen.findByRole("heading", { name: "Integraciones" }, ROUTE_READY)],
+  ["settings", "Ajustes", () => screen.findByText("Identidad y modelo", {}, ROUTE_READY)],
+];
 
 async function makeGraphDirty(container: HTMLElement) {
   fireEvent.click(container.querySelector('[data-node-id="code"]')!);
@@ -140,7 +181,10 @@ async function makeGraphDirty(container: HTMLElement) {
   expect(screen.getByRole("status", { name: "Cambios sin guardar" })).toBeInTheDocument();
 }
 
-describe("routed project workspace", () => {
+// This file mounts the whole SPA per spec, so the suite budget has to sit above the
+// async budget above; at the 5 s default a starved machine reports a bare "Test timed
+// out" instead of the assertion that did not settle.
+describe("routed project workspace", { timeout: 20_000 }, () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupApi();
@@ -148,40 +192,33 @@ describe("routed project workspace", () => {
 
   it("redirects /projects/:slug to the overview section", async () => {
     renderApp("/projects/demo");
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/projects/demo/overview"));
-    expect(await screen.findByRole("heading", { name: "Resumen" })).toBeInTheDocument();
+    await waitFor(
+      () => expect(screen.getByTestId("location")).toHaveTextContent("/projects/demo/overview"),
+      ROUTE_READY,
+    );
+    expect(await screen.findByRole("heading", { name: "Resumen" }, ROUTE_READY)).toBeInTheDocument();
   });
 
-  it("deep-links to every section by URL", async () => {
-    const sections: Array<[string, string, () => Promise<HTMLElement>]> = [
-      ["overview", "Resumen", () => screen.findByRole("heading", { name: "Resumen" })],
-      ["flow", "Flujo", () => screen.findByRole("button", { name: "+ Nodo" }, { timeout: 10_000 })],
-      ["runs", "Ejecuciones", () => screen.findByText("abcd1234")],
-      ["agents", "Agentes", () => screen.findByTestId("agent-card-principal-agente")],
-      ["knowledge", "Conocimiento", () => screen.findByRole("button", { name: "Crear notebook" })],
-      ["integrations", "Integraciones", () => screen.findByRole("heading", { name: "Integraciones" })],
-      ["settings", "Ajustes", () => screen.findByText("Identidad y modelo")],
-    ];
-    for (const [section, heading, find] of sections) {
-      const { unmount } = renderApp(`/projects/demo/${section}`);
+  for (const [section, heading, find] of deepLinks) {
+    it(`deep-links to the ${section} section by URL`, async () => {
+      renderApp(`/projects/demo/${section}`);
       expect(await find()).toBeInTheDocument();
       expect(screen.getByRole("heading", { level: 1, name: heading })).toBeInTheDocument();
-      unmount();
-    }
-  });
+    });
+  }
 
   it("routes between sections when tabs are clicked", async () => {
     renderApp("/projects/demo/overview");
-    expect(await screen.findByRole("heading", { name: "Resumen" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Resumen" }, ROUTE_READY)).toBeInTheDocument();
     await userEvent.click(within(sectionTabs()).getByRole("link", { name: "Flujo" }));
-    expect(await screen.findByRole("button", { name: "+ Nodo" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "+ Nodo" }, ROUTE_READY)).toBeInTheDocument();
     expect(within(sectionTabs()).getByRole("link", { name: "Flujo" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByTestId("location")).toHaveTextContent("/projects/demo/flow");
   });
 
   it("confirms before leaving a dirty graph, keeps edits on cancel and discards on accept", async () => {
     const { container } = renderApp("/projects/demo/flow");
-    expect(await screen.findByRole("button", { name: "+ Nodo" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "+ Nodo" }, ROUTE_READY)).toBeInTheDocument();
 
     await makeGraphDirty(container);
 
@@ -206,11 +243,11 @@ describe("routed project workspace", () => {
     await userEvent.click(within(sectionTabs()).getByRole("link", { name: "Ejecuciones (1)" }));
     const discardGuard = await screen.findByRole("dialog", { name: "Cambios sin guardar" });
     await userEvent.click(within(discardGuard).getByRole("button", { name: "Descartar y continuar" }));
-    expect(await screen.findByText("abcd1234")).toBeInTheDocument();
+    expect(await screen.findByText("abcd1234", {}, ROUTE_READY)).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Cambios sin guardar" })).not.toBeInTheDocument();
 
     await userEvent.click(within(sectionTabs()).getByRole("link", { name: "Flujo" }));
-    expect(await screen.findByRole("button", { name: "+ Nodo" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "+ Nodo" }, ROUTE_READY)).toBeInTheDocument();
     fireEvent.click(container.querySelector('[data-node-id="code"]')!);
     const restored = await screen.findByRole("dialog", { name: "Nodo: Consultar" });
     expect(within(restored).getByLabelText("Etiqueta")).toHaveValue("Consultar");
@@ -218,7 +255,7 @@ describe("routed project workspace", () => {
 
   it("still saves the flow from the flow section", async () => {
     const { container } = renderApp("/projects/demo/flow");
-    expect(await screen.findByRole("button", { name: "+ Nodo" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "+ Nodo" }, ROUTE_READY)).toBeInTheDocument();
 
     await makeGraphDirty(container);
     await userEvent.click(screen.getByRole("button", { name: "Guardar flujo" }));
@@ -228,13 +265,13 @@ describe("routed project workspace", () => {
     expect(saved.nodes.find((node) => node.id === "code")?.label).toBe("Consultar editado");
     await waitFor(() => expect(screen.queryByRole("status", { name: "Cambios sin guardar" })).not.toBeInTheDocument());
     await userEvent.click(within(sectionTabs()).getByRole("link", { name: "Ejecuciones (1)" }));
-    expect(await screen.findByText("abcd1234")).toBeInTheDocument();
+    expect(await screen.findByText("abcd1234", {}, ROUTE_READY)).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Cambios sin guardar" })).not.toBeInTheDocument();
   });
 
   it("warns before closing the tab only when the graph is dirty", async () => {
     const { container } = renderApp("/projects/demo/flow");
-    expect(await screen.findByRole("button", { name: "+ Nodo" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "+ Nodo" }, ROUTE_READY)).toBeInTheDocument();
 
     const clean = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(clean);
@@ -251,12 +288,12 @@ describe("routed project workspace", () => {
     apiMock.getWorkflow.mockRejectedValueOnce(new Error("No se pudo cargar el flujo"));
     renderApp("/projects/demo/overview");
 
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", {}, ROUTE_READY);
     expect(within(alert).getByText("No se pudo cargar el flujo")).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Secciones del proyecto" })).not.toBeInTheDocument();
 
     await userEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
-    expect(await screen.findByRole("heading", { name: "Resumen" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Resumen" }, ROUTE_READY)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 

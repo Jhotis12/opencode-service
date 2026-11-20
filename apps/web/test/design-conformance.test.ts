@@ -24,25 +24,6 @@ function stripTokenFallbacks(source: string): string {
   return source.replace(TOKEN_FALLBACK, "var(--token)");
 }
 
-/**
- * Files still rendering a native `<select>` instead of the shared picker.
- * A later change drains this list; it is not a permanent exemption.
- */
-export const NATIVE_SELECT_ALLOWLIST: readonly string[] = [
-  "AgentEditorModal.tsx",
-  "IntegrationEditor.tsx",
-  "NodeConfigFields.tsx",
-  "NodeInspector.tsx",
-  "NodeInspectorModal.tsx",
-  "PlatformEdge.tsx",
-  "ProjectDestinationsPanel.tsx",
-  "ProjectSettingsPanel.tsx",
-  "ProjectTopBar.tsx",
-  "RunLaunchModal.tsx",
-  "GlobalRunsPage.tsx",
-  "ProjectRunsPage.tsx",
-];
-
 const rules: readonly Rule[] = [
   {
     id: "rose-200-text",
@@ -87,9 +68,8 @@ const rules: readonly Rule[] = [
     description: "native <select> instead of the shared picker",
     pattern: /<select\b/,
     sample: '<select value="" />',
-    skip: (file) =>
-      !file.endsWith(".tsx") ||
-      NATIVE_SELECT_ALLOWLIST.some((name) => file.endsWith(`/${name}`)),
+    // Every component file is scanned; there are no per-file exemptions.
+    skip: (file) => !file.endsWith(".tsx"),
   },
 ];
 
@@ -126,6 +106,14 @@ describe("design-conformance scanner", () => {
     expect(files.length).toBeGreaterThan(30);
     expect(files.some((file) => file.endsWith("/App.tsx"))).toBe(true);
     expect(files.some((file) => file.endsWith("/index.css"))).toBe(true);
+  });
+
+  it("exempts no component file from the native-select rule", () => {
+    const rule = rules.find((candidate) => candidate.id === "native-select");
+    if (!rule) throw new Error("the native-select rule is missing");
+    const components = files.filter((file) => file.endsWith(".tsx"));
+    expect(components.length).toBeGreaterThan(30);
+    expect(components.filter((file) => rule.skip?.(file))).toEqual([]);
   });
 
   it.each(rules)("detects its own forbidden sample for $id", (rule) => {

@@ -71,10 +71,25 @@ const models = [
   { providerID: "proveedor", modelID: "beta", name: "Beta", input: ["text", "image"], cost: { input: 3, output: 6 } },
 ];
 const secret = { alias: "api_key", kind: "generic", createdAt: now };
+const agents = [
+  {
+    category: "principal",
+    role: "agente",
+    frontmatter: { description: "Agente principal del proyecto", mode: "primary", permissions: [], notebooks: [] },
+    body: "Coordina el proyecto.",
+  },
+  {
+    category: "ventas",
+    role: "calificador",
+    frontmatter: { description: "Califica leads entrantes.", mode: "subagent", permissions: [], notebooks: [] },
+    body: "Eres el calificador de ventas.",
+  },
+];
 
 const apiMock = vi.hoisted(() => ({
   getProjectSettings: vi.fn(),
   listModels: vi.fn(),
+  listAgents: vi.fn(),
   listIntegrations: vi.fn(),
   listDestinations: vi.fn(),
   createDestination: vi.fn(),
@@ -105,6 +120,7 @@ function mockQueries() {
     ],
   });
   apiMock.listModels.mockResolvedValue({ data: models });
+  apiMock.listAgents.mockResolvedValue({ data: agents });
   apiMock.listIntegrations.mockResolvedValue({ data: [integration] });
   apiMock.listDestinations.mockResolvedValue({ data: [destination] });
   apiMock.listProjectSecrets.mockResolvedValue({ data: [] });
@@ -486,22 +502,73 @@ describe("ProjectConfigurationPanel", () => {
     );
   });
 
-  it("keeps the primary agent as free text and saves it verbatim", async () => {
+  it("saves the agent id chosen in the primary agent picker", async () => {
     mockQueries();
     apiMock.updateProjectSettings.mockResolvedValue({});
+    const user = userEvent.setup();
     renderPanel();
     expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
 
-    const agent = screen.getByLabelText("Agente principal");
-    expect(agent).toBeInstanceOf(HTMLInputElement);
-    await userEvent.clear(agent);
-    await userEvent.type(agent, "equipo/ventas");
-    await userEvent.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+    await user.click(screen.getByRole("combobox", { name: "Agente principal" }));
+    await user.click(await screen.findByRole("option", { name: "ventas/calificador" }));
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
 
     await waitFor(() =>
       expect(apiMock.updateProjectSettings).toHaveBeenCalledWith(
         "ventas",
-        expect.objectContaining({ primaryAgent: "equipo/ventas" }),
+        expect.objectContaining({ primaryAgent: "ventas/calificador" }),
+      ),
+    );
+    expect(screen.getByRole("combobox", { name: "Agente principal" })).toHaveTextContent("ventas/calificador");
+  });
+
+  it("clears the primary agent and saves null", async () => {
+    mockQueries();
+    apiMock.updateProjectSettings.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
+
+    await chooseOption(user, "Agente principal", "Sin agente principal");
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+
+    await waitFor(() =>
+      expect(apiMock.updateProjectSettings).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({ primaryAgent: null }),
+      ),
+    );
+  });
+
+  it("still displays and saves a primary agent the catalogue no longer lists", async () => {
+    mockQueries();
+    apiMock.listAgents.mockResolvedValue({ data: [] });
+    apiMock.getProjectSettings.mockResolvedValue({
+      project: { ...projectFixture, primaryAgent: "legacy/agent" },
+      integrations: [integration, transcriptionIntegration, speechIntegration],
+      notebooks: [],
+      readiness: [],
+    });
+    apiMock.updateProjectSettings.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderPanel();
+
+    const trigger = await screen.findByRole("combobox", { name: "Agente principal" });
+    await waitFor(() => expect(trigger).toHaveTextContent("legacy/agent"));
+
+    await user.click(trigger);
+    expect(
+      within(await screen.findByRole("listbox")).getByRole("option", { name: "legacy/agent (no disponible)" }),
+    ).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+    await waitFor(() =>
+      expect(apiMock.updateProjectSettings).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({ primaryAgent: "legacy/agent" }),
       ),
     );
   });

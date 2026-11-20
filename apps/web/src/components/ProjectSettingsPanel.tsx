@@ -16,6 +16,7 @@ const MODEL_INHERIT_OPTION: SelectOption = { value: "", label: "Usar el modelo g
 const NO_APPROVAL_CHANNEL_OPTION: SelectOption = { value: "", label: "Sin canal por defecto" };
 const NO_RECIPIENT_OPTION: SelectOption = { value: "", label: "Sin destinatario por defecto" };
 const NO_CONNECTION_OPTION: SelectOption = { value: "", label: "Sin conexión por defecto" };
+const NO_PRIMARY_AGENT_OPTION: SelectOption = { value: "", label: "Sin agente principal" };
 
 /**
  * Secciones de configuración del proyecto. La página de ajustes renderiza una
@@ -55,6 +56,11 @@ function ProjectSettingsSections({
     queryKey: qk.models,
     queryFn: () => api.listModels().then((result) => result.data),
     staleTime: 5 * 60_000,
+  });
+  const agentsQuery = useQuery({
+    queryKey: qk.agents(projectSlug),
+    queryFn: () => api.listAgents(projectSlug).then((result) => result.data),
+    enabled: showGeneral,
   });
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -128,6 +134,13 @@ function ProjectSettingsSections({
   }
 
   const modelPickerOptions: readonly SelectOption[] = [...modelOptions(models), MODEL_INHERIT_OPTION];
+  const agentOptions: readonly SelectOption[] = [
+    ...(agentsQuery.data ?? []).map((agent) => {
+      const ref = `${agent.category}/${agent.role}`;
+      return { value: ref, label: ref };
+    }),
+    NO_PRIMARY_AGENT_OPTION,
+  ];
   const approvalChannelOptions: readonly SelectOption[] = [
     ...settings.integrations
       .filter((integration) => integration.capabilities.includes("outbound_message"))
@@ -206,10 +219,14 @@ function ProjectSettingsSections({
           />
         </Field>
         <Field id="project-primary-agent" label="Agente principal">
-          <input
+          <Select
+            label="Agente principal"
+            options={agentOptions}
             value={primaryAgent}
-            onChange={(event) => setPrimaryAgent(event.target.value)}
+            emptyValue="undefined"
             placeholder="principal/agente"
+            loading={agentsQuery.isLoading}
+            onChange={(value) => setPrimaryAgent(value ?? "")}
           />
         </Field>
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Aprobaciones</h3>

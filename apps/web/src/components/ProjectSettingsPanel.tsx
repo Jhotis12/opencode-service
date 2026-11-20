@@ -10,8 +10,8 @@ import { modelOptions, type SelectOption } from "./select/options.ts";
 
 const ALIAS_PATTERN = /^[A-Za-z][A-Za-z0-9:_-]*$/;
 
-// `orderOptions` renders grouped rows first and ungrouped rows after them, so every
-// "inherit / none" choice closes its list instead of interrupting the catalogue.
+// `orderOptions` renders the empty row first, then the grouped catalogue and finally the
+// ungrouped rows, so every "inherit / none" choice opens its list instead of interrupting it.
 const MODEL_INHERIT_OPTION: SelectOption = { value: "", label: "Usar el modelo global" };
 const NO_APPROVAL_CHANNEL_OPTION: SelectOption = { value: "", label: "Sin canal por defecto" };
 const NO_RECIPIENT_OPTION: SelectOption = { value: "", label: "Sin destinatario por defecto" };

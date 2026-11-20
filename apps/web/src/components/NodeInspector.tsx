@@ -69,7 +69,7 @@ export function NodeInspector({
       return { value: ref, label: ref };
     }),
   ];
-  // The inherit row is ungrouped, so `orderOptions` keeps it after the catalogue.
+  // The inherit row is the empty value, so `orderOptions` hoists it above every group.
   const modelPickerOptions: readonly SelectOption[] = [
     ...modelOptions(models).map((choice) => ({ ...choice, label: choice.label || choice.value })),
     { value: "", label: INHERIT_MODEL_LABEL },

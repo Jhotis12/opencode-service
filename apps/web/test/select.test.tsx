@@ -570,6 +570,39 @@ describe("Select — saved value fallback", () => {
     expect(input).toHaveAttribute("aria-expanded", "false");
     expect((input as HTMLInputElement).value).toBe("OpenAI Mini");
   });
+
+  it("keeps the unavailable fallback row first and selected while a query matches nothing", async () => {
+    render(<Select label="Modelo" options={OPTIONS} emptyValue="" searchable value="legacy/model#v2" />);
+    const input = getCombobox();
+    await userEvent.click(input);
+    await userEvent.type(input, "zzz");
+
+    const rows = optionRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain("legacy/model#v2");
+    expect(rows[0].textContent).toContain("(no disponible)");
+    expect(rows[0]).toHaveAttribute("aria-selected", "true");
+    expect(activeOption()).toBe(rows[0]);
+  });
+
+  it("keeps the unavailable fallback row first while a query matches other options", async () => {
+    render(<Select label="Modelo" options={OPTIONS} emptyValue="" searchable value="legacy/model#v2" />);
+    const input = getCombobox();
+    await userEvent.click(input);
+    await userEvent.type(input, "deep");
+
+    const rows = optionRows();
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows[0].textContent).toContain("legacy/model#v2");
+    expect(rows[0].textContent).toContain("(no disponible)");
+    expect(rows[0]).toHaveAttribute("aria-selected", "true");
+    expect(activeOption()).toBe(rows[0]);
+
+    const match = optionByLabel("DeepSeek V4.1 Flash");
+    expect(match).not.toBe(rows[0]);
+    expect(match).toHaveAttribute("aria-selected", "false");
+    expect(rows.indexOf(match)).toBeGreaterThan(0);
+  });
 });
 
 describe("Select — selected row", () => {

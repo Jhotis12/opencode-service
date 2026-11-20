@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { SubagentProfile } from "@platform/shared";
-import { api } from "../api.ts";
+import { api, type ModelInfo } from "../api.ts";
 import { qk } from "../query.ts";
 import { AgentEditorModal } from "./AgentEditorModal.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
@@ -95,13 +95,13 @@ function AgentCard({
 export function AgentCatalog({
   projectSlug,
   agents,
-  modelOptions,
+  models,
   isLoading = false,
   error,
 }: {
   projectSlug: string;
   agents: SubagentProfile[];
-  modelOptions: string[];
+  models: readonly ModelInfo[];
   isLoading?: boolean;
   error?: unknown;
 }) {
@@ -258,7 +258,7 @@ export function AgentCatalog({
         <AgentEditorModal
           projectSlug={projectSlug}
           agent={editor.agent}
-          modelOptions={modelOptions}
+          models={models}
           onClose={() => setEditor(null)}
           onSaved={(saved) => {
             setStatus(`Agente ${agentKey(saved)} guardado`);

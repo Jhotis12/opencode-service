@@ -101,7 +101,7 @@ function ProjectWorkspaceShell() {
         dirty={workspace.dirty}
         issueCount={workspace.graphIssues.length}
         saving={workspace.saving}
-        modelOptions={workspace.modelOptions}
+        models={workspace.models}
         chatBusy={workspace.chatBusy}
         chatUnread={workspace.chatUnread}
         versions={workspace.versions}

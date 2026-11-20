@@ -42,7 +42,6 @@ export interface ProjectWorkspace {
   agentsLoading: boolean;
   agentsError: Error | null;
   models: ModelInfo[];
-  modelOptions: string[];
   integrations: IntegrationRecord[];
   destinations: ProjectDestination[];
   schedules: ScheduleState[];
@@ -320,8 +319,6 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     },
   });
 
-  const modelOptions = useMemo(() => models.map((model) => `${model.providerID}/${model.modelID}`), [models]);
-
   function changeGraph(next: WorkflowGraph) {
     setGraph(next);
     setDirty(true);
@@ -405,7 +402,6 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     agentsLoading: agentsQuery.isLoading,
     agentsError: agentsQuery.error,
     models,
-    modelOptions,
     integrations,
     destinations,
     schedules,

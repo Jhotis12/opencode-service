@@ -7,6 +7,7 @@ import { WorkflowCanvas } from "../src/components/WorkflowCanvas.tsx";
 import { NodePaletteModal } from "../src/components/NodePaletteModal.tsx";
 import { NodeInspectorModal } from "../src/components/NodeInspectorModal.tsx";
 import { ProjectTopBar, type ProjectTab } from "../src/components/ProjectTopBar.tsx";
+import { chooseOption } from "./render.tsx";
 
 vi.mock("../src/components/CodeEditor.tsx", () => ({
   CodeEditor: ({ value, onChange }: { value: string; onChange(value: string): void }) => (
@@ -266,6 +267,7 @@ describe("NodeInspectorModal", () => {
   }
 
   it("edits database node settings and validates statement JSON", async () => {
+    const user = userEvent.setup();
     const database = node("db", "database", {
       config: { integrationId: "", mode: "read", statements: [{ sql: "select 1" }] },
     });
@@ -290,9 +292,9 @@ describe("NodeInspectorModal", () => {
       lastStep: undefined,
     });
     const dialog = screen.getByRole("dialog", { name: "Nodo: db" });
-    await userEvent.selectOptions(within(dialog).getByLabelText("Integración de base de datos"), "db1");
+    await chooseOption(user, "Integración de base de datos", /CRM · sqlite/);
     expect(onConfig).toHaveBeenCalledWith({ integrationId: "db1" });
-    await userEvent.selectOptions(within(dialog).getByLabelText("Modo"), "write");
+    await chooseOption(user, "Modo", "Escritura");
     expect(onConfig).toHaveBeenCalledWith({ mode: "write" });
     const statements = within(dialog).getByLabelText("Sentencias SQL (JSON)");
     fireEvent.change(statements, { target: { value: '[{"sql":"select 2"}]' } });
@@ -302,6 +304,7 @@ describe("NodeInspectorModal", () => {
   });
 
   it("edits notify node settings and only offers outbound channels", async () => {
+    const user = userEvent.setup();
     const notify = node("notify", "notify", { config: { integrationId: "", text: "Hola" } });
     const now = new Date().toISOString();
     const telegram: IntegrationRecord = {
@@ -333,9 +336,13 @@ describe("NodeInspectorModal", () => {
       lastStep: undefined,
     });
     const dialog = screen.getByRole("dialog", { name: "Nodo: notify" });
-    const channel = within(dialog).getByLabelText("Canal de salida");
-    expect(within(channel).queryByRole("option", { name: /DB/ })).not.toBeInTheDocument();
-    await userEvent.selectOptions(channel, "tg1");
+    const channel = within(dialog).getByRole("combobox", { name: "Canal de salida" });
+    expect(channel).toHaveValue("Selecciona una integración");
+    await user.click(channel);
+    expect(screen.queryByRole("option", { name: /DB/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Telegram · telegram/ })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await chooseOption(user, "Canal de salida", /Telegram · telegram/);
     expect(onConfig).toHaveBeenCalledWith({ integrationId: "tg1" });
     fireEvent.change(within(dialog).getByLabelText(/Destinatario/), { target: { value: "123" } });
     expect(onConfig).toHaveBeenCalledWith({ recipient: "123" });
@@ -344,6 +351,7 @@ describe("NodeInspectorModal", () => {
   });
 
   it("configures a transcribe node connection and media path", async () => {
+    const user = userEvent.setup();
     const asr: IntegrationRecord = {
       id: "asr1",
       scope: "project",
@@ -366,7 +374,7 @@ describe("NodeInspectorModal", () => {
       lastStep: undefined,
     });
     const dialog = screen.getByRole("dialog", { name: "Nodo: transcribe" });
-    await userEvent.selectOptions(within(dialog).getByLabelText("Conexión de transcripción"), "asr1");
+    await chooseOption(user, "Conexión de transcripción", /ASR local · transcription/);
     expect(onConfig).toHaveBeenCalledWith({ integrationId: "asr1" });
     fireEvent.change(within(dialog).getByLabelText("Ruta de los audios en el input"), {
       target: { value: "media" },
@@ -390,6 +398,7 @@ describe("NodeInspectorModal", () => {
   });
 
   it("loads and edits the node error strategy", async () => {
+    const user = userEvent.setup();
     const routed = {
       ...node("code", "code"),
       onError: { strategy: "route" as const, target: "agent" },
@@ -400,14 +409,17 @@ describe("NodeInspectorModal", () => {
       lastStep: undefined,
     });
     const dialog = screen.getByRole("dialog", { name: "Nodo: code" });
-    expect(within(dialog).getByLabelText("Nodo de error")).toHaveValue("agent");
-    const options = within(within(dialog).getByLabelText("Nodo de error")).getAllByRole("option");
-    expect(options.some((option) => option.textContent === "code")).toBe(false);
-    await userEvent.selectOptions(within(dialog).getByLabelText("Si falla"), "stop");
+    const target = within(dialog).getByRole("combobox", { name: "Nodo de error" });
+    expect(target).toHaveTextContent("agent");
+    await user.click(target);
+    expect(screen.queryByRole("option", { name: "code" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await chooseOption(user, "Si falla", "Detener el run");
     expect(onPatch).toHaveBeenCalledWith({ onError: undefined });
   });
 
   it("shows schedule timezone, overlap, catch-up and next run", async () => {
+    const user = userEvent.setup();
     const scheduled = node("start", "trigger", {
       config: {
         kind: "schedule",
@@ -427,11 +439,12 @@ describe("NodeInspectorModal", () => {
     const dialog = screen.getByRole("dialog", { name: "Nodo: start" });
     expect(within(dialog).getByLabelText("Zona horaria (IANA)")).toHaveValue("America/Mexico_City");
     expect(within(dialog).getByText(/Próxima ejecución/)).toBeInTheDocument();
-    await userEvent.selectOptions(within(dialog).getByLabelText("Solapamiento"), "allow");
+    await chooseOption(user, "Solapamiento", "Permitir solapamiento");
     expect(onConfig).toHaveBeenCalledWith({ overlapPolicy: "allow" });
   });
 
   it("offers the HTTP integration and secret syntax in the inspector", async () => {
+    const user = userEvent.setup();
     const httpNode = node("http", "http");
     const now = new Date().toISOString();
     const httpIntegration: IntegrationRecord = {
@@ -455,7 +468,7 @@ describe("NodeInspectorModal", () => {
       lastStep: undefined,
     });
     const dialog = screen.getByRole("dialog", { name: "Nodo: http" });
-    await userEvent.selectOptions(within(dialog).getByLabelText("Integración HTTP (opcional)"), "api1");
+    await chooseOption(user, "Integración HTTP (opcional)", /API · http/);
     expect(onConfig).toHaveBeenCalledWith({ integrationId: "api1" });
     expect(within(dialog).getByText(/secret:alias/)).toBeInTheDocument();
   });
@@ -522,17 +535,20 @@ describe("NodeInspectorModal", () => {
   });
 
   it("shows settings, connections with invalid targets disabled, and execution context", async () => {
+    const user = userEvent.setup();
     const { onConnect } = renderInspector();
     const dialog = screen.getByRole("dialog", { name: "Nodo: agent" });
     expect(dialog.className).toContain("max-w-5xl");
 
     expect(within(dialog).getByLabelText("Etiqueta")).toHaveValue("agent");
-    await userEvent.click(within(dialog).getByRole("tab", { name: "Conexiones" }));
-    const target = within(dialog).getByLabelText("Nodo destino");
-    expect(within(target).getByRole("option", { name: /start/ })).toBeDisabled();
-    expect(within(target).getByRole("option", { name: /code/ })).toBeEnabled();
-    await userEvent.selectOptions(target, "code");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Conectar" }));
+    await user.click(within(dialog).getByRole("tab", { name: "Conexiones" }));
+    const target = within(dialog).getByRole("combobox", { name: "Nodo destino" });
+    await user.click(target);
+    expect(screen.getByRole("option", { name: /start/ })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("option", { name: /code/ })).not.toHaveAttribute("aria-disabled");
+    await user.keyboard("{Escape}");
+    await chooseOption(user, "Nodo destino", /code/);
+    await user.click(within(dialog).getByRole("button", { name: "Conectar" }));
     expect(onConnect).toHaveBeenCalledWith("agent", "code", undefined);
 
     await userEvent.click(within(dialog).getByRole("tab", { name: "Ejecución" }));
@@ -552,6 +568,7 @@ describe("NodeInspectorModal", () => {
   });
 
   it("resets incompatible trigger config after the kind change is confirmed", async () => {
+    const user = userEvent.setup();
     const trigger = node("start", "trigger", {
       config: { kind: "integration", integrationId: "tg1", event: "message.received" },
     });
@@ -560,8 +577,7 @@ describe("NodeInspectorModal", () => {
       graph: graph([trigger]),
       lastStep: undefined,
     });
-    const dialog = screen.getByRole("dialog", { name: "Nodo: start" });
-    await userEvent.selectOptions(within(dialog).getByLabelText("Entrada del flujo"), "manual");
+    await chooseOption(user, "Entrada del flujo", "Manual (canvas / formulario)");
     expect(onReplaceConfig).not.toHaveBeenCalled();
     const confirmDialog = screen.getByRole("dialog", { name: "Cambiar el tipo de trigger" });
     await userEvent.click(within(confirmDialog).getByRole("button", { name: "Cambiar tipo" }));
@@ -633,7 +649,7 @@ describe("ProjectTopBar", () => {
           dirty={false}
           issueCount={0}
           saving={false}
-          modelOptions={["opencode-go/fast"]}
+          models={[{ providerID: "opencode-go", modelID: "fast", name: "Fast" }]}
           versions={versions}
           onChange={() => undefined}
           onSave={() => undefined}
@@ -699,6 +715,101 @@ describe("ProjectTopBar", () => {
     expect(onRun).toHaveBeenCalled();
     expect(onChat).toHaveBeenCalled();
     expect(onSave).toHaveBeenCalled();
+  });
+
+  it("labels model choices from the catalogue and emits the provider/model ref", async () => {
+    const onChange = vi.fn();
+    renderTopBar("flow", { onChange });
+    await userEvent.click(screen.getByRole("button", { name: "Más acciones del flujo" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Ajustes del flujo" }));
+    const dialog = screen.getByRole("dialog", { name: "Ajustes del flujo" });
+    const picker = within(dialog).getByRole("combobox", { name: "Modelo por defecto" });
+    expect(picker).toHaveTextContent("Heredar del flujo");
+
+    await userEvent.click(picker);
+    expect(screen.getByRole("option", { name: /^Fast opencode-go\/fast/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /^opencode-go\/fast/ })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("option", { name: /^Fast opencode-go\/fast/ }));
+    expect(onChange).toHaveBeenCalledWith({ defaultModel: "opencode-go/fast" });
+  });
+
+  it("drops the native select for the shared picker", async () => {
+    renderTopBar("flow");
+    await userEvent.click(screen.getByRole("button", { name: "Más acciones del flujo" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Ajustes del flujo" }));
+    const dialog = screen.getByRole("dialog", { name: "Ajustes del flujo" });
+    expect(dialog.querySelector("select")).toBeNull();
+    expect(dialog.querySelector("option")).toBeNull();
+    expect(within(dialog).getAllByRole("combobox")).toHaveLength(1);
+  });
+
+  it("keeps a saved default model that is absent from an empty catalogue", async () => {
+    const onChange = vi.fn();
+    renderTopBar("flow", { models: [], graph: { ...flowGraph, defaultModel: "opencode-go/legacy" }, onChange });
+    await userEvent.click(screen.getByRole("button", { name: "Más acciones del flujo" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Ajustes del flujo" }));
+    const dialog = screen.getByRole("dialog", { name: "Ajustes del flujo" });
+    const picker = within(dialog).getByRole("combobox", { name: "Modelo por defecto" });
+    expect(picker).toHaveTextContent("opencode-go/legacy");
+
+    await userEvent.click(picker);
+    const saved = screen.getByRole("option", { name: /opencode-go\/legacy/ });
+    expect(saved).toHaveTextContent("no disponible");
+    await userEvent.click(screen.getByRole("option", { name: /Heredar del flujo/ }));
+    expect(onChange).toHaveBeenCalledWith({ defaultModel: undefined });
+  });
+
+  it("keeps every flow action in one non-scrolling cluster and collapses its labels below sm", () => {
+    renderTopBar("flow", { dirty: true, issueCount: 2 });
+    const bar = screen.getByTestId("project-top-bar");
+    // Narrow: two rows (breadcrumb, then tabs + actions). Desktop: the unchanged single h-14 row.
+    expect(bar.className).toContain("flex-col");
+    expect(bar.className).toContain("sm:h-14");
+    expect(bar.className).toContain("sm:flex-row");
+
+    const actions = screen.getByTestId("top-bar-actions");
+    expect(actions.className).toContain("shrink-0");
+    expect(actions.className).not.toMatch(/overflow/);
+    for (const name of ["Más acciones del flujo", "Guardar flujo", "Ejecutar", "Agente"]) {
+      expect(within(actions).getByRole("button", { name })).toBeInTheDocument();
+    }
+
+    // Icon-only collapse keeps the accessible name, so the actions stay operable on a phone.
+    for (const name of ["Guardar flujo", "Ejecutar", "Agente"]) {
+      const button = within(actions).getByRole("button", { name });
+      expect(button).toHaveAttribute("aria-label", name);
+      expect(button.querySelector("svg")).not.toBeNull();
+      expect(button.querySelector(".sm\\:hidden")).not.toBeNull();
+    }
+
+    // Only the tab strip scrolls; the actions never hide behind an overflow.
+    const nav = screen.getByRole("navigation", { name: "Secciones del proyecto" });
+    expect(nav.className).toContain("overflow-x-auto");
+    expect(within(nav).queryByRole("button")).toBeNull();
+    expect(within(actions).getByText(/^2$/)).toBeInTheDocument();
+  });
+
+  it("anchors the overflow menu inside the viewport below sm", async () => {
+    renderTopBar("flow");
+    await userEvent.click(screen.getByRole("button", { name: "Más acciones del flujo" }));
+    const menu = await screen.findByRole("menu", { name: "Más acciones del flujo" });
+    const bar = screen.getByTestId("project-top-bar");
+    const actions = screen.getByTestId("top-bar-actions");
+
+    // The panel is 210px wide. Below `sm` its right edge is anchored to the actions
+    // cluster (`right-0`), and the cluster's right edge sits on the header's 12px
+    // padding, so at 320px the panel spans 98..308 - inside the viewport with >8px
+    // to spare. jsdom performs no layout, so the guarantee is asserted by the
+    // classes that build that anchor: static wrapper, positioned cluster, right-0.
+    expect(menu.className).toContain("right-0");
+    expect(menu.className).toContain("min-w-[210px]");
+    expect(menu.parentElement?.className).toContain("max-sm:static");
+    expect(actions.className).toContain("max-sm:relative");
+    expect(bar.className).toContain("px-3");
+
+    // Desktop anchoring is untouched: the wrapper stays `relative` for `sm` and up.
+    expect(menu.parentElement?.className).toContain("relative");
   });
 
   it("saves with Ctrl/Cmd+S only when the draft is dirty and the graph is valid", () => {

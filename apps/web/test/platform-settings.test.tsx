@@ -403,6 +403,26 @@ describe("PlatformSettingsPage on the mobile sheet", () => {
 // contract regresses loudly in jsdom, where no layout is computed at all.
 describe("PlatformSettingsSection layout contract", () => {
   const classes = (element: Element) => element.className.split(/\s+/).filter(Boolean);
+  // An arbitrary grid template spells its track separators as "_"; split at paren depth 0 so a
+  // single "minmax(0,1fr)" stays one track instead of two.
+  const gridTracks = (token: string) => {
+    const template = token.slice("lg:grid-cols-[".length, -1).replace(/_/g, " ");
+    const tracks: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const char of template) {
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      if (char === " " && depth === 0) {
+        if (current) tracks.push(current);
+        current = "";
+        continue;
+      }
+      current += char;
+    }
+    if (current) tracks.push(current);
+    return tracks;
+  };
 
   it("renders the two-column grid on lg and neutralises any form width cap", async () => {
     renderSettings("/settings#modelo");
@@ -410,7 +430,10 @@ describe("PlatformSettingsSection layout contract", () => {
 
     const sectionClasses = classes(section);
     expect(sectionClasses).toContain("lg:grid");
-    expect(sectionClasses.some((token) => token.startsWith("lg:grid-cols-["))).toBe(true);
+    const gridTemplate = sectionClasses.find((token) => token.startsWith("lg:grid-cols-["));
+    expect(gridTemplate).toBeDefined();
+    // The prefix alone accepts a one-column template, so the count is the contract: two tracks.
+    expect(gridTracks(gridTemplate!)).toHaveLength(2);
     // A cap on the section itself would collapse the grid before the lg breakpoint applies.
     expect(sectionClasses.filter((token) => token.startsWith("max-w-"))).toEqual([]);
 
@@ -421,9 +444,19 @@ describe("PlatformSettingsSection layout contract", () => {
 
     const forms = Array.from(section.querySelectorAll("form"));
     expect(forms.length).toBeGreaterThan(0);
+    const caps = (element: Element) => classes(element).filter((token) => token.startsWith("max-w-"));
     for (const form of forms) {
+      const wrappers: Element[] = [];
+      for (let node = form.parentElement; node && node !== body; node = node.parentElement) wrappers.push(node);
+
+      // The variant only neutralises a *direct* child, so a form nested any deeper must not
+      // carry its own cap, and nothing between it and the body column may cap it either.
+      if (wrappers.length > 0) {
+        for (const node of [form, ...wrappers]) expect(caps(node)).toEqual([]);
+      }
+
       // Direct children are the ones the parent's arbitrary variant reaches.
-      expect(body!.contains(form)).toBe(true);
+      expect(form.parentElement).toBe(body);
     }
   });
 });

@@ -137,12 +137,16 @@ export function PlatformSettingsSection({
 }) {
   const titleId = `${id}-title`;
   return (
-    <section id={id} className={card} aria-labelledby={titleId}>
-      <div className="flex max-w-3xl flex-col gap-1">
+    <section
+      id={id}
+      className={`${card} lg:grid lg:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] lg:items-start lg:gap-x-8 lg:gap-y-4`}
+      aria-labelledby={titleId}
+    >
+      <div className="flex max-w-prose flex-col gap-1">
         <h2 id={titleId} className={sectionTitle}>{title}</h2>
         <p className={smallMuted}>{description}</p>
       </div>
-      {children}
+      <div className="flex min-w-0 flex-col gap-3 [&>form]:max-w-none">{children}</div>
     </section>
   );
 }

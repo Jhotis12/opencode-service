@@ -9,6 +9,15 @@ const OPERATOR_FIXTURE = "/tmp/redesign-e2e-fixture";
 let cachedSession: { name: string; value: string; password: string } | undefined;
 
 /**
+ * Drives the shared Select the way a user does: open its combobox trigger, then pick the
+ * row by accessible name. These filters used to be native drop-down elements.
+ */
+async function chooseFromCombobox(page: Page, field: string, option: string): Promise<void> {
+  await page.getByRole("combobox", { name: field, exact: true }).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+}
+
+/**
  * Resolves whichever admin password is current (platform.spec.ts owns the first-boot change)
  * so this spec stays order-independent, and leaves the browser context authenticated.
  * The signed session cookie is reused across tests to stay under the login rate limit.
@@ -178,7 +187,7 @@ test("a fake run is listed, filtered and opened from the project and global exec
   await expect(projectRows.first()).toContainText(shortId);
   await expect(page.getByTestId("runs-filter-count")).toHaveText("Mostrando 1 de 1 ejecuciones.");
 
-  await page.getByLabel("Estado", { exact: true }).selectOption("failed");
+  await chooseFromCombobox(page, "Estado", "Fallido");
   await expect(page.getByTestId("runs-filter-count")).toHaveText("Mostrando 0 de 1 ejecuciones.");
   await expect(page.getByRole("heading", { name: "Ninguna ejecución coincide" })).toBeVisible();
   await expect(projectRows).toHaveCount(0);
@@ -194,18 +203,18 @@ test("a fake run is listed, filtered and opened from the project and global exec
 
   await page.goto("/runs");
   await expect(page.getByRole("heading", { name: "Ejecuciones", level: 1 })).toBeVisible();
-  await page.getByLabel("Proyecto", { exact: true }).fill(slug);
+  await chooseFromCombobox(page, "Proyecto", slug);
   const globalRows = page.getByTestId("run-row");
   await expect(globalRows).toHaveCount(1);
   await expect(globalRows).toContainText(shortId);
   await expect(page.getByTestId("global-runs-count")).toHaveText("Mostrando 1–1 de 1 ejecuciones");
   await expect(page.getByRole("button", { name: "Exportar JSON" })).toBeEnabled();
 
-  await page.getByLabel("Estado", { exact: true }).selectOption("failed");
+  await chooseFromCombobox(page, "Estado", "Fallido");
   await expect(page.getByRole("heading", { name: "Ninguna ejecución coincide" })).toBeVisible();
   await page.getByRole("button", { name: "Limpiar filtros" }).first().click();
-  await expect(page.getByLabel("Estado", { exact: true })).toHaveValue("");
-  await page.getByLabel("Proyecto", { exact: true }).fill(slug);
+  await expect(page.getByRole("combobox", { name: "Estado", exact: true })).toContainText("Todos");
+  await chooseFromCombobox(page, "Proyecto", slug);
   await expect(globalRows).toHaveCount(1);
 
   await page.getByRole("button", { name: "Ver detalle" }).click();

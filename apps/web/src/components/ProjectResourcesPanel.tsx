@@ -8,10 +8,16 @@ import { OverflowMenu, type OverflowMenuItem } from "./OverflowMenu.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { IntegrationEditor, type SavedIntegration } from "./IntegrationEditor.tsx";
 import { QrDisplay } from "./QrDisplay.tsx";
+import { Select } from "./Select.tsx";
+import type { SelectOption } from "./select/options.ts";
 import { badge, button, buttonGhost, card, friendlyError } from "../ui.ts";
 
 const DATABASE_KINDS = new Set<IntegrationRecord["kind"]>(["postgres", "mysql", "mssql", "sqlite"]);
 const CHANNEL_KINDS = new Set<IntegrationRecord["kind"]>(["telegram", "whatsapp", "external_chat"]);
+const ACCESS_OPTIONS: readonly SelectOption[] = [
+  { value: "read", label: "Solo lectura" },
+  { value: "write", label: "Lectura y escritura" },
+];
 
 export type ResourceSection = "all" | "connections" | "channels" | "secrets";
 
@@ -39,13 +45,15 @@ export function DatabasePolicyEditor({
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-line bg-well p-2">
       <strong className="text-xs text-slate-200">Política de base de datos</strong>
-      <label className="text-[11px] text-muted">
-        Acceso
-        <select value={access} onChange={(event) => setAccess(event.target.value as "read" | "write")}>
-          <option value="read">Solo lectura</option>
-          <option value="write">Lectura y escritura</option>
-        </select>
-      </label>
+      <Select
+        label="Acceso"
+        options={ACCESS_OPTIONS}
+        value={access}
+        emptyValue=""
+        onChange={(next) => {
+          if (next === "read" || next === "write") setAccess(next);
+        }}
+      />
       <label className="text-[11px] text-muted">
         Máximo de filas
         <input

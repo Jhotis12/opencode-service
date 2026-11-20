@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { renderWithProviders } from "./render.tsx";
+import { renderWithProviders, chooseOption } from "./render.tsx";
 
 vi.mock("qrcode", () => ({
   default: { toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,stub") },
@@ -30,6 +30,7 @@ import { ProjectResourcesPanel } from "../src/components/ProjectResourcesPanel.t
 describe("ProjectResourcesPanel", () => {
   it("saves the database access policy from the resource card", async () => {
     const now = new Date().toISOString();
+    const user = userEvent.setup();
     apiMock.listIntegrations.mockResolvedValueOnce({
       data: [
         {
@@ -55,13 +56,53 @@ describe("ProjectResourcesPanel", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText("Política de base de datos")).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText("Acceso"), "write");
-    await userEvent.click(screen.getByRole("button", { name: "Guardar política" }));
+    await chooseOption(user, "Acceso", "Lectura y escritura");
+    await user.click(screen.getByRole("button", { name: "Guardar política" }));
     await waitFor(() =>
       expect(apiMock.updateIntegration).toHaveBeenCalledWith(
         "demo",
         "db1",
         expect.objectContaining({ config: expect.objectContaining({ access: "write" }) }),
+      ),
+    );
+  });
+
+  it("keeps the policy operable when the saved access value is unknown", async () => {
+    const now = new Date().toISOString();
+    const user = userEvent.setup();
+    apiMock.listIntegrations.mockResolvedValueOnce({
+      data: [
+        {
+          id: "db2",
+          scope: "project",
+          projectSlug: "demo",
+          kind: "sqlite",
+          name: "Ventas",
+          slug: "ventas",
+          config: { kind: "sqlite", filename: "/tmp/ventas.sqlite", access: "admin", maxRows: 500, allowDdl: false },
+          secretRefs: {},
+          capabilities: ["query"],
+          status: "connected",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    });
+    apiMock.updateIntegration.mockResolvedValueOnce({ ok: true });
+    renderWithProviders(
+      <MemoryRouter>
+        <ProjectResourcesPanel projectSlug="demo" />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Política de base de datos")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Acceso" })).toHaveTextContent("Lectura y escritura");
+    await chooseOption(user, "Acceso", "Solo lectura");
+    await user.click(screen.getByRole("button", { name: "Guardar política" }));
+    await waitFor(() =>
+      expect(apiMock.updateIntegration).toHaveBeenCalledWith(
+        "demo",
+        "db2",
+        expect.objectContaining({ config: expect.objectContaining({ access: "read", maxRows: 500 }) }),
       ),
     );
   });

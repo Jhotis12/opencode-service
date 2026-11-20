@@ -226,6 +226,7 @@ describe("ProjectLayout flow section", () => {
   });
 
   it("adds a node from the modal palette, preserves unsaved edits and saves it", async () => {
+    const user = userEvent.setup();
     const { container } = renderPage();
     expect(await screen.findByText("Demo")).toBeInTheDocument();
 
@@ -243,10 +244,8 @@ describe("ProjectLayout flow section", () => {
     fireEvent.click(container.querySelector('[data-node-id="code"]')!);
     const codeInspector = await screen.findByRole("dialog", { name: "Nodo: Consultar" });
     await userEvent.click(within(codeInspector).getByRole("tab", { name: "Conexiones" }));
-    await userEvent.selectOptions(
-      within(codeInspector).getByLabelText("Nodo destino"),
-      within(codeInspector).getByRole("option", { name: "Mi HTTP" }),
-    );
+    // The destination picker is the shared Select now, not a native <select>.
+    await chooseOption(user, "Nodo destino", "Mi HTTP");
     await userEvent.click(within(codeInspector).getByRole("button", { name: "Conectar" }));
     await userEvent.click(within(codeInspector).getByRole("button", { name: "Cerrar" }));
 

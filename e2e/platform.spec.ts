@@ -56,7 +56,8 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   const startInspector = page.getByRole("dialog", { name: "Nodo: Inicio manual" });
   await expect(startInspector).toBeVisible();
   await startInspector.getByRole("tab", { name: "Conexiones" }).click();
-  await startInspector.getByLabel("Nodo destino").selectOption({ label: "Preparar datos" });
+  await startInspector.getByRole("combobox", { name: "Nodo destino" }).click();
+  await page.getByRole("option", { name: "Preparar datos" }).click();
   await startInspector.getByRole("button", { name: "Conectar", exact: true }).click();
   await startInspector.getByRole("button", { name: "Cerrar" }).click();
 
@@ -128,7 +129,8 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await page.locator('[data-testid="rf__node-start"]').click();
   const reconnectInspector = page.getByRole("dialog", { name: "Nodo: Inicio manual" });
   await reconnectInspector.getByRole("tab", { name: "Conexiones" }).click();
-  await reconnectInspector.getByLabel("Nodo destino").selectOption({ label: "Preparar datos" });
+  await reconnectInspector.getByRole("combobox", { name: "Nodo destino" }).click();
+  await page.getByRole("option", { name: "Preparar datos" }).click();
   await reconnectInspector.getByRole("button", { name: "Conectar", exact: true }).click();
   await reconnectInspector.getByRole("button", { name: "Cerrar" }).click();
   await page.getByRole("button", { name: "Guardar flujo" }).click();

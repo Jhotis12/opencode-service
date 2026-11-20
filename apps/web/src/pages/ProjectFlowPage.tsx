@@ -54,6 +54,14 @@ export function ProjectFlowPage() {
     () => runs[0]?.steps.find((step) => step.nodeId === selectedId),
     [runs, selectedId],
   );
+  // Shared cache contract: ProjectKnowledgePanel, ProjectOverviewPage and
+  // AgentEditorModal store the unwrapped NotebookSummary[] under this same key, so
+  // this consumer must unwrap the envelope too or it feeds the inspector an object.
+  const notebooksQuery = useQuery({
+    queryKey: qk.notebooks(slug),
+    queryFn: () => api.listNotebooks(slug).then((result) => result.data),
+  });
+
   const nodeFile = selected?.codeFile;
   const nodeCodeQuery = useQuery({
     queryKey: ["node", slug, nodeFile],
@@ -352,6 +360,7 @@ export function ProjectFlowPage() {
           graph={graph}
           agents={workspace.agents}
           models={workspace.models}
+          notebooks={notebooksQuery.data ?? []}
           integrations={workspace.integrations}
           destinations={workspace.destinations}
           lastStep={lastStep}

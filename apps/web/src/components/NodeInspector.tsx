@@ -4,16 +4,32 @@ import type {
   ProjectDestination,
   SubagentProfile,
 } from "@platform/shared";
-import type { ModelInfo } from "../api.ts";
+import type { ModelInfo, NotebookSummary } from "../api.ts";
 import { CodeEditor } from "./CodeEditor.tsx";
+import { Field } from "./Field.tsx";
+import { MultiSelect } from "./MultiSelect.tsx";
 import { NodeConfigFields } from "./NodeConfigFields.tsx";
+import { Select } from "./Select.tsx";
+import { modelOptions, type SelectOption } from "./select/options.ts";
 import { button } from "../ui.ts";
+
+const EMPTY_AGENT_LABEL = "Selecciona un agente";
+const INHERIT_MODEL_LABEL = "Heredar del flujo";
+const EMPTY_TARGET_LABEL = "Selecciona un nodo";
+
+/** `""` is the empty choice: it means "no policy", so `onError` stays undefined. */
+const ERROR_STRATEGY_OPTIONS: readonly SelectOption[] = [
+  { value: "", label: "Detener el run" },
+  { value: "continue", label: "Continuar con el error" },
+  { value: "route", label: "Derivar a otro nodo" },
+];
 
 export function NodeInspector({
   node,
   nodes,
   agents,
   models,
+  notebooks = [],
   integrations,
   destinations,
   code,
@@ -30,6 +46,8 @@ export function NodeInspector({
   nodes: NodeSpec[];
   agents: SubagentProfile[];
   models: ModelInfo[];
+  /** Project notebook catalogue; the inspector only knows the ids it was given. */
+  notebooks?: readonly NotebookSummary[];
   integrations: IntegrationRecord[];
   destinations: ProjectDestination[];
   code: string;
@@ -44,6 +62,29 @@ export function NodeInspector({
 }) {
   const isCode = node.type === "code" || (node.type === "decision" && node.config.mode === "code");
   const selectedModel = models.find((model) => `${model.providerID}/${model.modelID}` === node.modelOverride);
+  const agentOptions: readonly SelectOption[] = [
+    { value: "", label: EMPTY_AGENT_LABEL },
+    ...agents.map((agent) => {
+      const ref = `${agent.category}/${agent.role}`;
+      return { value: ref, label: ref };
+    }),
+  ];
+  // The inherit row is ungrouped, so `orderOptions` keeps it after the catalogue.
+  const modelPickerOptions: readonly SelectOption[] = [
+    ...modelOptions(models).map((choice) => ({ ...choice, label: choice.label || choice.value })),
+    { value: "", label: INHERIT_MODEL_LABEL },
+  ];
+  const notebookOptions: readonly SelectOption[] = notebooks.map((notebook) => ({
+    value: notebook.slug,
+    label: notebook.name,
+    ...(notebook.description ? { description: notebook.description } : {}),
+    keywords: [notebook.slug],
+  }));
+  const errorTargets = nodes.filter((candidate) => candidate.id !== node.id && candidate.type !== "trigger");
+  const errorTargetOptions: readonly SelectOption[] = [
+    { value: "", label: EMPTY_TARGET_LABEL },
+    ...errorTargets.map((candidate) => ({ value: candidate.id, label: candidate.label ?? candidate.id })),
+  ];
 
   return (
     <div className="grid gap-3 md:grid-cols-2">
@@ -54,51 +95,37 @@ export function NodeInspector({
 
       {node.type === "agent" && (
         <>
-          <label>
-            Agente
-            <select value={node.agentId ?? ""} onChange={(event) => onPatch({ agentId: event.target.value })}>
-              <option value="">Selecciona un agente</option>
-              {agents.map((agent) => (
-                <option key={`${agent.category}/${agent.role}`} value={`${agent.category}/${agent.role}`}>
-                  {agent.category}/{agent.role}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Modelo del nodo
-            <select value={node.modelOverride ?? ""} onChange={(event) => onPatch({ modelOverride: event.target.value || undefined })}>
-              <option value="">Heredar del flujo</option>
-              {models.map((model) => {
-                const ref = `${model.providerID}/${model.modelID}`;
-                return (
-                  <option key={ref} value={ref}>
-                    {ref}
-                    {model.input?.includes("image") ? " · visión" : ""}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
+          <Field id="node-agent" label="Agente">
+            <Select
+              label="Agente"
+              options={agentOptions}
+              value={node.agentId ?? ""}
+              emptyValue="undefined"
+              onChange={(agentId) => onPatch({ agentId })}
+            />
+          </Field>
+          <Field id="node-model" label="Modelo del nodo">
+            <Select
+              label="Modelo del nodo"
+              options={modelPickerOptions}
+              value={node.modelOverride ?? ""}
+              emptyValue="undefined"
+              searchable
+              onChange={(modelOverride) => onPatch({ modelOverride })}
+            />
+          </Field>
           {node.modelOverride && selectedModel?.input && !selectedModel.input.includes("image") && (
             <p className="text-xs text-warn md:col-span-2">
               Este modelo no reporta entrada de imagen; los adjuntos pueden no analizarse.
             </p>
           )}
-          <label>
-            Notebooks (coma)
-            <input
-              value={node.notebookIds.join(", ")}
-              onChange={(event) =>
-                onPatch({
-                  notebookIds: event.target.value
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                })
-              }
-            />
-          </label>
+          <MultiSelect
+            label="Notebooks"
+            placeholder="Selecciona notebooks"
+            options={notebookOptions}
+            value={node.notebookIds}
+            onChange={(notebookIds) => onPatch({ notebookIds })}
+          />
         </>
       )}
 
@@ -143,49 +170,38 @@ export function NodeInspector({
 
       {node.type !== "trigger" && (
         <>
-          <label>
-            Si falla
-            <select
-              value={node.onError?.strategy ?? "stop"}
-              onChange={(event) => {
-                const strategy = event.target.value as "stop" | "continue" | "route";
+          <Field id="node-error-strategy" label="Si falla">
+            <Select
+              label="Si falla"
+              options={ERROR_STRATEGY_OPTIONS}
+              value={node.onError?.strategy ?? ""}
+              emptyValue="undefined"
+              onChange={(next) =>
                 onPatch({
                   onError:
-                    strategy === "stop"
-                      ? undefined
-                      : strategy === "continue"
-                        ? { strategy }
-                        : { strategy, target: node.onError?.target },
-                });
-              }}
-            >
-              <option value="stop">Detener el run</option>
-              <option value="continue">Continuar con el error</option>
-              <option value="route">Derivar a otro nodo</option>
-            </select>
-          </label>
+                    next === "continue"
+                      ? { strategy: "continue" }
+                      : next === "route"
+                        ? { strategy: "route", target: node.onError?.target }
+                        : undefined,
+                })
+              }
+            />
+          </Field>
           {node.onError?.strategy === "route" && (
-            <label>
-              Nodo de error
-              <select
+            <Field
+              id="node-error-target"
+              label="Nodo de error"
+              error={node.onError.target ? undefined : "Selecciona el nodo que recibirá el error."}
+            >
+              <Select
+                label="Nodo de error"
+                options={errorTargetOptions}
                 value={node.onError.target ?? ""}
-                onChange={(event) =>
-                  onPatch({ onError: { strategy: "route", target: event.target.value || undefined } })
-                }
-              >
-                <option value="">Selecciona un nodo</option>
-                {nodes
-                  .filter((candidate) => candidate.id !== node.id && candidate.type !== "trigger")
-                  .map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
-                      {candidate.label ?? candidate.id}
-                    </option>
-                  ))}
-              </select>
-              {!node.onError.target && (
-                <small className="text-warn">Selecciona el nodo que recibirá el error.</small>
-              )}
-            </label>
+                emptyValue="undefined"
+                onChange={(target) => onPatch({ onError: { strategy: "route", target } })}
+              />
+            </Field>
           )}
         </>
       )}

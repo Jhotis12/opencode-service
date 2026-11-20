@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
 import type { Edge, IntegrationRecord, NodeSpec, ProjectDestination, SubagentProfile, WorkflowGraph } from "@platform/shared";
-import type { ModelInfo, StepRun } from "../api.ts";
+import type { ModelInfo, NotebookSummary, StepRun } from "../api.ts";
+import { Field } from "./Field.tsx";
 import { Modal } from "./Modal.tsx";
 import { NodeInspector } from "./NodeInspector.tsx";
+import { Select } from "./Select.tsx";
+import type { SelectOption } from "./select/options.ts";
 import { NODE_META } from "./nodes/node-catalog.ts";
 import { NodeIcon } from "./nodes/node-icons.tsx";
 import { getConnectionIssue, nodeIssues, type GraphIssue } from "./canvas/graph-edits.ts";
@@ -10,6 +13,13 @@ import { StatusBadge } from "./StatusBadge.tsx";
 import { badge, button, buttonDanger, buttonGhost, statusBadge } from "../ui.ts";
 
 type InspectorTab = "settings" | "connections" | "execution";
+
+const EMPTY_TARGET_LABEL = "Selecciona un destino…";
+// Same labels as before and the graph's own branch strings as emitted values.
+const BRANCH_OPTIONS: readonly SelectOption[] = [
+  { value: "true", label: "sí" },
+  { value: "false", label: "no" },
+];
 
 function conditionLabel(condition?: string): string {
   return condition === "true" ? "sí" : condition === "false" ? "no" : "sin rama";
@@ -42,6 +52,7 @@ export function NodeInspectorModal({
   graph,
   agents,
   models,
+  notebooks = [],
   integrations,
   destinations,
   lastStep,
@@ -68,6 +79,8 @@ export function NodeInspectorModal({
   graph: WorkflowGraph;
   agents: SubagentProfile[];
   models: ModelInfo[];
+  /** Project notebook catalogue; without it the inspector can only list saved ids. */
+  notebooks?: readonly NotebookSummary[];
   integrations: IntegrationRecord[];
   destinations: ProjectDestination[];
   lastStep?: StepRun;
@@ -207,6 +220,7 @@ export function NodeInspectorModal({
             nodes={graph.nodes}
             agents={agents}
             models={models}
+            notebooks={notebooks}
             integrations={integrations}
             destinations={destinations}
             scheduleNextRun={scheduleNextRun}
@@ -248,22 +262,25 @@ export function NodeInspectorModal({
 
           <section className="flex flex-col gap-2">
             <strong className="text-xs uppercase tracking-wide text-muted">Agregar conexión</strong>
-            <select
-              aria-label="Nodo destino"
-              value={targetId}
-              onChange={(event) => {
-                setTargetId(event.target.value);
-                setConfirmReplace(false);
-              }}
-            >
-              <option value="">Selecciona un destino…</option>
-              {candidates.map(({ node: candidate, issue }) => (
-                <option key={candidate.id} value={candidate.id} disabled={Boolean(issue)}>
-                  {candidate.label ?? candidate.id}
-                  {issue ? ` — ${issue}` : ""}
-                </option>
-              ))}
-            </select>
+            <Field id="node-connection-target" label="Nodo destino">
+              <Select
+                label="Nodo destino"
+                options={[
+                  { value: "", label: EMPTY_TARGET_LABEL },
+                  ...candidates.map(({ node: candidate, issue }) => ({
+                    value: candidate.id,
+                    label: `${candidate.label ?? candidate.id}${issue ? ` — ${issue}` : ""}`,
+                    disabled: Boolean(issue),
+                  })),
+                ]}
+                value={targetId}
+                emptyValue=""
+                onChange={(value) => {
+                  setTargetId(value ?? "");
+                  setConfirmReplace(false);
+                }}
+              />
+            </Field>
             {validCount === 0 && (
               <p className="text-xs text-muted">No hay destinos válidos para este nodo con la configuración actual.</p>
             )}
@@ -302,15 +319,20 @@ export function NodeInspectorModal({
                   → {edgeTargetLabel(graph, edge)}
                 </span>
                 {node.type === "decision" && (
-                  <select
-                    aria-label={`Rama hacia ${edgeTargetLabel(graph, edge)}`}
-                    className="!w-auto !rounded-md !px-2 !py-1 !text-[11px]"
-                    value={edge.condition ?? "true"}
-                    onChange={(event) => onChangeEdgeCondition(edge.id, event.target.value as "true" | "false")}
-                  >
-                    <option value="true">sí</option>
-                    <option value="false">no</option>
-                  </select>
+                  <label className="flex items-center">
+                    <span className="sr-only">{`Rama hacia ${edgeTargetLabel(graph, edge)}`}</span>
+                    <Select
+                      id={`edge-branch-${edge.id}`}
+                      label="Rama de la conexión"
+                      options={BRANCH_OPTIONS}
+                      value={edge.condition ?? "true"}
+                      emptyValue="undefined"
+                      className="w-20"
+                      onChange={(value) => {
+                        if (value === "true" || value === "false") onChangeEdgeCondition(edge.id, value);
+                      }}
+                    />
+                  </label>
                 )}
                 <button
                   type="button"

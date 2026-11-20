@@ -6,6 +6,7 @@ import { qk } from "../query.ts";
 import { badge, button, buttonDanger, buttonGhost, card, friendlyError } from "../ui.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
+import { Select } from "./Select.tsx";
 
 const KINDS: Array<{ value: DestinationKind; label: string }> = [
   { value: "telegram_chat", label: "Chat de Telegram" },
@@ -101,16 +102,17 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
       {error && <p className="text-sm text-danger">{error}</p>}
       {status && <p className="text-sm text-ok">{status}</p>}
       <form className={`${card} !grid gap-3 md:grid-cols-3`} onSubmit={submit} aria-label="Crear destino" noValidate>
-        <label>
-          Tipo
-          <select value={kind} onChange={(event) => setKind(event.target.value as DestinationKind)}>
-            {KINDS.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Field id="destination-kind" label="Tipo">
+          <Select
+            label="Tipo"
+            options={KINDS}
+            value={kind}
+            emptyValue=""
+            onChange={(next) => {
+              if (next !== undefined) setKind(next as DestinationKind);
+            }}
+          />
+        </Field>
         <Field id="destination-label" label="Etiqueta" error={labelError}>
           <input
             value={label}
@@ -141,19 +143,17 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
           <article className="flex flex-col gap-2 rounded-lg border border-line bg-well p-3" key={destination.id}>
             {editing?.id === destination.id ? (
               <div className="grid gap-2 md:grid-cols-3">
-                <label>
-                  Tipo
-                  <select
+                <Field id={`destination-kind-${destination.id}`} label="Tipo">
+                  <Select
+                    label="Tipo"
+                    options={KINDS}
                     value={editing.kind}
-                    onChange={(event) => setEditing({ ...editing, kind: event.target.value as DestinationKind })}
-                  >
-                    {KINDS.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    emptyValue=""
+                    onChange={(next) => {
+                      if (next !== undefined) setEditing({ ...editing, kind: next as DestinationKind });
+                    }}
+                  />
+                </Field>
                 <label>
                   Etiqueta
                   <input value={editing.label} onChange={(event) => setEditing({ ...editing, label: event.target.value })} />
@@ -172,12 +172,15 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
                 </div>
               </div>
             ) : (
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  <strong className="text-sm">{destination.label}</strong> <span className={badge}>{destination.kind}</span>
-                  <small className="block break-all text-xs text-muted">{destination.value}</small>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="flex min-w-0 flex-col items-start gap-0.5">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <strong className="text-sm">{destination.label}</strong>
+                    <span className={badge}>{destination.kind}</span>
+                  </span>
+                  <small className="break-all text-xs text-muted">{destination.value}</small>
                 </span>
-                <span className="flex gap-1.5">
+                <span className="ml-auto flex gap-1.5">
                   <button className={buttonGhost} onClick={() => setEditing(destination)}>
                     Editar
                   </button>

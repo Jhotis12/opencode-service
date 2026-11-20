@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { DestinationKind } from "@platform/shared";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { chooseOption, renderWithProviders } from "./render.tsx";
 
@@ -214,20 +215,100 @@ describe("ProjectConfigurationPanel", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/projects/ventas/integrations");
   });
 
-  it("creates a labeled destination without changing existing references", async () => {
+  it("creates a labeled destination with the chosen kind without changing existing references", async () => {
     mockQueries();
+    const user = userEvent.setup();
     renderPanel("destinations");
-    await userEvent.type(await screen.findByLabelText("Etiqueta"), "Soporte");
-    await userEvent.type(screen.getByLabelText("Valor"), "456");
-    await userEvent.click(screen.getByRole("button", { name: "Crear destino" }));
+    await user.type(await screen.findByLabelText("Etiqueta"), "Soporte");
+    await user.type(screen.getByLabelText("Valor"), "456");
+    await chooseOption(user, "Tipo", "Email");
+    await user.click(screen.getByRole("button", { name: "Crear destino" }));
     await waitFor(() =>
       expect(apiMock.createDestination).toHaveBeenCalledWith("ventas", {
-        kind: "telegram_chat",
+        kind: "email",
         label: "Soporte",
         value: "456",
       }),
     );
     expect(apiMock.updateDestination).not.toHaveBeenCalled();
+  });
+
+  it("edits a destination kind and saves it with its label and value", async () => {
+    mockQueries();
+    apiMock.updateDestination.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderPanel("destinations");
+    expect(await screen.findByText("Admin")).toBeInTheDocument();
+
+    // The create form also exposes a "Tipo" picker, so the row picker is opened in place.
+    const row = screen.getByRole("button", { name: "Borrar el destino Admin" }).closest("article");
+    expect(row).not.toBeNull();
+    await user.click(within(row!).getByRole("button", { name: "Editar" }));
+    const kindTrigger = within(row!).getByRole("combobox", { name: "Tipo" });
+    expect(kindTrigger).toHaveTextContent("Chat de Telegram");
+    await user.click(kindTrigger);
+    await user.click(screen.getByRole("option", { name: "Chat de WhatsApp" }));
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    await user.click(screen.getByRole("button", { name: "Guardar destino" }));
+    await waitFor(() =>
+      expect(apiMock.updateDestination).toHaveBeenCalledWith("ventas", "d1", {
+        kind: "whatsapp",
+        label: "Admin",
+        value: "123456",
+      }),
+    );
+  });
+
+  it("keeps the panel usable with no destinations yet", async () => {
+    mockQueries();
+    apiMock.listDestinations.mockResolvedValue({ data: [] });
+    const user = userEvent.setup();
+    renderPanel("destinations");
+    expect(await screen.findByText("Aún no hay destinos etiquetados en este proyecto.")).toBeInTheDocument();
+
+    await chooseOption(user, "Tipo", "Webhook");
+    await user.type(screen.getByLabelText("Etiqueta"), "Hook");
+    await user.type(screen.getByLabelText("Valor"), "https://example.test/hook");
+    await user.click(screen.getByRole("button", { name: "Crear destino" }));
+    await waitFor(() =>
+      expect(apiMock.createDestination).toHaveBeenCalledWith("ventas", {
+        kind: "webhook",
+        label: "Hook",
+        value: "https://example.test/hook",
+      }),
+    );
+  });
+
+  it("still displays and saves a destination kind the catalogue no longer offers", async () => {
+    mockQueries();
+    apiMock.listDestinations.mockResolvedValue({
+      data: [{ ...destination, kind: "carrier_pigeon" as DestinationKind }],
+    });
+    apiMock.updateDestination.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderPanel("destinations");
+    expect(await screen.findByText("carrier_pigeon")).toBeInTheDocument();
+
+    const row = screen.getByRole("button", { name: "Borrar el destino Admin" }).closest("article");
+    expect(row).not.toBeNull();
+    await user.click(within(row!).getByRole("button", { name: "Editar" }));
+    const kindTrigger = within(row!).getByRole("combobox", { name: "Tipo" });
+    expect(kindTrigger).toHaveTextContent("carrier_pigeon");
+
+    await user.click(kindTrigger);
+    expect(within(await screen.findByRole("listbox")).getByRole("option", { name: /carrier_pigeon/ })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    await user.click(screen.getByRole("button", { name: "Guardar destino" }));
+    await waitFor(() =>
+      expect(apiMock.updateDestination).toHaveBeenCalledWith(
+        "ventas",
+        "d1",
+        expect.objectContaining({ kind: "carrier_pigeon" }),
+      ),
+    );
   });
 
   it("blocks an invalid destination and shows inline validation without a request", async () => {

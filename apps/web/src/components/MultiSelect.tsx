@@ -9,6 +9,12 @@ import {
 } from "react";
 import { Listbox } from "./select/listbox.tsx";
 import { Popover } from "./select/popover.tsx";
+import {
+  enabledOptions,
+  moveActiveValue,
+  optionId,
+  triggerClickAction,
+} from "./select/combobox.ts";
 import { defaultFilter, orderOptions, type SelectOption } from "./select/options.ts";
 import { field, fieldError, fieldLabel, focusRing, input, smallMuted } from "../ui.ts";
 
@@ -63,19 +69,7 @@ function firstEnabledValue(
   filterFn: (option: SelectOption, query: string) => boolean,
   query: string,
 ): string | undefined {
-  return orderOptions(options.filter((option) => filterFn(option, query))).find(
-    (option) => option.disabled !== true,
-  )?.value;
-}
-
-function optionRowId(
-  ordered: readonly SelectOption[],
-  value: string | undefined,
-  listboxId: string,
-): string | undefined {
-  if (value === undefined) return undefined;
-  const index = ordered.findIndex((option) => option.value === value);
-  return index < 0 ? undefined : `${listboxId}-option-${index}`;
+  return enabledOptions(orderOptions(options.filter((option) => filterFn(option, query))))[0]?.value;
 }
 
 export function MultiSelect({
@@ -126,7 +120,7 @@ export function MultiSelect({
   const filtered = options.filter((option) => filterFn(option, query));
   const ordered = orderOptions(filtered);
   const orderedKey = ordered.map((option) => option.value).join("\u0000");
-  const navigable = ordered.filter((option) => option.disabled !== true);
+  const navigable = enabledOptions(ordered);
   const rows = filtered.map((option) =>
     selectedSet.has(option.value)
       ? {
@@ -135,7 +129,7 @@ export function MultiSelect({
         }
       : option,
   );
-  const activeRowId = canPick ? optionRowId(ordered, activeValue, listboxId) : undefined;
+  const activeRowId = canPick ? optionId(listboxId, ordered, activeValue) : undefined;
   const describedBy =
     [ariaDescribedBy, helper ? hintId : "", error ? errorId : ""].filter(Boolean).join(" ") || undefined;
   const triggerLabel =
@@ -149,7 +143,7 @@ export function MultiSelect({
 
   useEffect(() => {
     if (!open || activeValue === undefined) return;
-    const rowId = optionRowId(ordered, activeValue, listboxId);
+    const rowId = optionId(listboxId, ordered, activeValue);
     if (rowId === undefined) return;
     const node = document.getElementById(rowId);
     if (node !== null && typeof node.scrollIntoView === "function") {
@@ -198,13 +192,9 @@ export function MultiSelect({
   }
 
   function moveActive(delta: 1 | -1) {
-    if (!canPick || navigable.length === 0) return;
-    const index = navigable.findIndex((option) => option.value === activeValue);
-    if (index < 0) {
-      setActiveValue((delta === 1 ? navigable[0] : navigable[navigable.length - 1])?.value);
-      return;
-    }
-    setActiveValue(navigable[(index + delta + navigable.length) % navigable.length]?.value);
+    if (!canPick) return;
+    const next = moveActiveValue(navigable, activeValue, delta, "multi");
+    if (next !== undefined) setActiveValue(next);
   }
 
   function updateQuery(next: string) {
@@ -239,8 +229,9 @@ export function MultiSelect({
     if (disabled) return;
     const target = event.target;
     if (target instanceof Element && target.closest("[data-multiselect-chip]") !== null) return;
-    if (open) closePicker();
-    else openPicker();
+    const action = triggerClickAction("multi", open);
+    if (action === "close") closePicker();
+    else if (action === "open") openPicker();
   }
 
   return (

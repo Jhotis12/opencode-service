@@ -10,6 +10,15 @@ import { Popover } from "./select/popover.tsx";
 import { Listbox, type ListboxRow } from "./select/listbox.tsx";
 import { SelectSheet } from "./select/sheet.tsx";
 import {
+  enabledOptions,
+  jumpActiveValue,
+  moveActiveValue,
+  optionId,
+  stepTypeahead,
+  triggerClickAction,
+  type TypeaheadBuffer,
+} from "./select/combobox.ts";
+import {
   defaultFilter,
   normalize,
   orderOptions,
@@ -50,7 +59,6 @@ export type SelectProps = {
 };
 
 const SHEET_QUERY = "(max-width: 639px)";
-const TYPEAHEAD_RESET_MS = 500;
 const DEFAULT_EMPTY_LABEL = "Sin opciones disponibles";
 const DEFAULT_NO_RESULTS_LABEL = "Sin resultados";
 const UNAVAILABLE_SUFFIX = "(no disponible)";
@@ -62,13 +70,6 @@ const PLACEHOLDER_CLASS = "min-w-0 truncate text-slate-500";
 const CHEVRON_CLASS = "h-4 w-4 shrink-0 text-muted";
 
 type FocusTarget = "selected" | "first" | "last";
-
-type Typeahead = { readonly buffer: string; readonly at: number };
-
-function optionDomId(listboxId: string, ordered: readonly SelectOption[], value: string): string | undefined {
-  const index = ordered.findIndex((option) => option.value === value);
-  return index < 0 ? undefined : `${listboxId}-option-${index}`;
-}
 
 /**
  * Field clones `id`, `aria-describedby` and `aria-invalid` into its child; passing `id`
@@ -105,7 +106,7 @@ export function Select(props: SelectProps) {
   const [query, setQuery] = useState("");
   const [activeValue, setActiveValue] = useState<string | undefined>(undefined);
   const triggerRef = useRef<HTMLElement | null>(null);
-  const typeahead = useRef<Typeahead>({ buffer: "", at: 0 });
+  const typeahead = useRef<TypeaheadBuffer>({ buffer: "", at: 0 });
   const suppressFocusOpen = useRef(false);
 
   const generatedId = useId();
@@ -152,14 +153,12 @@ export function Select(props: SelectProps) {
   }, [customValue, savedValue]);
 
   const ordered = useMemo(() => [...pinned, ...orderOptions(filtered)], [pinned, filtered]);
-  const enabled = ordered.filter((option) => option.disabled !== true);
+  const enabled = enabledOptions(ordered);
   const activeIndex = enabled.findIndex((option) => option.value === activeValue);
   const resolvedActive = activeIndex >= 0 ? activeValue : enabled[0]?.value;
   const rowsVisible = !loading;
   const activeOptionId =
-    open && rowsVisible && resolvedActive !== undefined
-      ? optionDomId(listboxId, ordered, resolvedActive)
-      : undefined;
+    open && rowsVisible ? optionId(listboxId, ordered, resolvedActive) : undefined;
 
   const describedBy =
     [
@@ -191,14 +190,14 @@ export function Select(props: SelectProps) {
       setQuery("");
       const visible = orderOptions(options);
       if (target === "last") {
-        const enabledAll = visible.filter((option) => option.disabled !== true);
+        const enabledAll = enabledOptions(visible);
         setActiveValue(enabledAll[enabledAll.length - 1]?.value);
       } else if (target === "first") {
         setActiveValue(undefined);
       } else {
         const keepsSelection =
           savedValue !== undefined ||
-          visible.some((option) => option.value === currentValue && option.disabled !== true);
+          enabledOptions(visible).some((option) => option.value === currentValue);
         setActiveValue(keepsSelection ? currentValue : undefined);
       }
       setOpenState(true);
@@ -231,28 +230,27 @@ export function Select(props: SelectProps) {
   );
 
   const moveActive = (delta: 1 | -1) => {
-    if (enabled.length === 0) return;
-    const index = enabled.findIndex((option) => option.value === resolvedActive);
-    const from = index >= 0 ? index : delta > 0 ? -1 : enabled.length;
-    const next = enabled[Math.min(Math.max(from + delta, 0), enabled.length - 1)];
-    if (next !== undefined) setActiveValue(next.value);
+    const next = moveActiveValue(enabled, resolvedActive, delta, "single");
+    if (next !== undefined) setActiveValue(next);
   };
 
   const moveActiveTo = (position: "first" | "last") => {
-    if (enabled.length === 0) return;
-    const next = position === "first" ? enabled[0] : enabled[enabled.length - 1];
-    if (next !== undefined) setActiveValue(next.value);
+    const next = jumpActiveValue(enabled, position);
+    if (next !== undefined) setActiveValue(next);
   };
 
   const runTypeahead = (character: string) => {
-    const now = Date.now();
-    const previous = typeahead.current;
-    const buffer = now - previous.at > TYPEAHEAD_RESET_MS ? character : previous.buffer + character;
-    typeahead.current = { buffer, at: now };
-    const needle = normalize(buffer);
-    if (needle.length === 0) return;
-    const match = enabled.find((option) => normalize(option.label).startsWith(needle));
-    if (match !== undefined) setActiveValue(match.value);
+    const step = stepTypeahead(enabled, typeahead.current, character);
+    typeahead.current = step.typeahead;
+    if (step.value !== undefined) setActiveValue(step.value);
+  };
+
+  const onTriggerClick = () => {
+    // A focused input fires no focus event, so click-to-reopen must be explicit:
+    // after a commit the trigger keeps focus and a bare click has to reopen.
+    const action = triggerClickAction("single", open, { searchable });
+    if (action === "open") openPopup();
+    else if (action === "close") closePopup();
   };
 
   const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
@@ -354,11 +352,7 @@ export function Select(props: SelectProps) {
       spellCheck={false}
       onChange={(event) => onQueryChange(event.target.value)}
       onFocus={onTriggerFocus}
-      onClick={() => {
-        // A focused input fires no focus event, so click-to-reopen must be explicit:
-        // after a commit the trigger keeps focus and a bare click has to reopen.
-        if (!open) openPopup();
-      }}
+      onClick={onTriggerClick}
       onKeyDown={onTriggerKeyDown}
     />
   ) : (
@@ -376,7 +370,7 @@ export function Select(props: SelectProps) {
       aria-required={required || undefined}
       className={TRIGGER_CLASS}
       disabled={disabled}
-      onClick={() => (open ? closePopup() : openPopup())}
+      onClick={onTriggerClick}
       onKeyDown={onTriggerKeyDown}
     >
       <span className={displayLabel.length > 0 ? VALUE_CLASS : PLACEHOLDER_CLASS}>

@@ -202,6 +202,21 @@ describe("decision edge branches", () => {
 
     expect(await screen.findByRole("combobox", { name: "Rama de la conexión" })).toHaveTextContent("legacy");
   });
+
+  it("does not forward an unknown saved condition when its pinned row is chosen", async () => {
+    const user = userEvent.setup();
+    const { actions } = renderEdgeHost([{ id: "e1", condition: "legacy", selected: true }]);
+
+    const trigger = await screen.findByRole("combobox", { name: "Rama de la conexión" });
+    expect(trigger).toHaveTextContent("legacy");
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("option", { name: /legacy/ }));
+    await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+
+    expect(actions.onChangeEdgeCondition).not.toHaveBeenCalled();
+    expect(trigger).toHaveTextContent("legacy");
+  });
 });
 
 describe("ProjectLayout flow section", () => {

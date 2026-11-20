@@ -344,3 +344,32 @@ describe("PlatformSettingsPage", () => {
     expect(within(alert).getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
   });
 });
+
+// The pixel proof for this layout lives in the browser probe; these assertions exist so the class
+// contract regresses loudly in jsdom, where no layout is computed at all.
+describe("PlatformSettingsSection layout contract", () => {
+  const classes = (element: Element) => element.className.split(/\s+/).filter(Boolean);
+
+  it("renders the two-column grid on lg and neutralises any form width cap", async () => {
+    renderSettings("/settings#modelo");
+    const section = await screen.findByRole("region", { name: "Modelo por defecto" });
+
+    const sectionClasses = classes(section);
+    expect(sectionClasses).toContain("lg:grid");
+    expect(sectionClasses.some((token) => token.startsWith("lg:grid-cols-["))).toBe(true);
+    // A cap on the section itself would collapse the grid before the lg breakpoint applies.
+    expect(sectionClasses.filter((token) => token.startsWith("max-w-"))).toEqual([]);
+
+    // The body column must be allowed to shrink, and it must strip the internal cap each form carries.
+    const body = Array.from(section.children).find((child) => classes(child).includes("min-w-0"));
+    expect(body).toBeDefined();
+    expect(classes(body!)).toContain("[&>form]:max-w-none");
+
+    const forms = Array.from(section.querySelectorAll("form"));
+    expect(forms.length).toBeGreaterThan(0);
+    for (const form of forms) {
+      // Direct children are the ones the parent's arbitrary variant reaches.
+      expect(body!.contains(form)).toBe(true);
+    }
+  });
+});

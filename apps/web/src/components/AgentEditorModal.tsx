@@ -12,7 +12,7 @@ import { Field } from "./Field.tsx";
 import { Modal } from "./Modal.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
 import { Select } from "./Select.tsx";
-import { modelOptions, type SelectOption } from "./select/options.ts";
+import { inheritModelOption, modelOptions, type SelectOption } from "./select/options.ts";
 import { buttonDanger, buttonGhost, buttonPrimary } from "../ui.ts";
 
 type AgentMode = "primary" | "subagent" | "all";
@@ -201,11 +201,11 @@ export function AgentEditorModal({
     ...(notebook.description ? { description: notebook.description } : {}),
     keywords: [notebook.slug],
   }));
-  // A catalogue entry without a name still needs a readable row: fall back to its ref.
+  // A catalogue entry without a name falls back to its ref. A model-less agent inherits
+  // the flow model, so the empty row names the flow.
   const modelPickerOptions: readonly SelectOption[] = [
     ...modelOptions(models).map((choice) => ({ ...choice, label: choice.label || choice.value })),
-    // Ungrouped, so `orderOptions` keeps the inherit row at the end of the list.
-    { value: "", label: INHERIT_MODEL_LABEL },
+    inheritModelOption(INHERIT_MODEL_LABEL),
   ];
 
   const identityValid =

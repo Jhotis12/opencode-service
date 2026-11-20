@@ -340,7 +340,7 @@ describe("Select — empty value", () => {
     const onChange = vi.fn();
     render(<Select label="Modelo" options={WITH_EMPTY} emptyValue="" onChange={onChange} />);
     fireEvent.click(getCombobox());
-    fireEvent.keyDown(getCombobox(), { key: "End" });
+    fireEvent.keyDown(getCombobox(), { key: "Home" });
     expect(activeOption().textContent).toContain("Heredar");
     fireEvent.keyDown(getCombobox(), { key: "Enter" });
     expect(onChange).toHaveBeenCalledTimes(1);
@@ -359,7 +359,7 @@ describe("Select — empty value", () => {
       />,
     );
     fireEvent.click(getCombobox());
-    fireEvent.keyDown(getCombobox(), { key: "End" });
+    fireEvent.keyDown(getCombobox(), { key: "Home" });
     fireEvent.keyDown(getCombobox(), { key: "Enter" });
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith(undefined);

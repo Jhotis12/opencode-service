@@ -8,7 +8,7 @@ import { Modal } from "./Modal.tsx";
 import { OverflowMenu } from "./OverflowMenu.tsx";
 import { Select } from "./Select.tsx";
 import { WorkflowLibraryPanel } from "./WorkflowLibraryPanel.tsx";
-import { modelOptions } from "./select/options.ts";
+import { inheritModelOption, modelOptions } from "./select/options.ts";
 import { badge, button, buttonGhost, buttonPrimary, focusRing, statusBadge } from "../ui.ts";
 
 export type ProjectTab = "overview" | "flow" | "runs" | "agents" | "knowledge" | "integrations" | "settings";
@@ -27,7 +27,8 @@ export function isProjectTab(value: string): value is ProjectTab {
   return TABS.some(([key]) => key === value);
 }
 
-const INHERIT_MODEL_LABEL = "Heredar del flujo";
+// This bar sets the flow default, so its empty choice falls back to the project default.
+const INHERIT_MODEL_LABEL = "Heredar del proyecto";
 
 const TOP_BAR_ICON_PROPS = {
   width: 16,
@@ -122,9 +123,7 @@ export function ProjectTopBar({
   const [rollbackTarget, setRollbackTarget] = useState<WorkflowVersion>();
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
   const modelChoices = modelOptions(models);
-  // The empty row is last: `orderOptions` renders grouped options first and the
-  // ungrouped inherit row closes the list.
-  const modelPickerOptions = [...modelChoices, { value: "", label: INHERIT_MODEL_LABEL }];
+  const modelPickerOptions = [...modelChoices, inheritModelOption(INHERIT_MODEL_LABEL)];
   const navRef = useRef<HTMLElement>(null);
 
   const updateTabOverflow = useCallback(() => {

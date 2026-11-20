@@ -134,7 +134,12 @@ export function Listbox({
   const optionEntries = entries.slice(pinned.length);
   const selectedSet = selectedValues === undefined ? undefined : new Set(selectedValues);
   const activeId = entries.find((entry) => entry.option.value === activeValue)?.id;
-  const ungrouped = optionEntries.filter((entry) => !entry.option.group);
+  // The empty value leads the rendered list, not only the keyboard order: it is not inside
+  // any group block, so it is rendered right after the pinned rows and before the groups.
+  const emptyEntries = optionEntries.filter((entry) => entry.option.value === "");
+  const ungrouped = optionEntries.filter(
+    (entry) => !entry.option.group && entry.option.value !== "",
+  );
 
   const renderRow = (entry: Entry) => {
     const option = entry.option;
@@ -228,6 +233,7 @@ export function Listbox({
           className={LISTBOX_CLASS}
         >
           {showRows ? pinnedEntries.map((entry) => renderRow(entry)) : null}
+          {showRows ? emptyEntries.map((entry) => renderRow(entry)) : null}
           {showRows
             ? groupOrder(options).map((group, index) => {
                 const headerId = `${id}-group-${index}`;
@@ -237,7 +243,7 @@ export function Listbox({
                       {group}
                     </div>
                     {optionEntries
-                      .filter((entry) => entry.option.group === group)
+                      .filter((entry) => entry.option.group === group && entry.option.value !== "")
                       .map((entry) => renderRow(entry))}
                   </div>
                 );

@@ -4,6 +4,7 @@ import {
   MAX_VISIBLE,
   defaultFilter,
   groupOrder,
+  inheritModelOption,
   metaTone,
   modelOptions,
   normalize,
@@ -88,6 +89,18 @@ describe("orderOptions", () => {
     expect(orderOptions(options).map((entry) => entry.value)).toEqual(["d1", "d2", "o1", "u1", "u2"]);
   });
 
+  it("hoists the empty value ahead of every group and leaves the rest in group order", () => {
+    const options = [
+      option({ value: "d1", label: "D1", group: "deepseek" }),
+      option({ value: "u1", label: "U1" }),
+      option({ value: "", label: "Heredar" }),
+      option({ value: "o1", label: "O1", group: "openai" }),
+      option({ value: "d2", label: "D2", group: "deepseek" }),
+    ];
+
+    expect(orderOptions(options).map((entry) => entry.value)).toEqual(["", "d1", "d2", "o1", "u1"]);
+  });
+
   it("does not mutate its input", () => {
     const options = Object.freeze([
       Object.freeze(option({ value: "b", label: "B", group: "z" })),
@@ -96,6 +109,13 @@ describe("orderOptions", () => {
 
     expect(() => orderOptions(options)).not.toThrow();
     expect(options.map((entry) => entry.value)).toEqual(["b", "a"]);
+  });
+});
+
+describe("inheritModelOption", () => {
+  it("keeps the empty value and takes the label of the surface that renders it", () => {
+    expect(inheritModelOption("Heredar del proyecto")).toEqual({ value: "", label: "Heredar del proyecto" });
+    expect(inheritModelOption("Heredar del flujo")).toEqual({ value: "", label: "Heredar del flujo" });
   });
 });
 

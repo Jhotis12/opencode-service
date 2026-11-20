@@ -54,11 +54,24 @@ export function groupOrder(options: readonly SelectOption[]): readonly string[] 
   return order;
 }
 
+// The empty value ("inherit"/"none") is the row a caller returns to, so it always leads
+// the keyboard order; the grouped catalogue follows and ungrouped rows close the list.
 export function orderOptions(options: readonly SelectOption[]): readonly SelectOption[] {
   const order = groupOrder(options);
-  const grouped = order.flatMap((group) => options.filter((option) => option.group === group));
-  const ungrouped = options.filter((option) => !option.group);
-  return [...grouped, ...ungrouped];
+  const empty = options.filter((option) => option.value === "");
+  const rest = options.filter((option) => option.value !== "");
+  const grouped = order.flatMap((group) => rest.filter((option) => option.group === group));
+  const ungrouped = rest.filter((option) => !option.group);
+  return [...empty, ...grouped, ...ungrouped];
+}
+
+/**
+ * The empty choice of a model picker. The label is a parameter because the same row means
+ * something different per surface: the project bar inherits the PROJECT default, while an
+ * agent inherits the FLOW model. The emitted value stays `""` for every caller.
+ */
+export function inheritModelOption(label: string): SelectOption {
+  return { value: "", label };
 }
 
 function formatCost(input: number): string {

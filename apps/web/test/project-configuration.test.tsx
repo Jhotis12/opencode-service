@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { renderWithProviders } from "./render.tsx";
+import { chooseOption, renderWithProviders } from "./render.tsx";
 
 const now = new Date().toISOString();
 const integration = {
@@ -28,6 +28,47 @@ const destination = {
   createdAt: now,
   updatedAt: now,
 };
+const transcriptionIntegration = {
+  id: "i2",
+  scope: "project" as const,
+  projectSlug: "ventas",
+  kind: "transcription" as const,
+  name: "Whisper local",
+  slug: "whisper-local",
+  config: { model: "whisper-1" },
+  secretRefs: {},
+  capabilities: ["transcribe_audio"],
+  status: "connected",
+  createdAt: now,
+  updatedAt: now,
+};
+const speechIntegration = {
+  id: "i3",
+  scope: "project" as const,
+  projectSlug: "ventas",
+  kind: "speech" as const,
+  name: "Voz del proyecto",
+  slug: "voz-proyecto",
+  config: { voice: "alloy" },
+  secretRefs: {},
+  capabilities: ["synthesize_speech"],
+  status: "connected",
+  createdAt: now,
+  updatedAt: now,
+};
+const projectFixture = {
+  id: "p1",
+  slug: "ventas",
+  name: "Ventas",
+  description: "",
+  primaryAgent: "principal/agente",
+  createdAt: now,
+  updatedAt: now,
+};
+const models = [
+  { providerID: "proveedor", modelID: "alfa", name: "Alfa", input: ["text"], cost: { input: 1, output: 2 } },
+  { providerID: "proveedor", modelID: "beta", name: "Beta", input: ["text", "image"], cost: { input: 3, output: 6 } },
+];
 const secret = { alias: "api_key", kind: "generic", createdAt: now };
 
 const apiMock = vi.hoisted(() => ({
@@ -54,23 +95,15 @@ import { ProjectConfigurationPanel } from "../src/components/ProjectConfiguratio
 
 function mockQueries() {
   apiMock.getProjectSettings.mockResolvedValue({
-    project: {
-      id: "p1",
-      slug: "ventas",
-      name: "Ventas",
-      description: "",
-      primaryAgent: "principal/agente",
-      createdAt: now,
-      updatedAt: now,
-    },
-    integrations: [integration],
+    project: { ...projectFixture },
+    integrations: [integration, transcriptionIntegration, speechIntegration],
     notebooks: [],
     readiness: [
       { id: "primary-agent", label: "Agente principal configurado", ready: true },
       { id: "channel", label: "Canal conectado", ready: false },
     ],
   });
-  apiMock.listModels.mockResolvedValue({ data: [] });
+  apiMock.listModels.mockResolvedValue({ data: models });
   apiMock.listIntegrations.mockResolvedValue({ data: [integration] });
   apiMock.listDestinations.mockResolvedValue({ data: [destination] });
   apiMock.listProjectSecrets.mockResolvedValue({ data: [] });
@@ -350,13 +383,207 @@ describe("ProjectConfigurationPanel", () => {
     expect(screen.getByText(/Solapamiento: omitir/)).toBeInTheDocument();
   });
 
-  it("offers destinations in the approval recipient picker", async () => {
+  it("keeps the empty choice label in every picker", async () => {
     mockQueries();
     renderPanel();
     await screen.findByText("Identidad y modelo");
-    const input = screen.getByLabelText("Destinatario de aprobación");
-    expect(input).toHaveAttribute("list", "project-approval-destinations");
-    expect(document.querySelector("#project-approval-destinations option")?.getAttribute("value")).toBe("d1");
+
+    expect(screen.getByRole("combobox", { name: "Modelo por defecto del proyecto" })).toHaveValue(
+      "Usar el modelo global",
+    );
+    expect(screen.getByRole("combobox", { name: "Canal de aprobación del proyecto" })).toHaveTextContent(
+      "Sin canal por defecto",
+    );
+    expect(screen.getByRole("combobox", { name: "Destinatario de aprobación" })).toHaveValue(
+      "Sin destinatario por defecto",
+    );
+    expect(screen.getByRole("combobox", { name: "Conexión de transcripción por defecto" })).toHaveTextContent(
+      "Sin conexión por defecto",
+    );
+    expect(screen.getByRole("combobox", { name: "Conexión de voz por defecto" })).toHaveTextContent(
+      "Sin conexión por defecto",
+    );
+  });
+
+  it("keeps the primary agent as free text and saves it verbatim", async () => {
+    mockQueries();
+    apiMock.updateProjectSettings.mockResolvedValue({});
+    renderPanel();
+    expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
+
+    const agent = screen.getByLabelText("Agente principal");
+    expect(agent).toBeInstanceOf(HTMLInputElement);
+    await userEvent.clear(agent);
+    await userEvent.type(agent, "equipo/ventas");
+    await userEvent.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+
+    await waitFor(() =>
+      expect(apiMock.updateProjectSettings).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({ primaryAgent: "equipo/ventas" }),
+      ),
+    );
+  });
+
+  it("saves the model reference chosen in the picker, not its label", async () => {
+    mockQueries();
+    apiMock.updateProjectSettings.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
+
+    await chooseOption(user, "Modelo por defecto del proyecto", /^Alfa\b/);
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+
+    await waitFor(() =>
+      expect(apiMock.updateProjectSettings).toHaveBeenCalledWith("ventas", {
+        name: "Ventas",
+        description: "",
+        defaultModel: "proveedor/alfa",
+        primaryAgent: "principal/agente",
+        approvalIntegrationId: null,
+        approvalRecipient: null,
+        transcriptionIntegrationId: null,
+        speechIntegrationId: null,
+      }),
+    );
+    expect(screen.getByRole("combobox", { name: "Modelo por defecto del proyecto" })).toHaveValue("Alfa");
+  });
+
+  it("keeps the model picker usable with an empty catalogue and saves null", async () => {
+    mockQueries();
+    apiMock.listModels.mockResolvedValue({ data: [] });
+    apiMock.updateProjectSettings.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
+
+    await chooseOption(user, "Modelo por defecto del proyecto", "Usar el modelo global");
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+
+    await waitFor(() =>
+      expect(apiMock.updateProjectSettings).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({ defaultModel: null }),
+      ),
+    );
+  });
+
+  it("still displays and saves a model the catalogue no longer lists", async () => {
+    mockQueries();
+    apiMock.listModels.mockResolvedValue({ data: [] });
+    apiMock.getProjectSettings.mockResolvedValue({
+      project: { ...projectFixture, defaultModel: "desconocido/modelo" },
+      integrations: [integration, transcriptionIntegration, speechIntegration],
+      notebooks: [],
+      readiness: [],
+    });
+    apiMock.updateProjectSettings.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderPanel();
+
+    const trigger = await screen.findByRole("combobox", { name: "Modelo por defecto del proyecto" });
+    expect(trigger).toHaveValue("desconocido/modelo");
+
+    await user.click(trigger);
+    expect(within(await screen.findByRole("listbox")).getByRole("option", { name: /desconocido\/modelo/ })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+    await waitFor(() =>
+      expect(apiMock.updateProjectSettings).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({ defaultModel: "desconocido/modelo" }),
+      ),
+    );
+  });
+
+  it("saves the ids chosen from the channel, transcription and voice pickers", async () => {
+    mockQueries();
+    apiMock.updateProjectSettings.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
+
+    await chooseOption(user, "Canal de aprobación del proyecto", "Bot de ventas · telegram");
+    await chooseOption(user, "Conexión de transcripción por defecto", "Whisper local · whisper-1");
+    await chooseOption(user, "Conexión de voz por defecto", "Voz del proyecto · alloy");
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+
+    await waitFor(() =>
+      expect(apiMock.updateProjectSettings).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({
+          approvalIntegrationId: "i1",
+          transcriptionIntegrationId: "i2",
+          speechIntegrationId: "i3",
+        }),
+      ),
+    );
+  });
+
+  it("clears a chosen connection and saves null", async () => {
+    mockQueries();
+    apiMock.getProjectSettings.mockResolvedValue({
+      project: { ...projectFixture, speechIntegrationId: "i3" },
+      integrations: [integration, transcriptionIntegration, speechIntegration],
+      notebooks: [],
+      readiness: [],
+    });
+    apiMock.updateProjectSettings.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
+
+    await chooseOption(user, "Conexión de voz por defecto", "Sin conexión por defecto");
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+
+    await waitFor(() =>
+      expect(apiMock.updateProjectSettings).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({ speechIntegrationId: null }),
+      ),
+    );
+  });
+
+  it("saves the destination id chosen in the approval recipient picker", async () => {
+    mockQueries();
+    apiMock.updateProjectSettings.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
+
+    await chooseOption(user, "Destinatario de aprobación", "Admin · 123456");
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+
+    await waitFor(() =>
+      expect(apiMock.updateProjectSettings).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({ approvalRecipient: "d1" }),
+      ),
+    );
+  });
+
+  it("keeps a raw approval recipient typed by hand", async () => {
+    mockQueries();
+    apiMock.updateProjectSettings.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderPanel();
+
+    const trigger = await screen.findByRole("combobox", { name: "Destinatario de aprobación" });
+    await user.click(trigger);
+    await user.type(trigger, "987654");
+    await user.click(screen.getByRole("option", { name: "Usar «987654»" }));
+    await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
+
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+    await waitFor(() =>
+      expect(apiMock.updateProjectSettings).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({ approvalRecipient: "987654" }),
+      ),
+    );
   });
 
   it("shows a retryable error instead of an endless loading state when settings fail", async () => {

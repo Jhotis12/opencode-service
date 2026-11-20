@@ -5,8 +5,17 @@ import { qk } from "../query.ts";
 import { badge, buttonGhost, buttonPrimary, card, friendlyError, statusBadge } from "../ui.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
+import { Select } from "./Select.tsx";
+import { modelOptions, type SelectOption } from "./select/options.ts";
 
 const ALIAS_PATTERN = /^[A-Za-z][A-Za-z0-9:_-]*$/;
+
+// `orderOptions` renders grouped rows first and ungrouped rows after them, so every
+// "inherit / none" choice closes its list instead of interrupting the catalogue.
+const MODEL_INHERIT_OPTION: SelectOption = { value: "", label: "Usar el modelo global" };
+const NO_APPROVAL_CHANNEL_OPTION: SelectOption = { value: "", label: "Sin canal por defecto" };
+const NO_RECIPIENT_OPTION: SelectOption = { value: "", label: "Sin destinatario por defecto" };
+const NO_CONNECTION_OPTION: SelectOption = { value: "", label: "Sin conexión por defecto" };
 
 /**
  * Secciones de configuración del proyecto. La página de ajustes renderiza una
@@ -118,6 +127,42 @@ function ProjectSettingsSections({
     return <p className="text-sm text-muted">Cargando ajustes del proyecto…</p>;
   }
 
+  const modelPickerOptions: readonly SelectOption[] = [...modelOptions(models), MODEL_INHERIT_OPTION];
+  const approvalChannelOptions: readonly SelectOption[] = [
+    ...settings.integrations
+      .filter((integration) => integration.capabilities.includes("outbound_message"))
+      .map((integration) => ({
+        value: integration.id,
+        label: `${integration.name} · ${integration.kind}`,
+      })),
+    NO_APPROVAL_CHANNEL_OPTION,
+  ];
+  const recipientOptions: readonly SelectOption[] = [
+    ...destinations.map((destination) => ({
+      value: destination.id,
+      label: `${destination.label} · ${destination.value}`,
+    })),
+    NO_RECIPIENT_OPTION,
+  ];
+  const transcriptionOptions: readonly SelectOption[] = [
+    ...settings.integrations
+      .filter((integration) => integration.kind === "transcription")
+      .map((integration) => ({
+        value: integration.id,
+        label: `${integration.name} · ${String(integration.config.model ?? "sin modelo")}`,
+      })),
+    NO_CONNECTION_OPTION,
+  ];
+  const speechOptions: readonly SelectOption[] = [
+    ...settings.integrations
+      .filter((integration) => integration.kind === "speech")
+      .map((integration) => ({
+        value: integration.id,
+        label: `${integration.name} · ${String(integration.config.voice ?? "sin voz")}`,
+      })),
+    NO_CONNECTION_OPTION,
+  ];
+
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
       {showGeneral && (
@@ -150,15 +195,15 @@ function ProjectSettingsSections({
           <textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} />
         </Field>
         <Field id="project-default-model" label="Modelo por defecto del proyecto">
-          <select value={defaultModel} onChange={(event) => setDefaultModel(event.target.value)}>
-            <option value="">Usar el modelo global</option>
-            {models.map((model) => (
-              <option key={`${model.providerID}/${model.modelID}`} value={`${model.providerID}/${model.modelID}`}>
-                {model.name} · {model.providerID}/{model.modelID}
-                {model.input?.includes("image") ? " · visión" : ""}
-              </option>
-            ))}
-          </select>
+          <Select
+            label="Modelo por defecto del proyecto"
+            options={modelPickerOptions}
+            value={defaultModel}
+            emptyValue=""
+            searchable
+            placeholder="Usar el modelo global"
+            onChange={(value) => setDefaultModel(value ?? "")}
+          />
         </Field>
         <Field id="project-primary-agent" label="Agente principal">
           <input
@@ -169,53 +214,38 @@ function ProjectSettingsSections({
         </Field>
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Aprobaciones</h3>
         <Field id="project-approval-channel" label="Canal de aprobación del proyecto">
-          <select
+          <Select
+            label="Canal de aprobación del proyecto"
+            options={approvalChannelOptions}
             value={approvalIntegrationId}
-            onChange={(event) => setApprovalIntegrationId(event.target.value)}
-          >
-            <option value="">Sin canal por defecto</option>
-            {settings.integrations
-              .filter((integration) => integration.capabilities.includes("outbound_message"))
-              .map((integration) => (
-                <option key={integration.id} value={integration.id}>
-                  {integration.name} · {integration.kind}
-                </option>
-              ))}
-          </select>
-        </Field>
-        <Field id="project-approval-recipient" label="Destinatario de aprobación">
-          <input
-            value={approvalRecipient}
-            onChange={(event) => setApprovalRecipient(event.target.value)}
-            placeholder="ID de destino o 123456789"
-            list="project-approval-destinations"
+            emptyValue=""
+            onChange={(value) => setApprovalIntegrationId(value ?? "")}
           />
         </Field>
-        <datalist id="project-approval-destinations">
-          {destinations.map((destination) => (
-            <option key={destination.id} value={destination.id}>
-              {destination.label} · {destination.value}
-            </option>
-          ))}
-        </datalist>
+        <Field id="project-approval-recipient" label="Destinatario de aprobación">
+          <Select
+            label="Destinatario de aprobación"
+            options={recipientOptions}
+            value={approvalRecipient}
+            emptyValue=""
+            searchable
+            allowCustom
+            placeholder="ID de destino o 123456789"
+            onChange={(value) => setApprovalRecipient(value ?? "")}
+          />
+        </Field>
         <p className="text-xs text-muted">
           Puedes usar un destino etiquetado de la sección Destinos o un valor crudo; los valores existentes siguen siendo válidos.
         </p>
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Transcripción</h3>
         <Field id="project-transcription" label="Conexión de transcripción por defecto">
-          <select
+          <Select
+            label="Conexión de transcripción por defecto"
+            options={transcriptionOptions}
             value={transcriptionIntegrationId}
-            onChange={(event) => setTranscriptionIntegrationId(event.target.value)}
-          >
-            <option value="">Sin conexión por defecto</option>
-            {settings.integrations
-              .filter((integration) => integration.kind === "transcription")
-              .map((integration) => (
-                <option key={integration.id} value={integration.id}>
-                  {integration.name} · {String(integration.config.model ?? "sin modelo")}
-                </option>
-              ))}
-          </select>
+            emptyValue=""
+            onChange={(value) => setTranscriptionIntegrationId(value ?? "")}
+          />
         </Field>
         <p className="text-xs text-muted">
           Se usa para transcribir audio en modo agente. Los nodos Transcribir pueden elegir otra conexión.
@@ -225,16 +255,13 @@ function ProjectSettingsSections({
         )}
         <h3 className="mt-2 text-sm font-semibold text-slate-100">Voz</h3>
         <Field id="project-speech" label="Conexión de voz por defecto">
-          <select value={speechIntegrationId} onChange={(event) => setSpeechIntegrationId(event.target.value)}>
-            <option value="">Sin conexión por defecto</option>
-            {settings.integrations
-              .filter((integration) => integration.kind === "speech")
-              .map((integration) => (
-                <option key={integration.id} value={integration.id}>
-                  {integration.name} · {String(integration.config.voice ?? "sin voz")}
-                </option>
-              ))}
-          </select>
+          <Select
+            label="Conexión de voz por defecto"
+            options={speechOptions}
+            value={speechIntegrationId}
+            emptyValue=""
+            onChange={(value) => setSpeechIntegrationId(value ?? "")}
+          />
         </Field>
         <p className="text-xs text-muted">
           Se usa para responder con audio en Telegram y para los nodos Generar voz que no eligen otra conexión.

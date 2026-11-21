@@ -75,6 +75,21 @@ Defined in `apps/web/src/index.css`:
 Use `Modal` from `apps/web/src/components/Modal.tsx` instead of building a new
 overlay. Its `size` prop is the contract; do not add per-modal transition values.
 
+## Dropdown panel
+
+The picker panel has no entry or exit animation. Opening and closing it, by
+pointer, keyboard or programmatically, mounts and unmounts the popover
+immediately: no fade, scale or delay, so typing and Enter never wait on motion.
+The rows themselves only transition colour between hover, active and selected
+(`transition-colors`); the list height and row positions never animate.
+
+At narrow widths (below 640 px) `Select` uses the modal sheet, so it inherits the modal
+surface: 220 ms entry and 140 ms exit with opacity plus `scale(0.96)`. The
+narrow-viewport closed state adds `translateY(14px) scale(0.98)`
+(`apps/web/src/index.css`, `@media (max-width: 639px)`), so the sheet settles
+upward as it opens. `prefers-reduced-motion: reduce` removes that transform and
+keeps the short opacity transition.
+
 ## Live status motion
 
 - **Run progress** stays inside the canvas: active edge in cyan with a dash

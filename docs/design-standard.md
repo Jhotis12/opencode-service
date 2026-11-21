@@ -2,9 +2,10 @@
 
 This document is the source of truth for the web interface. `docs/ui-motion.md`
 covers timing, easing and modal behaviour; this document covers identity,
-tokens, typography, components, accessibility and copy. The product is
-desktop-first: acceptance is at 1280×800 and 1440×900. Mobile is not a design
-target.
+tokens, typography, components, accessibility and copy. The UI is accepted at
+four viewports: 320×568 and 390×844 for phones, and 1280×800 and 1440×900 for
+desktop. A screen is not done until it holds at all four; 320 px is the floor,
+not a fallback.
 
 ## 1. Brand
 
@@ -96,11 +97,30 @@ fallback. Code uses `--font-mono`.
 - Pills and badges: full radius.
 - Icon-only controls: at least 28 px, preferably 32 px on desktop.
 
+### Responsive rules
+
+- Acceptance viewports: 320×568, 390×844, 1280×800 and 1440×900. At 320 the
+  page never scrolls horizontally: `documentElement.scrollWidth` stays within the
+  viewport and every primary action stays reachable. Pinned today by
+  `test/global-runs.test.tsx`, `test/health.test.tsx` and
+  `test/canvas-ui.test.tsx` at 320 and 390; `test/auth-pages.test.tsx` pins the
+  dynamic viewport height and the scrollable form.
+- 640 px (`sm`) is the surface breakpoint. Below it a `Modal` is a bottom sheet
+  (full width, top corners only, `max-h-[92dvh]`), the project top bar stacks,
+  the canvas switches to narrow chrome and `Select` uses its sheet. At 640 px
+  and wider, dialogs are centered and the picker uses its popover.
+- There is exactly one picker breakpoint: `PICKER_SHEET_QUERY =
+  "(max-width: 639px)"` in `components/Select.tsx`. `WorkflowCanvas.PHONE_QUERY`,
+  `RunsTable.NARROW_TABLE_QUERY` and the CSS twin in `index.css` repeat the same
+  value for their own surfaces; do not add a second one.
+- The mobile navigation drawer is the rail below 1024 px; it is off-screen and
+  inert while closed and slides over the content.
+
 ## 5. Components
 
 ### Shared primitives
 
-Six primitives are shared by every screen. They live in
+These primitives are shared by every screen. They live in
 `apps/web/src/components/`; compose them instead of rebuilding the same markup,
 because they carry the tokens and the accessibility wiring. The props below are
 the contract — do not invent extras.
@@ -114,6 +134,9 @@ the contract — do not invent extras.
 | `Field` | `apps/web/src/components/Field.tsx` | `id`, `label`, `hint?`, `error?`, `children` | every form control: wraps one control and wires `id`, `aria-describedby`, `aria-invalid` |
 | `Tabs` | `apps/web/src/components/Tabs.tsx` | `items` (`id`, `label`, `content`, `disabled?`), `value?`, `defaultValue?`, `onValueChange?`, `aria-label` | sibling sections inside one page; roving tabindex with Arrow/Home/End keys |
 
+The pickers (`Select` and `MultiSelect`) are shared controls too; their
+contract is in *Select and combobox* below.
+
 ### Buttons
 
 Primary, secondary, ghost and danger variants. Every button has hover,
@@ -124,11 +147,132 @@ buttons need an accessible name and a tooltip/title.
 
 Label above the control, helper or error below. Use the `well` surface, `line`
 border and the accent focus ring. Placeholder contrast must remain readable.
+Every form control goes inside `Field`, which wires `id`, `aria-describedby`,
+`aria-invalid` and the error message.
+
+### Select and combobox
+
+`Select` (`apps/web/src/components/Select.tsx`) and `MultiSelect.tsx` are the
+only pickers. A native `<select>` is forbidden and the conformance scanner
+fails any `.tsx` under `apps/web/src` that contains one
+(`test/design-conformance.test.ts`, rule `native-select`, no allowlist).
+
+- **Trigger.** `Select` renders a `button` with `role="combobox"`, or a text
+  `input` with the same role when `searchable`. Both expose
+  `aria-haspopup="listbox"`, `aria-expanded`, `aria-controls` while open and
+  `aria-activedescendant` pointing at the keyboard-active row. The label, helper
+  and error come from `Field` when an `id` is passed; standalone, `Select`
+  renders its own. `MultiSelect` renders one chip per value (truncated, with a
+  `Quitar {label}` remove button) and a chevron button named `Añadir {label}`;
+  its search field inside the panel is the `combobox`.
+- **Surface.** At 640 px and wider the list opens in the shared `Popover`: a portal at
+  `position: fixed`, 240–480 px wide, clamped 8 px from the viewport edges,
+  flipped above the trigger when less than 240 px remain below, and capped at
+  360 px high. The popover is the one non-modal overlay: it does not trap focus
+  or inert the page, and it closes on outside pointer-down, focus leaving,
+  outside scroll, resize, Escape (the event is stopped so a dialog behind stays
+  open) and Tab. Below 640 px `Select` swaps to `SelectSheet`, a `Modal`
+  that contains the very same listbox; the sheet traps focus, owns the title and
+  an optional search field, and returns focus to the trigger. `MultiSelect`
+  stays a popover.
+- **Order.** Pinned rows render first, then the empty/inherit row (`value: ""`),
+  then groups in first-appearance order, then ungrouped rows. Pinned rows are the
+  transient custom row and a saved value the catalogue no longer offers; when
+  either exists it precedes the empty row and takes the default active row, so
+  the empty row leads the keyboard order only when nothing is pinned. `emptyValue`
+  decides what committing it emits: `""` or `undefined`, and each call site
+  declares it.
+- **Saved values.** A value the catalogue no longer offers stays on the trigger
+  as its raw string and is pinned as the first row with a muted
+  `(no disponible)` suffix; it remains selected and re-emits unchanged.
+  `MultiSelect` shows the same raw string as the chip label.
+- **Filtering.** `searchable` makes the trigger a filter input. The default
+  filter matches label, description, value and `keywords`, case- and
+  accent-insensitive. No matches shows `noResultsLabel` (default
+  `Sin resultados`); no options shows `emptyLabel`. Loading, empty,
+  no-results and error states render inside the panel; the first three are a
+  `role="status"` message and the multi-select load error is an inline notice
+  with `Reintentar`.
+- **Custom values.** `allowCustom` (searchable `Select` only) offers a
+  `Usar «texto»` row first when the trimmed query matches no option exactly, and
+  commits that text verbatim. Without `allowCustom` unknown text can never be
+  committed; whitespace-only text is never offered.
+
+| Keys / gesture | `Select` (searchable or not) | `MultiSelect` |
+| --- | --- | --- |
+| Closed, Enter / Space / ArrowDown / Alt+ArrowDown | opens at the first row; Space only when not searchable | chevron opens and focuses the search field; Enter/Space on the button opens |
+| Closed, ArrowUp | opens at the last row | — |
+| Closed, printable character | starts typeahead (prefix match, 500 ms buffer); only when not searchable | types into the search field |
+| Open, ArrowDown / ArrowUp | moves the active row; single-select clamps at the ends | moves the active row; wraps |
+| Open, Home / End | first / last row, select-only | — |
+| Open, Enter | commits the active row and closes | toggles the active row and stays open |
+| Open, Space | commits when not searchable | toggles only with an empty query |
+| Open, Backspace | — | removes the last chip when the query is empty |
+| Escape | closes without committing | closes without committing |
+| Tab | closes the popover | closes the popover |
+
+Selected rows carry `aria-selected` (and a `✓` badge in `MultiSelect`); the
+keyboard-active row is a separate axis exposed through `aria-activedescendant`
+and `data-active`.
 
 ### Badges and status
 
 Use a dot or icon plus a localized label. Raw API values belong in
 `title`/`aria-label`, not as the only visible copy.
+
+### Feedback and notifications
+
+- **Action outcomes are toasts.** Success and failure of a save, create,
+  delete or test call `notifySuccess` / `notifyWarning` / `notifyError` from
+  `components/Toast.tsx`, which wrap the sonner host mounted once in
+  `main.tsx` (dark, bottom-right, `richColors`, `closeButton`). Success lands in
+  a polite live region; an error toast is dismissible from the keyboard. One
+  toast per action, with the copy the inline message used to carry. Do not
+  render a green success paragraph. Derive the channel from the status tone
+  (`statusTone` in `ui.ts`): a `needs_config` or `qr_pending` outcome is a
+  warning, never a success.
+- **Known gap: request failures are still inline in most panels.** The rule
+  above is the target and coverage is **partial**. The authoritative list is not
+  this paragraph but `REQUEST_FAILURE_DEBT` in
+  `apps/web/test/design-conformance.test.ts`, and the scanner enforces exactly
+  what it can see: every file matching `/setError\(|onError:/` must appear in
+  one of the three categories, no entry may go stale, and the categories carry
+  invariants (a config-field entry may hold no error state, a validation entry
+  may hold no `onError:` handler, a debt entry must hold one). It is a **coverage**
+  guard, not a semantic proof: a failure caught and only logged, or a file moved
+  by hand into another category, escapes it. The conversion proof for plan row
+  67 is therefore the named per-panel `notifyError` tests, with the emptied
+  constant as a second, weaker signal. The prose here is a snapshot of the
+  constant.
+  Today the debt is `ProjectSettingsPanel`, `ProjectDestinationsPanel`,
+  `AgentCatalog`, `ProjectsPage`, `IntegrationCard`, `ProjectIntegrationsPage`,
+  `ControlChannelsPanel`, `ProjectKnowledgePanel`, `IntegrationEditor`,
+  `AgentEditorModal`, `ProjectFlowPage` (save, add node and duplicate - its
+  trigger/connection branches are validation and stay inline),
+  `project-workspace` (save, replay, rollback and launch) and `useChatTurn`,
+  whose stream and reconnect failures surface only as a retry control. Plan row
+  67 converts them and empties the constant; the paragraph goes away with it.
+  Do not read the absence of a file from this list as proof that it complies.
+  Validation is the other side of the line and stays inline by design: parsing a
+  JSON field (`NodeConfigFields`), a field validator
+  (`PlatformSettingsFields`), or an unparsable form value (`RunLaunchModal`) is
+  not a request failure and must not fire a toast. `NodeInspector` is neither:
+  its `onError` occurrences are a node's error-strategy configuration field.
+- **Known gap: the run/launch path.** `project-workspace.tsx` still writes the
+  launch outcome into inline state and `ProjectLayout.tsx` still renders it as a
+  green paragraph - both the copy channel (a toast) and the tone are wrong. Row
+  65 fixes the tone; row 67 owns the channel for the save/replay/rollback paths
+  and the launch path. This is a defect against the rule, not an exception to it.
+- **State stays inline.** Anything that is not the outcome of an action (the
+  unsaved dot, list loading, chat state, the picker's empty or no-results
+  message) keeps `role="status"` where it belongs on the screen. A toast never
+  replaces persistent state. Run status is inline text today and carries no
+  `role`, so it is not an example of this rule yet.
+- **Validation errors stay next to the field.** `Field` renders the message with
+  `aria-invalid` on the control and emits no toast; an invalid submit makes no
+  request. Field-level errors are never transient surfaces.
+- Run-status and canvas notices stay in their own surface; they do not become
+  toasts.
 
 ### Tabs
 
@@ -145,14 +289,20 @@ Stable header/body/footer structure, no more than three badges, and
 
 Use `Modal` with `sm`/`md`/`lg`/`xl`. The modal traps focus, makes the background
 inert, locks body scroll, restores focus to the trigger and closes with Escape,
-the backdrop or the close control. Sticky footers keep the primary action
-reachable while the body scrolls.
+the backdrop or the close control. It scrolls only its body (`data-modal-body`):
+the header and the sticky footer stay fixed, and a `pre` inside the body scrolls
+horizontally rather than in its own vertical box. The one exception is the
+picker's list, whose listbox is a capped scroll region (`max-h-80` with
+`overscroll-contain`) by design. Nested dialogs stack: only the top one owns
+Escape and the focus trap.
 
 ### Project top bar
 
-One row at 1280 px and 1440 px. Left: breadcrumb and project name. Center:
-scrollable tab strip with fade affordances and seven routed sections: Resumen,
-Flujo, Ejecuciones, Agentes, Conocimiento, Integraciones and Ajustes. Each tab is
+One row at 1280 px and 1440 px. Below `sm` (640 px) it stacks into a breadcrumb
+row and a second row with the tab strip and the action cluster. Left: breadcrumb
+and project name. Center: scrollable tab strip with fade affordances and seven
+routed sections: Resumen, Flujo, Ejecuciones, Agentes, Conocimiento,
+Integraciones and Ajustes. Each tab is
 a URL under `/projects/:slug/`, so reload and deep links land on the same
 section; `/projects/:slug` redirects to `overview`. Right, in implementation
 order: issue badge (only when the flow has problems), unsaved dot, overflow
@@ -160,6 +310,9 @@ menu, `Guardar`/`Guardar flujo`, `Ejecutar` and `Agente`.
 The overflow menu contains Versiones del flujo, Biblioteca del flujo and Ajustes
 del flujo. The project name truncates before any tab label is clipped. The save
 action reads `Guardar` at 1280 px and expands to `Guardar flujo` from 1400 px.
+On narrow viewports the action cluster stays on screen at 320 px: the overflow
+menu anchors to the cluster (`max-sm:static`) so its panel cannot spill past the
+left edge, and the tabs scroll horizontally with edge fades.
 
 The rail above the project shell has five global destinations: Proyectos,
 Ejecuciones, Orquestador global, Ajustes and Salud del sistema. Ejecuciones is
@@ -172,7 +325,20 @@ export; it uses the list template.
   at 0.8; do not auto-fit below that threshold.
 - `Ajustar vista` fits the full graph at the overview threshold (0.25).
 - Do not re-fit on every SSE or node update; preserve the user's viewport.
-- The minimap is the overview. Panning and explicit zoom-out are allowed.
+- On desktop the minimap is the overview; panning and explicit zoom-out are
+  allowed.
+- Below 640 px the canvas runs in narrow mode (`data-canvas-layout="narrow"`):
+  the minimap, zoom readout and shortcuts help are hidden, the action cluster is
+  capped at `calc(100vw - 2rem)` so its actions stay inside the viewport (it does
+  not wrap), and connection handles get a 16 px target with a 32 px touch radius
+  and click-to-connect.
+- The narrow canvas is fully editable: `+ Nodo` opens the palette as a
+  full-height sheet, tapping a node opens the inspector the same way, tapping a
+  target node completes a connection, and the same save/run actions apply.
+- Transient notices (connect prompt, agent working, run progress) share one
+  bottom-centre stack that clears the fixed chat pill. When the free band is
+  under 11 rem the stack collapses to a single compact line with a `+N`
+  counter; it never covers the top-left actions or the connect instruction.
 - At the initial view a node title is at least 11 px effective.
 
 ### Agent catalog
@@ -272,7 +438,9 @@ External guidance is installed as two skills, both vendored under
 - Off-screen navigation is not focusable.
 - Status is conveyed by text/icon as well as color.
 - Form errors are associated with their field and announced.
-- Test keyboard-only operation and 200% zoom on desktop.
+- Picker triggers keep `role="combobox"`, `aria-expanded` and
+  `aria-activedescendant`; the sheet is a modal dialog, the popover is not.
+- Test keyboard-only operation at 320 px and 200% zoom on desktop.
 
 ## 8. Copy and statuses
 

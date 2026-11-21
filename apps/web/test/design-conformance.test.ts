@@ -101,6 +101,87 @@ function violations(files: readonly string[], rule: Rule): string[] {
 
 const files = sourceFiles(SRC_ROOT);
 
+/**
+ * The feedback rule's coverage is only as honest as this classification, so the
+ * scanner fails when a source file starts handling a failure and nobody said
+ * which kind it is. Moving a file out of `REQUEST_FAILURE_DEBT` is how a row
+ * proves it converted that surface to a toast.
+ */
+export const REQUEST_FAILURE_DEBT = [
+  "components/AgentCatalog.tsx",
+  "components/AgentEditorModal.tsx",
+  "components/ControlChannelsPanel.tsx",
+  "components/IntegrationCard.tsx",
+  "components/IntegrationEditor.tsx",
+  "components/ProjectDestinationsPanel.tsx",
+  "components/ProjectKnowledgePanel.tsx",
+  "components/ProjectSettingsPanel.tsx",
+  "pages/ProjectFlowPage.tsx",
+  "pages/ProjectIntegrationsPage.tsx",
+  "pages/ProjectsPage.tsx",
+  "pages/project-workspace.tsx",
+  "useChatTurn.ts",
+] as const;
+
+export const VALIDATION_INLINE = [
+  "components/NodeConfigFields.tsx",
+  "components/PlatformSettingsFields.tsx",
+  "components/RunLaunchModal.tsx",
+] as const;
+
+export const NOT_A_FAILURE_PATH = ["components/NodeInspector.tsx"] as const;
+
+const FAILURE_SIGNAL = /setError\(|onError:/;
+
+function filesHandlingFailure(): string[] {
+  return files
+    .filter((file) => FAILURE_SIGNAL.test(readFileSync(file, "utf8")))
+    .map((file) => relative(SRC_ROOT, file))
+    .sort();
+}
+
+describe("request failure feedback classification", () => {
+  const classified: string[] = [
+    ...REQUEST_FAILURE_DEBT,
+    ...VALIDATION_INLINE,
+    ...NOT_A_FAILURE_PATH,
+  ].sort();
+
+  const occurrences = (file: string, signal: RegExp): number =>
+    (readFileSync(join(SRC_ROOT, file), "utf8").match(new RegExp(signal.source, "g")) ?? []).length;
+
+  it("classifies every source file that handles a failure", () => {
+    const unclassified = filesHandlingFailure().filter((file) => !classified.includes(file));
+    expect(unclassified).toEqual([]);
+  });
+
+  it("keeps no stale classification for a file that stopped handling failures", () => {
+    const handling = filesHandlingFailure();
+    expect(classified.filter((file) => !handling.includes(file))).toEqual([]);
+  });
+
+  it("puts each file in exactly one category", () => {
+    expect(classified).toHaveLength(new Set(classified).size);
+  });
+
+  it("keeps the config-field category free of any error state", () => {
+    const withErrorState = NOT_A_FAILURE_PATH.filter((file) => occurrences(file, /setError\(/) > 0);
+    expect(withErrorState).toEqual([]);
+  });
+
+  it("keeps the validation category free of onError handlers", () => {
+    const withRequestHandler = VALIDATION_INLINE.filter((file) => occurrences(file, /onError:/) > 0);
+    expect(withRequestHandler).toEqual([]);
+  });
+
+  it("keeps every debt entry holding at least one failure handler", () => {
+    const withoutHandler = REQUEST_FAILURE_DEBT.filter(
+      (file) => occurrences(file, /setError\(|onError:/) === 0,
+    );
+    expect(withoutHandler).toEqual([]);
+  });
+});
+
 describe("design-conformance scanner", () => {
   it("walks the whole source tree instead of passing on an empty file list", () => {
     expect(files.length).toBeGreaterThan(30);

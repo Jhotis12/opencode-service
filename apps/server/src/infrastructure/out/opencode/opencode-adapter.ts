@@ -11,6 +11,14 @@ import type {
 import { AgentPromptTimeoutError } from "../../../application/ports/runtime.ts";
 import { parseModelRef } from "@platform/shared";
 
+/** A dropped response body is a transport hiccup, not a failed turn: the session keeps running. */
+function isTransientStreamError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /input stream|terminated|other side closed|socket hang up|ECONNRESET|EPIPE|fetch failed|connection (?:reset|closed)/i.test(
+    message,
+  );
+}
+
 interface ModelLike {
   providerID: string;
   modelID?: string;
@@ -309,6 +317,29 @@ export class OpenCodeV2Adapter implements AgentRuntimePort {
     };
   }
 
+  /**
+   * `experimental.session.wait` is a long-lived HTTP call, and a dropped body throws
+   * "Error in input stream" even though the session keeps running on the other side. That
+   * used to fail the whole prompt: the user saw an error and then the answer arrived anyway.
+   * A read failure is retried while the session is still active; a real turn failure surfaces
+   * as an unsuccessful reconnect, not as a transport error.
+   */
+  private async waitForTurn(
+    client: OpenCodeClientLike,
+    sessionId: string,
+  ): Promise<void> {
+    const attempts = 5;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await client.experimental.session.wait({ sessionID: sessionId });
+        return;
+      } catch (error) {
+        if (attempt >= attempts || !isTransientStreamError(error)) throw error;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(2000, 250 * attempt)));
+      }
+    }
+  }
+
   async prompt(
     sessionId: string,
     text: string,
@@ -319,7 +350,7 @@ export class OpenCodeV2Adapter implements AgentRuntimePort {
     try {
       const run = (async () => {
         await client.session.prompt({ sessionID: sessionId, text, files: options.files });
-        await client.experimental.session.wait({ sessionID: sessionId });
+        await this.waitForTurn(client, sessionId);
       })();
       if (options.timeoutMs && options.timeoutMs > 0) {
         await Promise.race([

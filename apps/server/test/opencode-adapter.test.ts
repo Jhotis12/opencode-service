@@ -108,6 +108,39 @@ describe("opencode v2 adapter contract", () => {
     });
   });
 
+  it("retries a dropped wait stream instead of failing the whole prompt", async () => {
+    let attempts = 0;
+    const client = fakeClient({
+      experimental: {
+        session: {
+          wait: async () => {
+            attempts += 1;
+            if (attempts === 1) throw new Error("Error in input stream");
+            return undefined;
+          },
+        },
+      },
+    }) as OpenCodeClientLike;
+    const { adapter } = adapterWith(client);
+    const reply = await adapter.prompt("s1", "hola");
+    expect(attempts).toBe(2);
+    expect(typeof reply).toBe("string");
+  });
+
+  it("does not swallow a non-transient wait failure", async () => {
+    const client = fakeClient({
+      experimental: {
+        session: {
+          wait: async () => {
+            throw new Error("model rejected the request");
+          },
+        },
+      },
+    }) as OpenCodeClientLike;
+    const { adapter } = adapterWith(client);
+    await expect(adapter.prompt("s1", "hola")).rejects.toThrow("model rejected the request");
+  });
+
   it("waits for completion and extracts assistant text", async () => {
     const { adapter, client } = adapterWith(fakeClient());
     const reply = await adapter.prompt("s1", "hola");

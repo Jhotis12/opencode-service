@@ -160,7 +160,7 @@ function ProjectWorkspaceShell() {
           onClick={() => workspace.setChatOpen(false)}
         />
         <div
-          className={`chat-drawer absolute inset-y-0 right-0 flex w-full max-w-[500px] flex-col overflow-hidden border-l border-line bg-ink p-3 shadow-2xl ${
+          className={`chat-drawer absolute inset-y-0 right-0 flex w-full max-w-[500px] flex-col overflow-hidden border-l border-line bg-ink p-3 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-2xl ${
             workspace.chatOpen ? "translate-x-0" : "translate-x-full"
           }`}
           data-chat-drawer=""

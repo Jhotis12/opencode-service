@@ -253,7 +253,9 @@ describe("ProjectLayout flow section", () => {
     const palette = screen.getByRole("dialog", { name: "Agregar nodo" });
     await user.click(within(palette).getByRole("button", { name: /Código/ }));
 
-    const toast = await screen.findByText("failed to fetch");
+    const toast = await screen.findByText(
+      "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.",
+    );
     expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 

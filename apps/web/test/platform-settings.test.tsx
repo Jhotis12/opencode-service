@@ -170,7 +170,7 @@ describe("PlatformSettingsPage", () => {
     await chooseOption(user, "Modelo", /DeepSeek V4\.1 Flash/);
     await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
 
-    const inlineError = await within(panel).findByText("server down");
+    const inlineError = await within(panel).findByText("No se pudo guardar el modelo.");
     expect(inlineError).toHaveClass("text-danger");
     expect(screen.queryByText("Modelo por defecto guardado.")).toBeNull();
   });

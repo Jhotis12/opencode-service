@@ -108,7 +108,7 @@ describe("HealthPage", () => {
     renderHealth(loadHealth);
 
     const alert = await screen.findByRole("alert");
-    expect(within(alert).getByText(/sin conexión/)).toBeInTheDocument();
+    expect(within(alert).getByText("No se pudo consultar la salud del sistema.")).toBeInTheDocument();
     expect(within(alert).getByText(/La API puede estar caída o inalcanzable/)).toBeInTheDocument();
     fireEvent.click(within(alert).getByRole("button", { name: "Reintentar consulta" }));
 
@@ -189,7 +189,7 @@ describe("HealthPage", () => {
     const restore = setViewportMatches("(max-width: 639px)", true);
     try {
       const view = renderHealth(vi.fn().mockRejectedValue(new Error("sin conexión")));
-      expect(await screen.findByRole("alert")).toHaveTextContent("sin conexión");
+      expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo consultar la salud del sistema.");
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(320);
       view.unmount();
 

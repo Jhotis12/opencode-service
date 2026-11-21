@@ -167,7 +167,7 @@ describe("ProjectConfigurationPanel", () => {
 
   it("announces a settings save rejection that carries no message with main's localized fallback", async () => {
     mockQueries();
-    // A rejection with no message is what reaches the fallback; an Error carries its own text through friendlyError.
+    // A rejection with no message is what reaches the fallback.
     apiMock.updateProjectSettings.mockRejectedValueOnce(null);
     const user = userEvent.setup();
     renderPanel();
@@ -180,6 +180,27 @@ describe("ProjectConfigurationPanel", () => {
     );
     expect(toast).toBeVisible();
     expect(screen.queryByText("Error de ajustes")).not.toBeInTheDocument();
+  });
+
+  it("answers an unmapped server failure with Spanish copy plus the code, never the English message", async () => {
+    mockQueries();
+    const { ApiClientError } = await vi.importActual<typeof import("../src/api.ts")>("../src/api.ts");
+    apiMock.updateProjectSettings.mockRejectedValueOnce(
+      new ApiClientError(500, "DB_POLICY_DENIED", "row level security policy denied"),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+
+    const toast = await findToast(
+      "No se pudieron guardar los ajustes. Revisa los campos y vuelve a intentarlo. (código: DB_POLICY_DENIED)",
+    );
+    expect(toast).toBeVisible();
+    // The code is plain text inside the toast, so the operator can select and paste it into a report.
+    expect(toast.textContent).toContain("DB_POLICY_DENIED");
+    expect(toast.textContent).not.toContain("row level security");
   });
 
   it("renders the general section by default with the six addressable sections", async () => {
@@ -787,7 +808,7 @@ describe("ProjectConfigurationPanel", () => {
     renderPanel();
 
     const alert = await screen.findByRole("alert");
-    expect(within(alert).getByText("No se pudieron cargar los ajustes")).toBeInTheDocument();
+    expect(within(alert).getByText("No se pudieron cargar los ajustes del proyecto.")).toBeInTheDocument();
     expect(screen.queryByText("Cargando ajustes del proyecto…")).not.toBeInTheDocument();
 
     await userEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
@@ -820,7 +841,7 @@ describe("ProjectConfigurationPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Aprobar" }));
 
     const alert = await screen.findByRole("alert");
-    expect(within(alert).getByText("La ejecución ya no está pausada")).toBeInTheDocument();
+    expect(within(alert).getByText("No se pudo registrar la decisión.")).toBeInTheDocument();
     expect(screen.getByText("Nodo review")).toBeInTheDocument();
 
     await userEvent.click(within(alert).getByRole("button", { name: "Descartar" }));

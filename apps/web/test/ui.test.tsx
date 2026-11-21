@@ -91,7 +91,7 @@ describe("HealthPage", () => {
 
   it("reports a loading failure", async () => {
     renderWithProviders(<HealthPage loadHealth={async () => { throw new Error("sin conexión"); }} />);
-    expect(await screen.findByText("sin conexión")).toBeInTheDocument();
+    expect(await screen.findByText("No se pudo consultar la salud del sistema.")).toBeInTheDocument();
   });
 });
 

@@ -146,7 +146,7 @@ describe("AgentCatalog", () => {
     renderWithProviders(<CatalogWithAgentsQuery />);
 
     const alert = await screen.findByRole("alert");
-    expect(within(alert).getByText("No se pudieron cargar los agentes")).toBeInTheDocument();
+    expect(within(alert).getByText("Error al cargar agentes")).toBeInTheDocument();
     expect(screen.queryByText("Sin sub-agentes todavía")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Crear sub-agente" })).not.toBeInTheDocument();
 
@@ -361,7 +361,9 @@ describe("AgentCatalog", () => {
       within(screen.getByRole("dialog", { name: "Eliminar agente" })).getByRole("button", { name: "Borrar agente" }),
     );
 
-    const toast = await screen.findByText("failed to fetch");
+    const toast = await screen.findByText(
+      "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.",
+    );
     expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Eliminar agente" })).not.toBeInTheDocument(),

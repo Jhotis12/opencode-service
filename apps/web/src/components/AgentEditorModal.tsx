@@ -14,7 +14,7 @@ import { MultiSelect } from "./MultiSelect.tsx";
 import { Select } from "./Select.tsx";
 import { inheritModelOption, modelOptions, type SelectOption } from "./select/options.ts";
 import { notifyError } from "./Toast.tsx";
-import { buttonDanger, buttonGhost, buttonPrimary } from "../ui.ts";
+import { buttonDanger, buttonGhost, buttonPrimary, friendlyError } from "../ui.ts";
 
 type AgentMode = "primary" | "subagent" | "all";
 type ToolEffect = PermissionRule["effect"];
@@ -237,7 +237,7 @@ export function AgentEditorModal({
       onSaved?.(saved);
       onClose();
     },
-    onError: (cause) => notifyError(cause instanceof Error ? cause.message : "No se pudo guardar el agente"),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo guardar el agente")),
   });
 
   function patch(patch: Partial<AgentFormState>) {

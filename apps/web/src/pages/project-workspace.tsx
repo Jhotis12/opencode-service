@@ -23,7 +23,7 @@ import {
 import { qk } from "../query.ts";
 import { getGraphIssues, mapServerIssue, type GraphIssue } from "../components/canvas/graph-edits.ts";
 import { notifyError, notifySuccess, notifyWarning } from "../components/Toast.tsx";
-import type { StatusTone } from "../ui.ts";
+import { friendlyError, type StatusTone } from "../ui.ts";
 
 /** A transient run/save notice; the tone travels with the copy so a failure is never painted green. */
 export interface StatusMessage {
@@ -308,7 +308,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
         );
         setError(undefined);
       } else {
-        notifyError(cause instanceof Error ? cause.message : "No se pudo guardar");
+        notifyError(friendlyError(cause, "No se pudo guardar"));
       }
       setStatus(undefined);
     },
@@ -327,7 +327,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       setError(undefined);
     },
     onError: (cause) => {
-      notifyError(cause instanceof Error ? cause.message : "No se pudo ejecutar");
+      notifyError(friendlyError(cause, "No se pudo ejecutar"));
     },
   });
 
@@ -339,7 +339,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       setStatus({ message: `Ejecución ${replayed.id.slice(0, 8)} re-ejecutada`, tone: "success" });
       setError(undefined);
     },
-    onError: (cause) => notifyError(cause instanceof Error ? cause.message : "No se pudo re-ejecutar"),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo re-ejecutar")),
   });
 
   const rollbackVersionMutation = useMutation({
@@ -360,7 +360,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       notifySuccess(`Flujo restaurado a v${version}`);
       setError(undefined);
     },
-    onError: (cause) => notifyError(cause instanceof Error ? cause.message : "No se pudo restaurar la versión"),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo restaurar la versión")),
   });
 
   const chatMutation = useMutation({
@@ -458,7 +458,11 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     chatQuery.error ??
     integrationsQuery.error ??
     settingsQuery.error;
-  const displayError = error ?? (queryError instanceof Error ? queryError.message : undefined);
+  const displayError =
+    error ??
+    (queryError
+      ? friendlyError(queryError, "No se pudo cargar el proyecto. Revisa la conexión y vuelve a intentarlo.")
+      : undefined);
 
   const workspace: ProjectWorkspace = {
     slug,

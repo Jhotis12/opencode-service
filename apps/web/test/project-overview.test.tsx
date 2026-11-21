@@ -321,7 +321,9 @@ describe("ProjectOverviewPage", () => {
     const launchDialog = await screen.findByRole("dialog", { name: "Ejecutar flujo" });
     await userEvent.click(within(launchDialog).getByRole("button", { name: "Ejecutar" }));
 
-    const toast = await screen.findByText("failed to fetch");
+    const toast = await screen.findByText(
+      "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.",
+    );
     expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 

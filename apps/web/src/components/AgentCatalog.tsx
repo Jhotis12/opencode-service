@@ -14,6 +14,7 @@ import {
   buttonGhost,
   buttonPrimary,
   card,
+  friendlyError,
   input,
 } from "../ui.ts";
 
@@ -143,11 +144,11 @@ export function AgentCatalog({
     },
     onError: (cause) => {
       setDeleteTarget(undefined);
-      notifyError(cause instanceof Error ? cause.message : "No se pudo eliminar el agente");
+      notifyError(friendlyError(cause, "No se pudo eliminar el agente"));
     },
   });
 
-  const queryError = error instanceof Error ? error.message : error ? "Error al cargar agentes" : undefined;
+  const queryError = error ? friendlyError(error, "Error al cargar agentes") : undefined;
 
   return (
     <section className="flex flex-col gap-5">

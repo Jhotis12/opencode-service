@@ -298,7 +298,7 @@ export function ProjectsPage() {
       ) : projectsQuery.isError ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/40 bg-danger/10 px-4 py-3">
           <p className="text-sm text-danger">
-            {projectsQuery.error instanceof Error ? projectsQuery.error.message : "No se pudieron cargar los proyectos."}
+            {friendlyError(projectsQuery.error, "No se pudieron cargar los proyectos.")}
           </p>
           <button type="button" className={buttonGhost} onClick={() => void projectsQuery.refetch()}>
             Reintentar

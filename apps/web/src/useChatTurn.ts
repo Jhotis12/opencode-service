@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { ChatTurnEvent, ChatTurnStatus } from "@platform/shared";
 import type { ChatTurnResult } from "./api.ts";
 import { notifyError } from "./components/Toast.tsx";
+import { friendlyError } from "./ui.ts";
 
 export type ChatTurnConnection = "idle" | "streaming" | "reconnecting" | "done" | "error";
 
@@ -49,7 +50,7 @@ export function useChatTurn(actions: ChatTurnActions = {}): ChatTurnController {
     const next = statusFromEvent(event);
     if (next) setStatus(next);
     if (event.type === "error") {
-      notifyError(event.message);
+      notifyError(friendlyError(event, "No se pudo completar el turno de chat."));
       setConnection("error");
     } else if (event.type === "done") {
       setConnection("done");
@@ -73,7 +74,7 @@ export function useChatTurn(actions: ChatTurnActions = {}): ChatTurnController {
         return result;
       } catch (cause) {
         setConnection("error");
-        notifyError(cause instanceof Error ? cause.message : String(cause));
+        notifyError(friendlyError(cause, "No se pudo reconectar con el turno."));
         return undefined;
       }
     },

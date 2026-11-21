@@ -18,6 +18,7 @@ import {
 import { NODE_META } from "../components/nodes/node-catalog.ts";
 import { projectTabPath } from "../components/ProjectTopBar.tsx";
 import { notifyError, notifySuccess } from "../components/Toast.tsx";
+import { friendlyError } from "../ui.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useProjectWorkspace } from "./project-workspace.tsx";
 
@@ -118,7 +119,7 @@ export function ProjectFlowPage() {
       notifySuccess("Nodo guardado");
       workspace.setError(undefined);
     },
-    onError: (cause) => notifyError(cause instanceof Error ? cause.message : "No se pudo guardar el nodo"),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo guardar el nodo")),
   });
 
   function updateNode(patch: Partial<NodeSpec>) {
@@ -195,7 +196,7 @@ export function ProjectFlowPage() {
       setPaletteOpen(false);
       openInspector(id);
     } catch (cause) {
-      notifyError(cause instanceof Error ? cause.message : "No se pudo agregar el nodo");
+      notifyError(friendlyError(cause, "No se pudo agregar el nodo"));
     }
   }
 
@@ -230,7 +231,7 @@ export function ProjectFlowPage() {
       workspace.changeGraph({ ...graph, nodes: [...graph.nodes, clone] });
       openInspector(clone.id);
     } catch (cause) {
-      notifyError(cause instanceof Error ? cause.message : "No se pudo duplicar el nodo");
+      notifyError(friendlyError(cause, "No se pudo duplicar el nodo"));
     }
   }
 
@@ -378,6 +379,7 @@ export function ProjectFlowPage() {
           notebooks={notebooksQuery.data ?? []}
           integrations={workspace.integrations}
           destinations={workspace.destinations}
+          versions={workspace.versions}
           lastStep={lastStep}
           scheduleNextRun={workspace.schedules.find((state) => state.nodeId === selected.id)?.nextWindowAt}
           code={nodeCode}

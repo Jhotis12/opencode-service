@@ -291,7 +291,7 @@ function ProjectSettingsSections({
         <button className={buttonPrimary} disabled={save.isPending}>
           Guardar ajustes
         </button>
-        {error && <p className="text-sm text-danger">{error instanceof Error ? error.message : "Error de ajustes"}</p>}
+        {error && <p className="text-sm text-danger">{friendlyError(error, "Error de ajustes")}</p>}
       </form>
       )}
 
@@ -376,7 +376,7 @@ function ProjectSecretsPanel({ projectSlug }: { projectSlug: string }) {
   }
 
   const secrets = secretsQuery.data ?? [];
-  const queryError = secretsQuery.error instanceof Error ? secretsQuery.error.message : undefined;
+  const queryError = secretsQuery.error ? friendlyError(secretsQuery.error, "No se pudieron cargar los secretos.") : undefined;
 
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">

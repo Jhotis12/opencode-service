@@ -500,7 +500,9 @@ describe("routed project workspace", { timeout: 20_000 }, () => {
     renderApp("/projects/demo/overview");
 
     const alert = await screen.findByRole("alert", {}, ROUTE_READY);
-    expect(within(alert).getByText("No se pudo cargar el flujo")).toBeInTheDocument();
+    expect(
+      within(alert).getByText("No se pudo cargar el proyecto. Revisa la conexión y vuelve a intentarlo."),
+    ).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Secciones del proyecto" })).not.toBeInTheDocument();
 
     await userEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));

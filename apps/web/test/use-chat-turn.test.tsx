@@ -58,7 +58,9 @@ describe("useChatTurn", () => {
       }),
     );
 
-    expect(notifyError).toHaveBeenCalledWith("Se interrumpió la conexión.");
+    expect(notifyError).toHaveBeenCalledWith(
+      "No se pudo completar el turno de chat. (código: transport_interrupted)",
+    );
     expect(result.current.connection).toBe("error");
     expect(result.current.turnId).toBe("turn-1");
   });
@@ -71,7 +73,9 @@ describe("useChatTurn", () => {
       await result.current.reconnect("turn-2");
     });
 
-    expect(notifyError).toHaveBeenCalledWith("failed to fetch");
+    expect(notifyError).toHaveBeenCalledWith(
+      "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.",
+    );
     expect(result.current.connection).toBe("error");
   });
 });

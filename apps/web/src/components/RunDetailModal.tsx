@@ -5,7 +5,7 @@ import { api, runOriginLabel, runSourceLabel } from "../api.ts";
 import { qk } from "../query.ts";
 import { Modal } from "./Modal.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
-import { badge, button, buttonDanger, buttonGhost } from "../ui.ts";
+import { badge, button, buttonDanger, buttonGhost, friendlyError } from "../ui.ts";
 
 function formatValue(value: unknown): string {
   if (value === undefined) return "—";
@@ -94,7 +94,7 @@ export function RunDetailModal({
               </div>
               {decide.error && (
                 <p className="text-xs text-danger">
-                  {decide.error instanceof Error ? decide.error.message : "No se pudo registrar la decisión"}
+                  {friendlyError(decide.error, "No se pudo registrar la decisión")}
                 </p>
               )}
             </>

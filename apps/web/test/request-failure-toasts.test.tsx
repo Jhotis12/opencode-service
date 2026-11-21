@@ -251,7 +251,7 @@ describe("request failures reach the error toast", () => {
       await waitFor(() => expect(screen.getByRole("button", { name: "Guardar agente" })).toBeEnabled());
       await user.click(screen.getByRole("button", { name: "Guardar agente" }));
 
-      expect(toastFor("failed to fetch")).toBeInTheDocument();
+      expect(toastFor(NETWORK_COPY)).toBeInTheDocument();
     });
   });
 });

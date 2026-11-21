@@ -131,7 +131,7 @@ describe("orchestrator page", () => {
     renderPage();
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("request failed (500)");
+    expect(alert).toHaveTextContent("No se pudo cargar el resumen del orquestador. (código: HTTP_ERROR)");
     expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
@@ -179,7 +179,9 @@ describe("orchestrator page", () => {
       .mockResolvedValueOnce({ data: [] });
     renderPage();
 
-    expect(await screen.findByText(/request failed \(500\)/)).toBeInTheDocument();
+    expect(
+      await screen.findByText("No se pudo cargar el historial del chat. (código: HTTP_ERROR)"),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
 
     await waitFor(() => expect(api.controlChatHistory).toHaveBeenCalledTimes(2));

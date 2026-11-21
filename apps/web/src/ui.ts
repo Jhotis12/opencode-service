@@ -118,16 +118,47 @@ export function agentModeLabel(mode: string): string {
   return "Sub-agente";
 }
 
+/** Known failure patterns that deserve copy more specific than the call site's fallback. */
+const FRIENDLY_ERROR_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/invalid username or password/i, "Usuario o contraseña incorrectos."],
+  [/already exists/i, "Ya existe un recurso con ese identificador."],
+  [/failed to fetch|network|load failed/i, "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo."],
+  [/unauthorized|session/i, "Tu sesión expiró. Vuelve a iniciar sesión."],
+  [/timeout|timed out/i, "La operación tardó demasiado. Vuelve a intentarlo."],
+];
+
+const GENERIC_ERROR_COPY = "La operación no se pudo completar.";
+
+/** The text an unknown rejection carries, when it carries one at all. */
+function rejectionMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return typeof error === "string" ? error : "";
+}
+
+/**
+ * The machine-readable code of an `ApiClientError` (read structurally so a test that mocks
+ * `api.ts` never has to export the class) or of a chat turn error event.
+ */
+function rejectionCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code.length > 0 ? code : undefined;
+}
+
+/**
+ * User-facing copy for a failed request: the mapped Spanish sentence, or the call site's own
+ * Spanish fallback. The rejection's raw `message` is never returned - the server owns it in
+ * English and internals leak through it. When the rejection carries a code, the code travels
+ * with the copy (plain text, so it can be selected and pasted into a report).
+ */
 export function friendlyError(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : "";
-  if (/invalid username or password/i.test(message)) return "Usuario o contraseña incorrectos.";
-  if (/already exists/i.test(message)) return "Ya existe un recurso con ese identificador.";
-  if (/failed to fetch|network|load failed/i.test(message)) {
-    return "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.";
+  const message = rejectionMessage(error);
+  for (const [pattern, copy] of FRIENDLY_ERROR_PATTERNS) {
+    if (pattern.test(message)) return copy;
   }
-  if (/unauthorized|session/i.test(message)) return "Tu sesión expiró. Vuelve a iniciar sesión.";
-  if (/timeout|timed out/i.test(message)) return "La operación tardó demasiado. Vuelve a intentarlo.";
-  return message || fallback;
+  const base = fallback.trim() || GENERIC_ERROR_COPY;
+  const code = rejectionCode(error);
+  return code ? `${base} (código: ${code})` : base;
 }
 
 export function statusBadge(status: string): string {

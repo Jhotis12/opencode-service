@@ -165,6 +165,23 @@ describe("ProjectConfigurationPanel", () => {
     vi.clearAllMocks();
   });
 
+  it("announces a rejected settings save with main's localized copy instead of a raw message", async () => {
+    mockQueries();
+    // A rejection with no message is what reaches the fallback; an Error carries its own text through friendlyError.
+    apiMock.updateProjectSettings.mockRejectedValueOnce(null);
+    const user = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("Identidad y modelo")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Guardar ajustes" }));
+
+    const toast = await findToast(
+      "No se pudieron guardar los ajustes. Revisa los campos y vuelve a intentarlo.",
+    );
+    expect(toast).toBeVisible();
+    expect(screen.queryByText("Error de ajustes")).not.toBeInTheDocument();
+  });
+
   it("renders the general section by default with the six addressable sections", async () => {
     mockQueries();
     renderPanel();

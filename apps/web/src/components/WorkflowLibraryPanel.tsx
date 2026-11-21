@@ -11,7 +11,7 @@ import {
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
 import { Modal } from "./Modal.tsx";
-import { notifySuccess } from "./Toast.tsx";
+import { notifyInfo, notifySuccess } from "./Toast.tsx";
 
 type PendingImport = { graph: WorkflowGraph; fileName: string; updatedAt: string };
 
@@ -67,7 +67,7 @@ export function WorkflowLibraryPanel({
       return;
     }
     if (isSameGraph(result.graph, graph)) {
-      notifySuccess(`"${file.name}" ya coincide con el flujo actual. No hay cambios que aplicar.`);
+      notifyInfo(`"${file.name}" ya coincide con el flujo actual. No hay cambios que aplicar.`);
       return;
     }
     if (result.stale) {

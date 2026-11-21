@@ -1,11 +1,10 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Toaster } from "sonner";
 import { afterEach, describe, expect, it } from "vitest";
 import { dismissAll, notifyError, notifySuccess, AppToaster } from "../src/components/Toast.tsx";
 
 function renderToaster() {
-  render(<Toaster theme="dark" position="bottom-right" richColors closeButton />);
+  render(<AppToaster />);
 }
 
 afterEach(() => {
@@ -52,7 +51,7 @@ describe("notifyError", () => {
     const toastItem = title.closest("[data-sonner-toast]") as HTMLElement;
     expect(toastItem).not.toBeNull();
 
-    const closeButton = within(toastItem).getByRole("button", { name: "Close toast" });
+    const closeButton = within(toastItem).getByRole("button", { name: "Cerrar notificación" });
     closeButton.focus();
     expect(closeButton).toHaveFocus();
 

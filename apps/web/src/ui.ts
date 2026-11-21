@@ -112,8 +112,6 @@ export function statusTone(status: string): StatusTone {
 }
 
 
-/** The text colour for an already-classified tone, so prose never has to re-derive it. */
-
 export function agentModeLabel(mode: string): string {
   if (mode === "primary") return "Principal";
   if (mode === "all") return "Principal y sub-agente";

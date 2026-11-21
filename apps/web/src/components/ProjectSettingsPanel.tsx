@@ -102,7 +102,10 @@ function ProjectSettingsSections({
       await queryClient.invalidateQueries({ queryKey: qk.projectSettings(projectSlug) });
       await queryClient.invalidateQueries({ queryKey: qk.projects });
     },
-    onError: (cause) => notifyError(cause instanceof Error ? cause.message : "Error de ajustes"),
+    onError: (error) =>
+      notifyError(
+        friendlyError(error, "No se pudieron guardar los ajustes. Revisa los campos y vuelve a intentarlo."),
+      ),
   });
 
   const settings = settingsQuery.data;

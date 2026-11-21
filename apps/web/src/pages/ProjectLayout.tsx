@@ -2,10 +2,9 @@ import { Suspense, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useParams } from "react-router-dom";
 import { api } from "../api.ts";
-import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
 import { ChatPanel } from "../components/ChatPanel.tsx";
 import { ConfirmDialog } from "../components/ConfirmDialog.tsx";
-import { ProjectTopBar, activeProjectTab, projectTabPath } from "../components/ProjectTopBar.tsx";
+import { ProjectTopBar, activeProjectTab } from "../components/ProjectTopBar.tsx";
 import { RunDetailModal } from "../components/RunDetailModal.tsx";
 import { RunLaunchModal } from "../components/RunLaunchModal.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
@@ -81,18 +80,12 @@ function ProjectWorkspaceShell() {
 
   const graph = workspace.graph;
   const detailRun = workspace.detailRun;
-  const notReady = workspace.settings?.readiness.filter((item) => !item.ready) ?? [];
+  // The pill is the page's only always-on bottom-right affordance; pages that render their own
+  // bottom-centre notices (the flow canvas) reserve its band so the two cannot overlap.
+  const chatPillVisible = !workspace.chatOpen && (workspace.chatBusy || workspace.chatUnread);
 
   return (
     <section className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center px-3 pt-2 text-xs text-muted lg:px-4">
-        <Breadcrumbs
-          items={[
-            { label: "Proyectos", to: "/projects" },
-            { label: workspace.slug, to: projectTabPath(workspace.slug, "overview"), title: graph.name },
-          ]}
-        />
-      </div>
       <ProjectTopBar
         slug={workspace.slug}
         graph={graph}
@@ -117,15 +110,10 @@ function ProjectWorkspaceShell() {
         onRollbackVersion={(version) => workspace.rollbackVersion(version)}
       />
 
-      {(workspace.status || workspace.displayError || notReady.length > 0) && (
+      {(workspace.status || workspace.displayError) && (
         <div className="flex flex-col gap-1 border-b border-line px-3 py-2 lg:px-4">
           {workspace.status && <p className="text-xs text-ok">{workspace.status}</p>}
           {workspace.displayError && <p className="text-xs text-danger">{workspace.displayError}</p>}
-          {notReady.length > 0 && (
-            <p className="text-xs text-warn">
-              Configuración pendiente: {notReady.map((item) => item.detail ?? item.label).join(" ")}
-            </p>
-          )}
         </div>
       )}
 
@@ -156,7 +144,7 @@ function ProjectWorkspaceShell() {
 
       <div className="relative flex min-h-0 flex-1 flex-col">
         <Suspense fallback={<SectionFallback />}>
-          <Outlet />
+          <Outlet context={{ chatPillVisible }} />
         </Suspense>
       </div>
 
@@ -200,10 +188,11 @@ function ProjectWorkspaceShell() {
         </div>
       </div>
 
-      {!workspace.chatOpen && (workspace.chatBusy || workspace.chatUnread) && (
+      {chatPillVisible && (
         <button
           type="button"
-          className="agent-status-pill fixed bottom-28 right-4 z-40 flex max-w-[280px] items-center gap-2.5 rounded-full border border-accent/40 bg-well/95 px-3.5 py-2 text-left text-xs text-slate-100 shadow-2xl"
+          className="agent-status-pill fixed bottom-32 right-4 z-40 flex max-w-[280px] items-center gap-2.5 rounded-full border border-accent/40 bg-well/95 px-3.5 py-2 text-left text-xs text-slate-100 shadow-2xl"
+          data-chat-pill
           onClick={() => {
             workspace.setChatOpen(true);
             workspace.setChatUnread(false);

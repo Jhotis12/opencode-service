@@ -70,9 +70,10 @@ export function ProjectOverviewPage() {
   const workspace = useProjectWorkspace();
   const slug = workspace.slug;
 
-  // The workspace layout already owns these four queries; the overview subscribes to the
-  // same cache entries (same keys, same fetchers) so each section can show its own
-  // loading and error state without firing extra requests.
+  // The workspace layout already owns the settings and runs queries; the overview
+  // subscribes to the same cache entries (same keys, same fetchers) so each section can
+  // show its own loading and error state without firing extra requests. Agents and
+  // integrations are intentionally absent: their counts live in the section tabs.
   const settingsQuery = useQuery({
     queryKey: qk.projectSettings(slug),
     queryFn: () => api.getProjectSettings(slug),
@@ -81,16 +82,6 @@ export function ProjectOverviewPage() {
   const runsQuery = useQuery({
     queryKey: qk.runs(slug),
     queryFn: () => api.listRuns(slug).then((result) => result.data),
-    enabled: Boolean(slug),
-  });
-  const agentsQuery = useQuery({
-    queryKey: qk.agents(slug),
-    queryFn: () => api.listAgents(slug).then((result) => result.data),
-    enabled: Boolean(slug),
-  });
-  const integrationsQuery = useQuery({
-    queryKey: qk.integrations(slug),
-    queryFn: () => api.listIntegrations(slug).then((result) => result.data),
     enabled: Boolean(slug),
   });
   // The only query the workspace context does not define: project notebooks.
@@ -138,85 +129,61 @@ export function ProjectOverviewPage() {
         }
       />
 
-      <section className={card} data-testid="overview-readiness" aria-busy={settingsQuery.isLoading}>
-        <header className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className={sectionTitle}>Preparación del proyecto</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            {!settingsQuery.isLoading && !settingsQuery.isError && readiness.length > 0 && (
-              <p className={smallMuted}>
-                {readyCount} de {readiness.length} listas
-              </p>
-            )}
-            {!settingsQuery.isLoading && !settingsQuery.isError && hasGaps && (
-              <button
-                type="button"
-                className={buttonGhost}
-                onClick={() => workspace.requestNavigate(projectTabPath(slug, "settings"))}
-              >
-                Revisar ajustes
-              </button>
-            )}
-          </div>
-        </header>
-        {settingsQuery.isLoading ? (
-          <div className="flex flex-col gap-3">
-            <Skeleton shape="line" size="md" />
-            <Skeleton shape="line" size="md" />
-            <Skeleton shape="line" size="md" />
-            <Skeleton shape="line" size="md" />
-          </div>
-        ) : settingsQuery.isError ? (
-          <SourceError
-            message={friendlyError(settingsQuery.error, "No se pudo cargar la preparación del proyecto.")}
-            onRetry={() => void settingsQuery.refetch()}
-          />
-        ) : (
-          <ul className="flex flex-col gap-2.5">
-            {readiness.map((item) => (
-              <li key={item.id} className="flex items-start gap-3" title={item.ready ? "Listo" : "Pendiente"}>
-                <span
-                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.ready ? "bg-ok" : "bg-warn"}`}
-                  aria-hidden="true"
-                />
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <p className="text-sm text-slate-200">
-                    {item.label}
-                    <span className="sr-only">{item.ready ? " (listo)" : " (pendiente)"}</span>
-                  </p>
-                  {item.detail && <small className={smallMuted}>{item.detail}</small>}
-                </div>
-              </li>
-            ))}
-            {readiness.length === 0 && <li className={muted}>Sin verificaciones por ahora.</li>}
-          </ul>
-        )}
-      </section>
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <section className={card} data-testid="overview-readiness" aria-busy={settingsQuery.isLoading}>
+          <header className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className={sectionTitle}>Preparación del proyecto</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              {!settingsQuery.isLoading && !settingsQuery.isError && readiness.length > 0 && (
+                <p className={smallMuted}>
+                  {readyCount} de {readiness.length} listas
+                </p>
+              )}
+              {!settingsQuery.isLoading && !settingsQuery.isError && hasGaps && (
+                <button
+                  type="button"
+                  className={buttonGhost}
+                  onClick={() => workspace.requestNavigate(projectTabPath(slug, "settings"))}
+                >
+                  Revisar ajustes
+                </button>
+              )}
+            </div>
+          </header>
+          {settingsQuery.isLoading ? (
+            <div className="flex flex-col gap-3">
+              <Skeleton shape="line" size="md" />
+              <Skeleton shape="line" size="md" />
+              <Skeleton shape="line" size="md" />
+              <Skeleton shape="line" size="md" />
+            </div>
+          ) : settingsQuery.isError ? (
+            <SourceError
+              message={friendlyError(settingsQuery.error, "No se pudo cargar la preparación del proyecto.")}
+              onRetry={() => void settingsQuery.refetch()}
+            />
+          ) : (
+            <ul className="flex flex-col gap-2.5">
+              {readiness.map((item) => (
+                <li key={item.id} className="flex items-start gap-3" title={item.ready ? "Listo" : "Pendiente"}>
+                  <span
+                    className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.ready ? "bg-ok" : "bg-warn"}`}
+                    aria-hidden="true"
+                  />
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <p className="text-sm text-slate-200">
+                      {item.label}
+                      <span className="sr-only">{item.ready ? " (listo)" : " (pendiente)"}</span>
+                    </p>
+                    {item.detail && <small className={smallMuted}>{item.detail}</small>}
+                  </div>
+                </li>
+              ))}
+              {readiness.length === 0 && <li className={muted}>Sin verificaciones por ahora.</li>}
+            </ul>
+          )}
+        </section>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <CountCard
-          title="Agentes"
-          testId="overview-count-agents"
-          value={agentsQuery.data?.length}
-          hint="Agentes disponibles para operar el flujo."
-          zeroHint="Sin agentes todavía."
-          errorMessage="No se pudo cargar los agentes."
-          loading={agentsQuery.isLoading}
-          error={agentsQuery.error}
-          onRetry={() => void agentsQuery.refetch()}
-          onOpen={() => workspace.requestNavigate(projectTabPath(slug, "agents"))}
-        />
-        <CountCard
-          title="Integraciones"
-          testId="overview-count-integrations"
-          value={integrationsQuery.data?.length}
-          hint="Canales y herramientas conectados."
-          zeroHint="Sin integraciones todavía."
-          errorMessage="No se pudo cargar las integraciones."
-          loading={integrationsQuery.isLoading}
-          error={integrationsQuery.error}
-          onRetry={() => void integrationsQuery.refetch()}
-          onOpen={() => workspace.requestNavigate(projectTabPath(slug, "integrations"))}
-        />
         <CountCard
           title="Conocimiento"
           testId="overview-count-knowledge"

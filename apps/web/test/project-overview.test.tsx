@@ -180,7 +180,7 @@ describe("ProjectOverviewPage", () => {
     setupApi();
   });
 
-  it("renderiza preparación, conteos y las últimas cinco ejecuciones", async () => {
+  it("renderiza preparación, el conteo de conocimiento y las últimas cinco ejecuciones", async () => {
     renderPage();
 
     const readiness = await screen.findByTestId("overview-readiness");
@@ -190,10 +190,13 @@ describe("ProjectOverviewPage", () => {
     expect(within(readiness).getByText("2 de 3 listas")).toBeInTheDocument();
     expect(within(readiness).getByRole("button", { name: "Revisar ajustes" })).toBeInTheDocument();
 
-    expect(await screen.findByText("Agentes disponibles para operar el flujo.")).toBeInTheDocument();
-    expect(screen.getByTestId("overview-count-agents")).toHaveTextContent("2");
-    expect(screen.getByTestId("overview-count-integrations")).toHaveTextContent("1");
+    expect(await screen.findByText("Notebooks de conocimiento del proyecto.")).toBeInTheDocument();
     expect(screen.getByTestId("overview-count-knowledge")).toHaveTextContent("2");
+    // Los conteos de agentes e integraciones viven solo en las pestañas del proyecto.
+    expect(screen.queryByTestId("overview-count-agents")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("overview-count-integrations")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Agentes (2)" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Integraciones (1)" })).toBeInTheDocument();
 
     const runsSection = screen.getByTestId("overview-runs");
     expect(await within(runsSection).findByText("run-0006")).toBeInTheDocument();
@@ -221,8 +224,6 @@ describe("ProjectOverviewPage", () => {
     const readiness = await screen.findByTestId("overview-readiness");
     expect(readiness).toHaveAttribute("aria-busy", "true");
     expect(screen.getByTestId("overview-runs")).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByTestId("overview-count-agents")).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByTestId("overview-count-integrations")).toHaveAttribute("aria-busy", "true");
     expect(screen.getByTestId("overview-count-knowledge")).toHaveAttribute("aria-busy", "true");
     expect(document.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
     expect(screen.queryByText("Sin ejecuciones todavía")).not.toBeInTheDocument();
@@ -246,12 +247,8 @@ describe("ProjectOverviewPage", () => {
     await userEvent.click(within(runsSection).getByRole("button", { name: "Ejecutar flujo" }));
     expect(await screen.findByRole("dialog", { name: "Ejecutar flujo" })).toBeInTheDocument();
 
-    expect(await screen.findByText("Sin agentes todavía.")).toBeInTheDocument();
-    expect(screen.getByTestId("overview-count-agents")).toHaveTextContent("0");
-    expect(screen.getByTestId("overview-count-integrations")).toHaveTextContent("0");
+    expect(await screen.findByText("Sin notebooks todavía.")).toBeInTheDocument();
     expect(screen.getByTestId("overview-count-knowledge")).toHaveTextContent("0");
-    expect(screen.getByText("Sin integraciones todavía.")).toBeInTheDocument();
-    expect(screen.getByText("Sin notebooks todavía.")).toBeInTheDocument();
     expect(screen.getByText("Define el agente principal del proyecto.")).toBeInTheDocument();
   });
 
@@ -266,7 +263,7 @@ describe("ProjectOverviewPage", () => {
     expect(within(alert).getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
 
     expect(await screen.findByText("run-0006")).toBeInTheDocument();
-    expect(await screen.findByText("Agentes disponibles para operar el flujo.")).toBeInTheDocument();
+    expect(await screen.findByText("Notebooks de conocimiento del proyecto.")).toBeInTheDocument();
     expect(within(readiness).queryByText("Agente principal configurado")).not.toBeInTheDocument();
 
     apiMock.getProjectSettings.mockResolvedValue(settings);
@@ -283,7 +280,9 @@ describe("ProjectOverviewPage", () => {
     const knowledge = await screen.findByTestId("overview-count-knowledge");
     const alert = await within(knowledge).findByRole("alert");
     expect(alert).toHaveTextContent("No se pudo conectar con el servidor");
-    expect(screen.getByTestId("overview-count-agents")).not.toHaveTextContent("Reintentar");
+    expect(
+      within(screen.getByTestId("overview-readiness")).queryByRole("button", { name: "Reintentar" }),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
     await waitFor(() => expect(screen.getByTestId("overview-count-knowledge")).toHaveTextContent("2"));
@@ -310,8 +309,6 @@ describe("ProjectOverviewPage", () => {
   it("navega a cada sección desde los accesos del resumen", async () => {
     const targets: Array<[string, string]> = [
       ["Ver todas", "/projects/demo/runs"],
-      ["Ver agentes", "/projects/demo/agents"],
-      ["Ver integraciones", "/projects/demo/integrations"],
       ["Ver conocimiento", "/projects/demo/knowledge"],
       ["Revisar ajustes", "/projects/demo/settings"],
       ["Abrir flujo", "/projects/demo/flow"],
@@ -320,10 +317,22 @@ describe("ProjectOverviewPage", () => {
     for (const [name, path] of targets) {
       const { unmount } = renderPage();
       await screen.findByText("2 de 3 listas");
-      await screen.findByText("Agentes disponibles para operar el flujo.");
       await userEvent.click(screen.getByRole("button", { name }));
       await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(path));
       unmount();
     }
+  });
+
+  it("muestra el breadcrumb del proyecto una sola vez", async () => {
+    renderPage();
+    await screen.findByText("2 de 3 listas");
+
+    // Una única fila de migas: la de la barra superior, que también lleva al resumen.
+    const breadcrumbs = screen.getAllByRole("navigation", { name: "Migas de pan" });
+    expect(breadcrumbs).toHaveLength(1);
+    expect(within(breadcrumbs[0]!).getByRole("link", { name: "Proyectos" })).toHaveAttribute("href", "/projects");
+    expect(within(breadcrumbs[0]!).getByRole("link", { name: "Demo" })).toHaveAttribute("aria-current", "page");
+    // El slug no se repite en una segunda miga encima de la barra.
+    expect(screen.getAllByText("demo")).toHaveLength(1);
   });
 });

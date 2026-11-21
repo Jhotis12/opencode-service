@@ -150,7 +150,8 @@ describe("global runs route", () => {
 
     const nav = await screen.findByRole("navigation", { name: "Migas de pan" });
     expect(within(nav).getByRole("link", { name: "Proyectos" })).toHaveAttribute("href", "/projects");
-    const current = within(nav).getByRole("link", { name: "demo" });
+    const current = within(nav).getByRole("link", { name: "Demo" });
+    expect(current).toHaveAttribute("href", "/projects/demo/overview");
     expect(current).toHaveAttribute("aria-current", "page");
     expect(current).toHaveAttribute("title", "Demo");
   });

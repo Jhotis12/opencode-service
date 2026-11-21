@@ -192,20 +192,28 @@ export function ProjectTopBar({
         data-testid="project-top-bar"
         className="flex flex-col gap-1.5 border-b border-line bg-ink/90 px-3 py-1.5 sm:h-14 sm:flex-row sm:items-center sm:gap-2 sm:py-0 lg:px-4"
       >
-        <div className="flex min-w-0 items-center gap-2 sm:shrink-0">
+        <nav aria-label="Migas de pan" className="flex min-w-0 items-center gap-2 sm:shrink-0">
           <Link
             className="shrink-0 text-xs text-accent hover:underline"
             to="/projects"
             onClick={(event) => guardNavigation(event, "/projects")}
           >
-            ← Proyectos
+            <span aria-hidden="true">←</span> Proyectos
           </Link>
-          <span className="text-xs text-muted">/</span>
-          <strong className="max-w-[120px] truncate text-sm text-slate-100 max-sm:min-w-0 max-sm:max-w-full max-sm:flex-1 min-[1400px]:max-w-[240px]" title={graph.name}>
+          <span aria-hidden="true" className="text-xs text-muted">
+            /
+          </span>
+          <Link
+            to={projectTabPath(slug, "overview")}
+            aria-current="page"
+            title={graph.name}
+            onClick={(event) => guardNavigation(event, projectTabPath(slug, "overview"))}
+            className={`min-w-0 max-w-[120px] truncate text-sm font-semibold text-slate-100 underline-offset-2 hover:underline max-sm:max-w-full max-sm:flex-1 min-[1400px]:max-w-[240px] ${focusRing}`}
+          >
             {graph.name}
-          </strong>
+          </Link>
           <span className="hidden text-[11px] text-muted 2xl:inline">{slug}</span>
-        </div>
+        </nav>
 
         <div className="flex min-w-0 items-center gap-1.5 sm:flex-1 sm:gap-2">
           <div className="relative min-w-0 flex-1">

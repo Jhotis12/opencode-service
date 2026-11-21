@@ -234,7 +234,9 @@ describe("routed project workspace", { timeout: 20_000 }, () => {
     const stillEdited = await screen.findByRole("dialog", { name: "Nodo: Consultar editado" });
     await userEvent.click(within(stillEdited).getByRole("button", { name: "Cerrar" }));
 
-    await userEvent.click(screen.getByRole("link", { name: "← Proyectos" }));
+    await userEvent.click(
+      within(screen.getByRole("navigation", { name: "Migas de pan" })).getByRole("link", { name: "Proyectos" }),
+    );
     const leavingGuard = await screen.findByRole("dialog", { name: "Cambios sin guardar" });
     await userEvent.click(within(leavingGuard).getByRole("button", { name: "Cancelar" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Cambios sin guardar" })).not.toBeInTheDocument());
@@ -297,7 +299,7 @@ describe("routed project workspace", { timeout: 20_000 }, () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("describes the pending readiness item instead of repeating its positive label", async () => {
+  it("explica el ítem de preparación pendiente una sola vez, en el resumen", async () => {
     apiMock.getProjectSettings.mockResolvedValue({
       project: { id: "p1", slug: "demo", name: "Demo", description: "", createdAt: new Date().toISOString() },
       integrations: [],
@@ -313,9 +315,11 @@ describe("routed project workspace", { timeout: 20_000 }, () => {
     });
     renderApp("/projects/demo/overview");
 
+    const readiness = await screen.findByTestId("overview-readiness");
     expect(
-      await screen.findByText(/Configuración pendiente: El flujo tiene aprobaciones/),
+      await within(readiness).findByText(/El flujo tiene aprobaciones y no hay un canal/),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Configuración pendiente: Canal de aprobación configurado/)).not.toBeInTheDocument();
+    // La barra del proyecto ya no repite la preparación como texto inline.
+    expect(screen.queryByText(/Configuración pendiente/)).not.toBeInTheDocument();
   });
 });

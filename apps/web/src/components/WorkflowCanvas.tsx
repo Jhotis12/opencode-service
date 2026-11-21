@@ -14,6 +14,7 @@ import {
   type EdgeChange,
   type NodeChange,
   type ReactFlowInstance,
+  type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { NodeSpec, WorkflowGraph } from "@platform/shared";
@@ -377,6 +378,31 @@ function toEdges(
   return [...edges, ...errorEdges];
 }
 
+/** Air between the fitted graph and the visible edges of the canvas. */
+const CHAT_FIT_GAP_PX = 32;
+/** Below this much uncovered canvas the drawer hides the graph anyway; keep the viewport. */
+const CHAT_FIT_MIN_VISIBLE_PX = 240;
+
+type PixelPadding = `${number}px`;
+
+/**
+ * Fit padding that keeps the graph inside the canvas area the chat drawer leaves visible.
+ * The drawer is a fixed overlay, so the fit gets the covered width as right padding instead of
+ * the canvas shrinking. Returns `null` when the drawer leaves no usable strip to fit into.
+ */
+export function chatFitPadding(
+  canvasWidth: number,
+  drawerWidth: number,
+): { top: PixelPadding; right: PixelPadding; bottom: PixelPadding; left: PixelPadding } | null {
+  if (canvasWidth - drawerWidth < CHAT_FIT_MIN_VISIBLE_PX) return null;
+  return {
+    top: `${CHAT_FIT_GAP_PX}px`,
+    right: `${drawerWidth + CHAT_FIT_GAP_PX}px`,
+    bottom: `${CHAT_FIT_GAP_PX}px`,
+    left: `${CHAT_FIT_GAP_PX}px`,
+  };
+}
+
 export interface WorkflowCanvasProps {
   graph: WorkflowGraph;
   selectedId?: string;
@@ -448,6 +474,9 @@ export function WorkflowCanvas({
     toEdges(graph, issues, runningNodeId, nodeStatuses),
   );
   const [flow, setFlow] = useState<ReactFlowInstance<PlatformFlowNode, PlatformFlowEdge>>();
+  // The layout renders the chat drawer as a fixed overlay, so it publishes its state on the element
+  // and this canvas, which it covers, mirrors it instead of duplicating the workspace state.
+  const [chatOpen, setChatOpen] = useState(false);
   const draggedRef = useRef(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -556,6 +585,53 @@ export function WorkflowCanvas({
     }, 80);
     return () => clearTimeout(timer);
   }, [flow, graph.id, graph.nodes]);
+
+  useEffect(() => {
+    const drawer = document.querySelector<HTMLElement>("[data-chat-drawer]");
+    if (!drawer) return;
+    const sync = () => setChatOpen(drawer.hasAttribute("data-open"));
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(drawer, { attributes: true, attributeFilter: ["data-open"] });
+    return () => observer.disconnect();
+  }, []);
+
+  // The chat state the viewport was last fitted for: a re-run (StrictMode, a new `flow` identity)
+  // must not move it twice. Mount counts as closed.
+  const fittedChatOpen = useRef(false);
+  /** The viewport the drawer covered; closing restores exactly this instead of re-fitting. */
+  const preChatViewport = useRef<Viewport | null>(null);
+  /** A drawer already open on mount was never seen closed, so it has no viewport to go back to. */
+  const sawChatClosed = useRef(false);
+  useEffect(() => {
+    if (!flow) return;
+    if (!chatOpen) sawChatClosed.current = true;
+    // The initial-view effect above fits at 80 ms; fitting later keeps that full-canvas fit from
+    // winning when the page is entered with the drawer already open (chat open, then navigate here).
+    const timer = setTimeout(() => {
+      if (fittedChatOpen.current === chatOpen) return;
+      fittedChatOpen.current = chatOpen;
+      if (chatOpen) {
+        // The drawer is a fixed overlay over a full-width canvas, so only the uncovered strip is
+        // visible; fit into it instead of centring the graph behind the panel.
+        const drawer = document.querySelector<HTMLElement>("[data-chat-drawer]");
+        const padding = chatFitPadding(canvasRef.current?.clientWidth ?? 0, drawer?.offsetWidth ?? 0);
+        // A drawer that leaves no strip (a phone's full-width sheet) changes nothing, so it has
+        // nothing to restore on close, and closing must not move the viewport either.
+        if (!padding || !sawChatClosed.current) return;
+        preChatViewport.current = flow.getViewport();
+        flow.fitView({ padding, duration: 300, minZoom: 0.25, maxZoom: 1.2 });
+        return;
+      }
+      // Closing returns to the viewport the drawer covered. Re-fitting the graph instead would
+      // throw away the user's own pan and zoom, and on a phone it shrank the 0.8 placement into a
+      // whole-graph fit at ~0.33 as soon as the drawer had been opened once.
+      const saved = preChatViewport.current;
+      preChatViewport.current = null;
+      if (saved) flow.setViewport(saved, { duration: 300 });
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [flow, chatOpen]);
 
   function fitOverview() {
     flow?.fitView({ padding: 0.1, duration: 300, minZoom: 0.25, maxZoom: 1.2 });

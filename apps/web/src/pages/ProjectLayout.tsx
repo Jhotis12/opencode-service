@@ -161,6 +161,8 @@ function ProjectWorkspaceShell() {
           className={`chat-drawer absolute inset-y-0 right-0 flex w-full max-w-[500px] flex-col overflow-hidden border-l border-line bg-ink p-3 shadow-2xl ${
             workspace.chatOpen ? "translate-x-0" : "translate-x-full"
           }`}
+          data-chat-drawer=""
+          data-open={workspace.chatOpen ? "" : undefined}
           onClick={(event) => event.stopPropagation()}
         >
           <ChatPanel

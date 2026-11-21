@@ -385,7 +385,7 @@ export function ProjectTopBar({
           {versions.length === 0 ? (
             <p className="text-xs text-muted">Todavía no hay snapshots registrados para este flujo.</p>
           ) : (
-            <div className="flex max-h-80 flex-col gap-2 overflow-auto">
+            <div className="flex flex-col gap-2">
               {versions.map((item) => (
                 <div
                   key={item.id}

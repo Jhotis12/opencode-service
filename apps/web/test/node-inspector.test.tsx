@@ -4,7 +4,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import type { IntegrationRecord, NodeSpec, SubagentProfile, WorkflowGraph } from "@platform/shared";
-import type { ModelInfo, NotebookSummary } from "../src/api.ts";
+import type { ModelInfo, NotebookSummary, StepRun } from "../src/api.ts";
 import { chooseOption, renderWithProviders } from "./render.tsx";
 import { NodeConfigFields } from "../src/components/NodeConfigFields.tsx";
 import { NodeInspector } from "../src/components/NodeInspector.tsx";
@@ -586,7 +586,7 @@ describe("NodeInspectorModal notebooks", () => {
     updatedAt: now,
   };
 
-  function renderModal(notebooks: readonly NotebookSummary[]) {
+  function renderModal(notebooks: readonly NotebookSummary[], lastStep?: StepRun) {
     const onPatch = vi.fn();
     renderWithProviders(
       <NodeInspectorModal
@@ -595,6 +595,7 @@ describe("NodeInspectorModal notebooks", () => {
         agents={agents}
         models={models}
         notebooks={notebooks}
+        lastStep={lastStep}
         integrations={[]}
         destinations={[]}
         code=""
@@ -617,6 +618,30 @@ describe("NodeInspectorModal notebooks", () => {
     );
     return { onPatch };
   }
+
+  it("keeps the execution preview in the body scroll instead of a nested one", async () => {
+    const user = userEvent.setup();
+    renderModal(catalogue, {
+      id: "step-1",
+      nodeId: saved.id,
+      status: "succeeded",
+      durationMs: 12,
+      startedAt: now,
+      input: { consulta: "hola" },
+      output: { salida: "texto ".repeat(400) },
+    });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: Calificar" });
+
+    await user.click(within(dialog).getByRole("tab", { name: "Ejecución" }));
+
+    const panel = within(dialog).getByRole("tabpanel");
+    const scrollers = dialog.querySelectorAll(".overflow-auto");
+    expect(scrollers).toHaveLength(1);
+    expect(scrollers[0]).toHaveAttribute("data-modal-body");
+    for (const preview of panel.querySelectorAll("pre")) {
+      expect(preview.className).not.toMatch(/max-h-|overflow/);
+    }
+  });
 
   it("adds a catalogue notebook the saved node config does not have", async () => {
     const user = userEvent.setup();

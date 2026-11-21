@@ -117,4 +117,4 @@ export const modalBackdrop =
   "modal-backdrop fixed inset-0 z-50 flex items-end justify-center bg-ink/75 p-0 backdrop-blur-sm sm:items-center sm:p-4";
 
 export const modalPanel =
-  "modal-surface flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-panel shadow-2xl sm:rounded-2xl";
+  "modal-surface flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-panel pb-[env(safe-area-inset-bottom)] shadow-2xl sm:rounded-2xl";

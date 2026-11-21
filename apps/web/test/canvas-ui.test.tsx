@@ -7,15 +7,23 @@ import {
   PHONE_QUERY,
   TOUCH_CONNECTION_RADIUS,
   WorkflowCanvas,
+  chatFitPadding,
 } from "../src/components/WorkflowCanvas.tsx";
 import { NodePaletteModal } from "../src/components/NodePaletteModal.tsx";
 import { NodeInspectorModal } from "../src/components/NodeInspectorModal.tsx";
 import { ProjectTopBar, type ProjectTab } from "../src/components/ProjectTopBar.tsx";
 import { chooseOption, setViewportMatches } from "./render.tsx";
 
+type FakeViewport = { x: number; y: number; zoom: number };
+
 const flowHarness = vi.hoisted(() => ({
   /** Injected viewport instance: jsdom has no layout, so the real one never initializes. */
-  raise: null as null | { fitView: (options?: unknown) => void; setCenter: (x: number, y: number, options?: unknown) => void },
+  raise: null as null | {
+    fitView: (options?: unknown) => void;
+    setCenter: (x: number, y: number, options?: unknown) => void;
+    getViewport: () => FakeViewport;
+    setViewport: (viewport: FakeViewport, options?: unknown) => void;
+  },
   props: [] as Array<Record<string, unknown>>,
 }));
 
@@ -98,8 +106,20 @@ function renderCanvas(overrides: Partial<React.ComponentProps<typeof WorkflowCan
   return { ...result, props };
 }
 
-function fakeFlowInstance() {
-  return { fitView: vi.fn(), setCenter: vi.fn() };
+/**
+ * A stateful stand-in for React Flow's viewport: `setViewport` moves it the way the real instance
+ * does, so a spec can prove a close restored the captured transform instead of painting a new one.
+ */
+function fakeFlowInstance(initial: FakeViewport = { x: 0, y: 0, zoom: 1 }) {
+  const viewport: FakeViewport = { ...initial };
+  return {
+    fitView: vi.fn(),
+    setCenter: vi.fn(),
+    getViewport: vi.fn(() => ({ ...viewport })),
+    setViewport: vi.fn((next: FakeViewport) => {
+      Object.assign(viewport, next);
+    }),
+  };
 }
 
 /** jsdom reports zero metrics; the initial-view effect reads these off the canvas host. */
@@ -555,6 +575,113 @@ describe("WorkflowCanvas", () => {
       restore();
       vi.useRealTimers();
     }
+  });
+
+  it("leaves the phone viewport untouched when the chat drawer opens and closes", async () => {
+    vi.useFakeTimers();
+    const restore = setViewportMatches(PHONE_QUERY, true);
+    // A phone drawer is a full-width sheet: it leaves no strip to fit into, so opening must not
+    // move the viewport and closing must not re-fit the graph over the 0.8 placement.
+    const drawer = document.createElement("div");
+    drawer.setAttribute("data-chat-drawer", "");
+    Object.defineProperty(drawer, "offsetWidth", { configurable: true, value: 390 });
+    document.body.append(drawer);
+    const instance = fakeFlowInstance({ x: -40, y: -30, zoom: 0.8 });
+    flowHarness.raise = instance;
+    try {
+      const { container } = renderCanvas({
+        graph: graph([node("start", "trigger"), node("code", "code", { position: { x: 2800, y: 0 } })]),
+      });
+      stubCanvasSize(container, 390, 844);
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(instance.setCenter).toHaveBeenCalledWith(126, 48, expect.objectContaining({ zoom: 0.8 }));
+      const before = instance.getViewport();
+
+      for (const open of [true, false]) {
+        await act(async () => {
+          if (open) drawer.setAttribute("data-open", "");
+          else drawer.removeAttribute("data-open");
+        });
+        await act(async () => {
+          vi.advanceTimersByTime(200);
+        });
+      }
+
+      // The whole-graph fit (`padding: 0.1, minZoom: 0.25`) is `Ajustar vista`'s path alone.
+      expect(instance.fitView).not.toHaveBeenCalled();
+      expect(instance.setViewport).not.toHaveBeenCalled();
+      expect(instance.getViewport()).toEqual(before);
+      expect(instance.getViewport().zoom).toBe(0.8);
+    } finally {
+      drawer.remove();
+      flowHarness.raise = null;
+      restore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("fits into the strip the chat drawer leaves visible and restores the captured viewport on close", async () => {
+    vi.useFakeTimers();
+    const drawer = document.createElement("div");
+    drawer.setAttribute("data-chat-drawer", "");
+    Object.defineProperty(drawer, "offsetWidth", { configurable: true, value: 500 });
+    document.body.append(drawer);
+    // The viewport the user was looking at before the drawer opened.
+    const instance = fakeFlowInstance({ x: -140, y: -60, zoom: 1.05 });
+    flowHarness.raise = instance;
+    try {
+      const { container } = renderCanvas();
+      stubCanvasSize(container, 1040, 800);
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(instance.fitView).not.toHaveBeenCalledWith(
+        expect.objectContaining({ padding: expect.objectContaining({ right: "532px" }) }),
+      );
+
+      await act(async () => {
+        drawer.setAttribute("data-open", "");
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+      // The drawer is an overlay, so the covered 500 px become right padding instead of shrinking
+      // the canvas: the graph lands in the 540 px strip the user can actually see.
+      expect(instance.fitView).toHaveBeenLastCalledWith({
+        padding: { top: "32px", right: "532px", bottom: "32px", left: "32px" },
+        duration: 300,
+        minZoom: 0.25,
+        maxZoom: 1.2,
+      });
+
+      const fitCallsWhileOpen = instance.fitView.mock.calls.length;
+      await act(async () => {
+        drawer.removeAttribute("data-open");
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+      // Closing returns to the captured viewport instead of re-fitting the whole graph, which
+      // would also throw away the user's own pan and zoom.
+      expect(instance.setViewport).toHaveBeenCalledWith({ x: -140, y: -60, zoom: 1.05 }, { duration: 300 });
+      expect(instance.getViewport()).toEqual({ x: -140, y: -60, zoom: 1.05 });
+      expect(instance.fitView.mock.calls.length).toBe(fitCallsWhileOpen);
+    } finally {
+      drawer.remove();
+      flowHarness.raise = null;
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the viewport when the drawer leaves no canvas to fit into", () => {
+    expect(chatFitPadding(1040, 500)).toEqual({ top: "32px", right: "532px", bottom: "32px", left: "32px" });
+    // A phone drawer is full-width, and a drawer wider than the canvas leaves nothing either.
+    expect(chatFitPadding(390, 390)).toBeNull();
+    expect(chatFitPadding(1040, 801)).toBeNull();
+    // Without a measured drawer the padding stays a symmetric gutter.
+    expect(chatFitPadding(1040, 0)).toEqual({ top: "32px", right: "32px", bottom: "32px", left: "32px" });
   });
 });
 
@@ -1118,6 +1245,19 @@ describe("ProjectTopBar", () => {
     expect(onRun).toHaveBeenCalled();
     expect(onChat).toHaveBeenCalled();
     expect(onSave).toHaveBeenCalled();
+  });
+
+  it("keeps the flow version list inside the modal's single scroller", async () => {
+    renderTopBar("flow", { onRollbackVersion: vi.fn() });
+
+    await userEvent.click(screen.getByRole("button", { name: "Más acciones del flujo" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Versiones del flujo/ }));
+    const dialog = screen.getByRole("dialog", { name: "Versiones del flujo" });
+
+    const scrollers = dialog.querySelectorAll(".overflow-auto");
+    expect(scrollers).toHaveLength(1);
+    expect(scrollers[0]).toHaveAttribute("data-modal-body");
+    expect(dialog.querySelector(".max-h-80")).toBeNull();
   });
 
   it("labels model choices from the catalogue and emits the provider/model ref", async () => {

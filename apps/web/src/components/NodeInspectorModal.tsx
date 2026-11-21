@@ -36,7 +36,7 @@ function edgeSourceLabel(graph: WorkflowGraph, edge: Edge): string {
 function ValuePreview({ value }: { value: unknown }) {
   if (value === undefined) return <span className="text-muted">—</span>;
   return (
-    <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-xs">
+    <pre className="whitespace-pre-wrap text-xs">
       {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
     </pre>
   );

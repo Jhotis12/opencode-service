@@ -18,6 +18,7 @@ import {
 import { Select } from "../components/Select.tsx";
 import type { SelectOption } from "../components/select/options.ts";
 import { Skeleton } from "../components/Skeleton.tsx";
+import { notifyError } from "../components/Toast.tsx";
 import { button, buttonGhost, card, friendlyError, input, statusLabel } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
 
@@ -81,7 +82,6 @@ export function GlobalRunsPage() {
   });
 
   const [exporting, setExporting] = useState<"json" | "csv" | undefined>();
-  const [exportError, setExportError] = useState<string | undefined>();
   const [exportFeedback, setExportFeedback] = useState<ExportFeedback | undefined>();
 
   const replay = useMutation({
@@ -135,7 +135,6 @@ export function GlobalRunsPage() {
 
   async function exportRuns(format: "json" | "csv") {
     setExporting(format);
-    setExportError(undefined);
     setExportFeedback(undefined);
     try {
       const result = await api.listGlobalRuns({ ...filters, limit: EXPORT_LIMIT, offset: 0 });
@@ -144,7 +143,7 @@ export function GlobalRunsPage() {
         setExportFeedback({ exported: result.data.length, total: result.total });
       }
     } catch (error) {
-      setExportError(friendlyError(error, "No se pudieron exportar las ejecuciones."));
+      notifyError(friendlyError(error, "No se pudieron exportar las ejecuciones."));
     } finally {
       setExporting(undefined);
     }
@@ -249,11 +248,6 @@ export function GlobalRunsPage() {
           <p className="text-xs text-warn" data-testid="global-runs-export-note">
             La exportación se limitó a {exportFeedback.exported} de {exportFeedback.total} ejecuciones (máximo{" "}
             {EXPORT_LIMIT}). Ajusta los filtros para exportar el resto.
-          </p>
-        )}
-        {exportError && (
-          <p className="text-xs text-danger" role="alert">
-            {exportError}
           </p>
         )}
       </search>

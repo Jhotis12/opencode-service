@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
+import { Toaster } from "sonner";
 import type { RunRecord, StepRun } from "../src/api.ts";
 import { runOriginLabel } from "../src/api.ts";
 import {
@@ -12,8 +13,11 @@ import {
   runsToCsv,
   runsToJson,
 } from "../src/components/RunsTable.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 import { GlobalRunsPage } from "../src/pages/GlobalRunsPage.tsx";
 import { renderWithProviders, setViewportMatches } from "./render.tsx";
+
+const NETWORK_COPY = "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.";
 
 const apiMock = vi.hoisted(() => ({
   listGlobalRuns: vi.fn(),
@@ -105,6 +109,10 @@ function lastCall() {
 }
 
 const normalize = (text: string | null): string => (text ?? "").replace(/\s+/g, " ").trim();
+
+afterEach(() => {
+  act(() => dismissAll());
+});
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -342,6 +350,34 @@ describe("GlobalRunsPage", () => {
       URL.createObjectURL = originalCreate;
       URL.revokeObjectURL = originalRevoke;
     }
+  });
+
+  it("announces a rejected export as exactly one error toast and keeps no inline copy", async () => {
+    apiMock.listGlobalRuns.mockImplementation((filters: { limit?: number }) =>
+      filters.limit === 200
+        ? Promise.reject(new Error("failed to fetch"))
+        : Promise.resolve(pageOf([succeededWebUi])),
+    );
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/runs"]}>
+        <GlobalRunsPage />
+        <Toaster theme="dark" position="bottom-right" richColors closeButton />
+      </MemoryRouter>,
+    );
+    await screen.findByText("aaaa1111");
+
+    await userEvent.click(screen.getByRole("button", { name: "Exportar JSON" }));
+
+    const copy = await screen.findByText(NETWORK_COPY);
+    const toast = copy.closest("[data-sonner-toast]");
+    expect(toast).not.toBeNull();
+    // Secondary export controls still announce the outcome: sonner's host is a polite live region.
+    expect((toast as HTMLElement).closest("section[aria-live]")).toHaveAttribute("aria-live", "polite");
+    expect(screen.getAllByText(NETWORK_COPY)).toHaveLength(1);
+    expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(1);
+    // The failure left the filter panel: no inline red copy anywhere on the page.
+    expect(document.querySelector("search p.text-danger")).toBeNull();
+    expect(document.querySelector(".text-danger")?.textContent ?? "").not.toContain(NETWORK_COPY);
   });
 
   it("stacks each run row at 390px keeping the id, the status and every fact", async () => {

@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Toaster } from "sonner";
 import type { DestinationKind } from "@platform/shared";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { chooseOption, renderWithProviders } from "./render.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 
 const now = new Date().toISOString();
 const integration = {
@@ -138,19 +140,27 @@ type PanelProps = { navigationBlocked?: boolean; onNavigateBlocked?(target: stri
 
 function renderPanel(section?: string, props: PanelProps = {}) {
   const initial = `/projects/ventas/settings${section ? `?section=${section}` : ""}`;
+  // Outcomes are announced by sonner: the real host proves the copy lands in a toast.
   return renderWithProviders(
-    <MemoryRouter initialEntries={[initial]}>
-      <LocationProbe />
-      <Routes>
-        <Route
-          path="/projects/:slug/settings"
-          element={<ProjectConfigurationPanel projectSlug="ventas" {...props} />}
-        />
-        <Route path="/projects/:slug/integrations" element={<p>Página de integraciones</p>} />
-      </Routes>
-    </MemoryRouter>,
+    <>
+      <MemoryRouter initialEntries={[initial]}>
+        <LocationProbe />
+        <Routes>
+          <Route
+            path="/projects/:slug/settings"
+            element={<ProjectConfigurationPanel projectSlug="ventas" {...props} />}
+          />
+          <Route path="/projects/:slug/integrations" element={<p>Página de integraciones</p>} />
+        </Routes>
+      </MemoryRouter>
+      <Toaster theme="dark" position="bottom-right" richColors closeButton />
+    </>
   );
 }
+
+afterEach(() => {
+  act(() => dismissAll());
+});
 
 describe("ProjectConfigurationPanel", () => {
   beforeEach(() => {
@@ -247,6 +257,8 @@ describe("ProjectConfigurationPanel", () => {
       }),
     );
     expect(apiMock.updateDestination).not.toHaveBeenCalled();
+    const createdToast = await screen.findByText("Destino creado");
+    expect(createdToast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
   it("edits a destination kind and saves it with its label and value", async () => {
@@ -274,6 +286,8 @@ describe("ProjectConfigurationPanel", () => {
         value: "123456",
       }),
     );
+    const updatedToast = await screen.findByText("Destino actualizado");
+    expect(updatedToast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
   it("keeps the panel usable with no destinations yet", async () => {
@@ -368,6 +382,8 @@ describe("ProjectConfigurationPanel", () => {
     await waitFor(() => expect(apiMock.saveProjectSecret).toHaveBeenCalledWith("ventas", "openai_key", "secret-value"));
     await waitFor(() => expect(screen.getByLabelText("Alias")).toHaveValue(""));
     expect(screen.getByLabelText("Valor")).toHaveValue("");
+    const savedSecretToast = await screen.findByText("Secreto guardado en la bóveda del proyecto");
+    expect(savedSecretToast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
   it("blocks an invalid secret alias and shows inline validation without a request", async () => {
@@ -413,7 +429,8 @@ describe("ProjectConfigurationPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Eliminar" }));
 
     await waitFor(() => expect(apiMock.deleteProjectSecret).toHaveBeenCalledWith("ventas", "api_key"));
-    expect(await screen.findByText("Secreto eliminado")).toBeInTheDocument();
+    const removedSecretToast = await screen.findByText("Secreto eliminado");
+    expect(removedSecretToast.closest("[data-sonner-toast]")).not.toBeNull();
     await waitFor(() => expect(screen.queryByText("api_key")).not.toBeInTheDocument());
   });
 
@@ -521,6 +538,8 @@ describe("ProjectConfigurationPanel", () => {
       ),
     );
     expect(screen.getByRole("combobox", { name: "Agente principal" })).toHaveTextContent("ventas/calificador");
+    const savedToast = await screen.findByText("Ajustes del proyecto guardados");
+    expect(savedToast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
   it("clears the primary agent and saves null", async () => {

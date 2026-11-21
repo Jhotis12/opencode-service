@@ -14,6 +14,7 @@ import { IntegrationEditor, type SavedIntegration } from "../components/Integrat
 import { NodeIcon } from "../components/nodes/node-icons.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
+import { notifySuccess } from "../components/Toast.tsx";
 import { badge, buttonGhost, buttonPrimary, friendlyError, sectionTitle } from "../ui.ts";
 import { ProjectSectionBody, useProjectWorkspace } from "./project-workspace.tsx";
 
@@ -43,7 +44,6 @@ export function ProjectIntegrationsPage() {
     enabled: Boolean(slug),
   });
 
-  const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [rawError, setRawError] = useState<string>();
   const [created, setCreated] = useState<SavedIntegration>();
@@ -52,7 +52,7 @@ export function ProjectIntegrationsPage() {
   const [editorKey, setEditorKey] = useState(0);
 
   const actions = useProjectIntegrationActions(slug, {
-    onStatus: setStatus,
+    onStatus: notifySuccess,
     onError: (message, rawMessage) => {
       setError(message);
       setRawError(rawMessage);
@@ -61,7 +61,7 @@ export function ProjectIntegrationsPage() {
 
   function saved(result: SavedIntegration) {
     setCreated(result);
-    setStatus("Integración " + result.integration.name + " guardada");
+    notifySuccess("Integración " + result.integration.name + " guardada");
     setCreateOpen(false);
     setEditingId(undefined);
     setEditorKey((current) => current + 1);
@@ -95,12 +95,6 @@ export function ProjectIntegrationsPage() {
           {error}
         </p>
       )}
-      {status && (
-        <p className="text-sm text-ok" role="status">
-          {status}
-        </p>
-      )}
-
       {createOpen && (
         <IntegrationEditor
           key={editorKey}

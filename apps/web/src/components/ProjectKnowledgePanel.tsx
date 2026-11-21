@@ -17,6 +17,7 @@ import { EmptyState } from "./EmptyState.tsx";
 import { Modal } from "./Modal.tsx";
 import { NodeIcon } from "./nodes/node-icons.tsx";
 import { Skeleton } from "./Skeleton.tsx";
+import { notifySuccess } from "./Toast.tsx";
 
 function PendingNote({ children }: { children: ReactNode }) {
   return (
@@ -51,7 +52,6 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
   const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
-  const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [uploadName, setUploadName] = useState<string>();
   const [preview, setPreview] = useState<SourceSummary>();
@@ -70,7 +70,7 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
       setSlug("");
       setName("");
       setError(undefined);
-      setStatus("Notebook creado.");
+      notifySuccess("Notebook creado.");
       setSelected(notebook.slug);
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
@@ -80,13 +80,12 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
   const upload = useMutation({
     mutationFn: (file: File) => api.uploadSource(projectSlug, selected!, file),
     onMutate: (file) => {
-      setStatus(undefined);
       setError(undefined);
       setUploadName(file.name);
     },
     onSuccess: (result) => {
       setUploadName(undefined);
-      setStatus(`Fuente indexada: ${result.source.title} (${result.chunks} fragmentos)`);
+      notifySuccess(`Fuente indexada: ${result.source.title} (${result.chunks} fragmentos)`);
       void queryClient.invalidateQueries({ queryKey: qk.sources(projectSlug, selected!) });
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
@@ -100,7 +99,7 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
     mutationFn: () => api.ingestUrl(projectSlug, selected!, url),
     onSuccess: (result) => {
       setError(undefined);
-      setStatus(`URL indexada: ${result.source.title} (${result.chunks} fragmentos)`);
+      notifySuccess(`URL indexada: ${result.source.title} (${result.chunks} fragmentos)`);
       setUrl("");
       void queryClient.invalidateQueries({ queryKey: qk.sources(projectSlug, selected!) });
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
@@ -120,7 +119,7 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
     onSuccess: (_result, input) => {
       setConfirmSource(undefined);
       setError(undefined);
-      setStatus(`Fuente eliminada: ${input.source.title}`);
+      notifySuccess(`Fuente eliminada: ${input.source.title}`);
       void queryClient.invalidateQueries({ queryKey: qk.sources(projectSlug, input.notebookSlug) });
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
@@ -132,7 +131,7 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
     onSuccess: (_result, notebook) => {
       setConfirmNotebook(undefined);
       setError(undefined);
-      setStatus(`Notebook eliminado: ${notebook.name}`);
+      notifySuccess(`Notebook eliminado: ${notebook.name}`);
       if (selected === notebook.slug) {
         setSelected(undefined);
         setHits([]);
@@ -166,11 +165,6 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
         </button>
       </form>
 
-      {status && (
-        <p className="text-sm text-ok" aria-live="polite">
-          {status}
-        </p>
-      )}
       {error && <p className="text-sm text-danger">{error}</p>}
 
       {notebooksQuery.isError ? (

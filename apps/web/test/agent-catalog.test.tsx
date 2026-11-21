@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { Toaster } from "sonner";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { SubagentProfile } from "@platform/shared";
@@ -21,6 +22,11 @@ vi.mock("../src/api.ts", async (importOriginal) => {
 
 import { AgentCatalog } from "../src/components/AgentCatalog.tsx";
 import { ProjectKnowledgePanel } from "../src/components/ProjectKnowledgePanel.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
+
+afterEach(() => {
+  act(() => dismissAll());
+});
 
 const primary: SubagentProfile = {
   category: "principal",
@@ -152,7 +158,10 @@ describe("AgentCatalog", () => {
 
   it("validates and saves a new agent through the focused editor", async () => {
     renderWithProviders(
-      <AgentCatalog projectSlug="demo" agents={[primary]} models={[]} />,
+      <>
+        <AgentCatalog projectSlug="demo" agents={[primary]} models={[]} />
+        <Toaster theme="dark" position="bottom-right" richColors closeButton />
+      </>,
     );
     await userEvent.click(screen.getByRole("button", { name: "Nuevo agente" }));
     const dialog = screen.getByRole("dialog", { name: "Nuevo agente" });
@@ -176,6 +185,8 @@ describe("AgentCatalog", () => {
       }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Nuevo agente" })).not.toBeInTheDocument());
+    const savedToast = await screen.findByText("Agente ventas/calificador guardado");
+    expect(savedToast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
   it("labels model choices from the catalogue and saves the provider/model ref", async () => {

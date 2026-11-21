@@ -5,6 +5,7 @@ import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { IntegrationCard, IntegrationCredentialsNotice } from "./IntegrationCard.tsx";
 import { IntegrationEditor, type SavedIntegration } from "./IntegrationEditor.tsx";
+import { notifyError, notifySuccess } from "./Toast.tsx";
 import { friendlyError } from "../ui.ts";
 
 export function ControlChannelsPanel() {
@@ -13,7 +14,6 @@ export function ControlChannelsPanel() {
   const [created, setCreated] = useState<SavedIntegration>();
   const [editingId, setEditingId] = useState<string>();
   const [editorKey, setEditorKey] = useState(0);
-  const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [confirmError, setConfirmError] = useState<string>();
   const integrations = query.data ?? [];
@@ -31,21 +31,19 @@ export function ControlChannelsPanel() {
           ? integration.config.alertRecipient
           : undefined,
       ),
-    onSuccess: (result, integration) =>
-      setStatus(
-        `${integration.name}: ${result.ok ? "ok" : "error"}${result.detail ? ` · ${result.detail}` : ""}`,
-      ),
+    onSuccess: (result, integration) => {
+      const message = `${integration.name}: ${result.ok ? "ok" : "error"}${result.detail ? ` · ${result.detail}` : ""}`;
+      if (result.ok) notifySuccess(message);
+      else notifyError(message);
+    },
     onError: (cause) => setError(friendlyError(cause, "No se pudo probar el canal.")),
   });
 
   const connect = useMutation({
     mutationFn: (id: string) => api.connectControlIntegration(id),
     onSuccess: async (result) => {
-      setStatus(
-        result.status === "error"
-          ? `No se pudo conectar: ${result.lastError ?? "error desconocido"}`
-          : `Canal ${result.name}: ${result.status}`,
-      );
+      if (result.status === "error") notifyError(`No se pudo conectar: ${result.lastError ?? "error desconocido"}`);
+      else notifySuccess(`Canal ${result.name}: ${result.status}`);
       await refresh();
     },
     onError: (cause) => setError(friendlyError(cause, "No se pudo conectar el canal.")),
@@ -54,7 +52,7 @@ export function ControlChannelsPanel() {
   const disconnect = useMutation({
     mutationFn: (id: string) => api.disconnectControlIntegration(id),
     onSuccess: async () => {
-      setStatus("Canal desconectado");
+      notifySuccess("Canal desconectado");
       setConfirmError(undefined);
       await refresh();
     },
@@ -64,7 +62,7 @@ export function ControlChannelsPanel() {
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteControlIntegration(id),
     onSuccess: async () => {
-      setStatus("Canal eliminado");
+      notifySuccess("Canal eliminado");
       setConfirmError(undefined);
       setEditingId(undefined);
       await refresh();
@@ -75,7 +73,7 @@ export function ControlChannelsPanel() {
   const clearWebhook = useMutation({
     mutationFn: (id: string) => api.clearControlIntegrationWebhook(id),
     onSuccess: async () => {
-      setStatus("Webhook de Telegram limpiado; vuelve a conectar el bot");
+      notifySuccess("Webhook de Telegram limpiado; vuelve a conectar el bot");
       await refresh();
     },
     onError: (cause) => setError(friendlyError(cause, "No se pudo limpiar el webhook.")),
@@ -83,7 +81,7 @@ export function ControlChannelsPanel() {
 
   function saved(result: SavedIntegration) {
     setCreated(result);
-    setStatus(`Canal ${result.integration.name} guardado`);
+    notifySuccess(`Canal ${result.integration.name} guardado`);
     setEditingId(undefined);
     setEditorKey((current) => current + 1);
     void refresh();
@@ -98,11 +96,6 @@ export function ControlChannelsPanel() {
       {error && (
         <p className="text-sm text-danger" role="alert">
           {error}
-        </p>
-      )}
-      {status && (
-        <p className="text-sm text-ok" role="status">
-          {status}
         </p>
       )}
       {integrations.length === 0 ? (

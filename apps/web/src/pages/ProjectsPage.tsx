@@ -10,6 +10,7 @@ import { Modal } from "../components/Modal.tsx";
 import { NavIcon } from "../components/NavIcon.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
+import { notifySuccess } from "../components/Toast.tsx";
 import {
   badge,
   button,
@@ -104,7 +105,6 @@ export function ProjectsPage() {
   const [slugError, setSlugError] = useState<string>();
   const [formError, setFormError] = useState<string>();
   const [rawError, setRawError] = useState<string>();
-  const [status, setStatus] = useState<string>();
   const [showOnboarding, setShowOnboarding] = useState(() => !onboardingDismissed());
 
   const projects = projectsQuery.data ?? [];
@@ -142,7 +142,7 @@ export function ProjectsPage() {
       }),
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: qk.projects });
-      setStatus(`Proyecto ${result.project.name} creado`);
+      notifySuccess(`Proyecto ${result.project.name} creado`);
       setCreateOpen(false);
       resetCreate();
       navigate(`/projects/${result.project.slug}`);
@@ -161,7 +161,7 @@ export function ProjectsPage() {
         queryClient.invalidateQueries({ queryKey: qk.controlOverview }),
       ]);
       setDeleteTarget(undefined);
-      setStatus(`Proyecto ${project.name} eliminado`);
+      notifySuccess(`Proyecto ${project.name} eliminado`);
     },
     onError: (error) => {
       setRawError(error instanceof Error ? error.message : undefined);
@@ -278,12 +278,6 @@ export function ProjectsPage() {
             </div>
           )}
         </section>
-      )}
-
-      {status && (
-        <p className="text-sm text-ok" aria-live="polite">
-          {status}
-        </p>
       )}
 
       {projectsQuery.isLoading && (

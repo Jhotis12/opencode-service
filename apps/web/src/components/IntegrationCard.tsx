@@ -207,23 +207,22 @@ export function useProjectIntegrationActions(
           ? integration.config.alertRecipient
           : undefined,
       ),
-    onSuccess: (result, integration) =>
-      host.onStatus(
-        integration.name + ": " + statusLabel(result.ok ? "ok" : "error") + (result.detail ? " · " + result.detail : "") +
-          (result.models && result.models.length > 0 ? " · modelos: " + result.models.slice(0, 6).join(", ") : "") +
-          (result.voices && result.voices.length > 0 ? " · voces: " + result.voices.slice(0, 6).join(", ") : ""),
-      ),
+    onSuccess: (result, integration) => {
+      // A failed verification is an outcome too, but it belongs to the error channel.
+      const message = integration.name + ": " + statusLabel(result.ok ? "ok" : "error") + (result.detail ? " · " + result.detail : "") +
+        (result.models && result.models.length > 0 ? " · modelos: " + result.models.slice(0, 6).join(", ") : "") +
+        (result.voices && result.voices.length > 0 ? " · voces: " + result.voices.slice(0, 6).join(", ") : "");
+      if (result.ok) host.onStatus(message);
+      else host.onError(message);
+    },
     onError: (cause) => reportFailure(cause, "No se pudo probar la integración."),
   });
 
   const connect = useMutation({
     mutationFn: (id: string) => api.connectIntegration(projectSlug, id),
     onSuccess: async (result) => {
-      host.onStatus(
-        result.status === "error"
-          ? "No se pudo conectar: " + (result.lastError ?? "error desconocido")
-          : "Integración " + result.name + ": " + statusLabel(result.status),
-      );
+      if (result.status === "error") host.onError("No se pudo conectar: " + (result.lastError ?? "error desconocido"));
+      else host.onStatus("Integración " + result.name + ": " + statusLabel(result.status));
       await refresh();
     },
     onError: (cause) => reportFailure(cause, "No se pudo conectar la integración."),

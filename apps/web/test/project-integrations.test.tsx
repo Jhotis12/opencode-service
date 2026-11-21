@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Toaster } from "sonner";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { IntegrationRecord, WorkflowGraph } from "@platform/shared";
 import { renderWithProviders } from "./render.tsx";
@@ -59,6 +60,7 @@ vi.mock("../src/components/CodeEditor.tsx", () => ({
 import { ControlChannelsPanel } from "../src/components/ControlChannelsPanel.tsx";
 import { ProjectLayout } from "../src/pages/ProjectLayout.tsx";
 import { ProjectIntegrationsPage } from "../src/pages/ProjectIntegrationsPage.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 
 const graph: WorkflowGraph = {
   version: 1,
@@ -134,20 +136,28 @@ async function menuLabels(card: HTMLElement): Promise<(string | null)[]> {
 }
 
 function renderPage() {
+  // Outcomes are announced by sonner: the real host proves the copy lands in a toast.
   return renderWithProviders(
-    <MemoryRouter initialEntries={["/projects/demo/integrations"]}>
-      <Routes>
-        <Route path="/projects/:slug" element={<ProjectLayout />}>
-          <Route path="integrations" element={<ProjectIntegrationsPage />} />
-        </Route>
-      </Routes>
-    </MemoryRouter>,
+    <>
+      <MemoryRouter initialEntries={["/projects/demo/integrations"]}>
+        <Routes>
+          <Route path="/projects/:slug" element={<ProjectLayout />}>
+            <Route path="integrations" element={<ProjectIntegrationsPage />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+      <Toaster theme="dark" position="bottom-right" richColors closeButton />
+    </>,
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   setupApi();
+});
+
+afterEach(() => {
+  act(() => dismissAll());
 });
 
 describe("ProjectIntegrationsPage", () => {
@@ -284,7 +294,8 @@ describe("ProjectIntegrationsPage", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Eliminar" }));
     await waitFor(() => expect(apiMock.deleteIntegration).toHaveBeenCalledWith("demo", "tg-1"));
-    expect(await screen.findByText("Integración eliminada")).toBeInTheDocument();
+    const removedToast = await screen.findByText("Integración eliminada");
+    expect(removedToast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
   it("keeps the confirmation open with the error when delete fails", async () => {
@@ -322,7 +333,8 @@ describe("ProjectIntegrationsPage", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Desconectar" }));
     await waitFor(() => expect(apiMock.disconnectIntegration).toHaveBeenCalledWith("demo", "tg-1"));
-    expect(await screen.findByText("Integración desconectada")).toBeInTheDocument();
+    const disconnectedToast = await screen.findByText("Integración desconectada");
+    expect(disconnectedToast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
   it("shows the empty state when the project has no integrations", async () => {

@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
+import { Toaster } from "sonner";
 import { api } from "../src/api.ts";
 import { PlatformSettingsPage as SettingsPage } from "../src/pages/PlatformSettingsPage.tsx";
 import { chooseOption, renderWithProviders, setViewportMatches } from "./render.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 
 vi.mock("../src/api.ts", () => ({
   api: {
@@ -72,12 +74,20 @@ beforeEach(() => {
 });
 
 function renderSettings(entry: string) {
+  // Outcomes are announced by sonner: the real host proves the copy lands in a toast.
   return renderWithProviders(
-    <MemoryRouter initialEntries={[entry]}>
-      <SettingsPage />
-    </MemoryRouter>,
+    <>
+      <MemoryRouter initialEntries={[entry]}>
+        <SettingsPage />
+      </MemoryRouter>
+      <Toaster theme="dark" position="bottom-right" richColors closeButton />
+    </>
   );
 }
+
+afterEach(() => {
+  act(() => dismissAll());
+});
 
 function HashProbe() {
   const location = useLocation();
@@ -149,6 +159,22 @@ describe("PlatformSettingsPage", () => {
     await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
 
     expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "opencode/deepseek-v4.1-flash-free" });
+    const savedToast = await screen.findByText("Modelo por defecto guardado.");
+    expect(savedToast.closest("[data-sonner-toast]")).not.toBeNull();
+  });
+
+  it("keeps the field-level error and shows no success toast when the save fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.saveSettings).mockRejectedValueOnce(new Error("server down"));
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+
+    await chooseOption(user, "Modelo", /DeepSeek V4\.1 Flash/);
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    const inlineError = await within(panel).findByText("server down");
+    expect(inlineError).toHaveClass("text-danger");
+    expect(screen.queryByText("Modelo por defecto guardado.")).toBeNull();
   });
 
   it("saves an unlisted provider/model#variant typed into the picker", async () => {

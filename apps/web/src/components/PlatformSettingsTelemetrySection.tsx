@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { badge, friendlyError } from "../ui.ts";
+import { notifySuccess } from "./Toast.tsx";
 import {
   PlatformSettingsFormActions,
   PlatformSettingsInput,
@@ -14,14 +15,13 @@ import {
 export function PlatformSettingsTelemetrySection({ configured }: { readonly configured: boolean }) {
   const queryClient = useQueryClient();
   const [sentryDsn, setSentryDsn] = useState("");
-  const [status, setStatus] = useState<string>();
   const validation = usePlatformFieldValidation(validatePlatformSentryDsn);
 
   const save = useMutation({
     mutationFn: () => api.saveSettings({ sentryDsn: sentryDsn.trim() }),
     onSuccess: async () => {
       setSentryDsn("");
-      setStatus("DSN guardado. Reinicia el servicio para activar Sentry.");
+      notifySuccess("DSN guardado. Reinicia el servicio para activar Sentry.");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: qk.settings }),
         queryClient.invalidateQueries({ queryKey: qk.effectiveConfig() }),
@@ -32,7 +32,6 @@ export function PlatformSettingsTelemetrySection({ configured }: { readonly conf
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setStatus(undefined);
     if (validation.validate(sentryDsn)) {
       document.getElementById("telemetria-dsn")?.focus();
       return;
@@ -68,7 +67,6 @@ export function PlatformSettingsTelemetrySection({ configured }: { readonly conf
         />
         <PlatformSettingsFormActions
           pending={save.isPending}
-          status={status}
           error={save.error ? friendlyError(save.error, "No se pudo guardar el DSN.") : undefined}
           submitLabel="Guardar DSN"
         />

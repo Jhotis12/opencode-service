@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Toaster } from "sonner";
 
 vi.mock("qrcode", () => ({
   default: { toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,stub") },
@@ -247,17 +248,26 @@ import { ProjectKnowledgePanel } from "../src/components/ProjectKnowledgePanel.t
 import { ProjectSettingsPanel } from "../src/components/ProjectSettingsPanel.tsx";
 import { api } from "../src/api.ts";
 import { chooseOption, renderWithProviders } from "./render.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
+
+afterEach(() => {
+  act(() => dismissAll());
+});
 
 /** Renders the shipped integrations screen the way the router does, inside the project shell. */
 function renderIntegrationsPage() {
+  // Outcomes are announced by sonner: the real host proves the copy lands in a toast.
   return renderWithProviders(
-    <MemoryRouter initialEntries={["/projects/ventas/integrations"]}>
-      <Routes>
-        <Route path="/projects/:slug" element={<ProjectLayout />}>
-          <Route path="integrations" element={<ProjectIntegrationsPage />} />
-        </Route>
-      </Routes>
-    </MemoryRouter>,
+    <>
+      <MemoryRouter initialEntries={["/projects/ventas/integrations"]}>
+        <Routes>
+          <Route path="/projects/:slug" element={<ProjectLayout />}>
+            <Route path="integrations" element={<ProjectIntegrationsPage />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+      <Toaster theme="dark" position="bottom-right" richColors closeButton />
+    </>
   );
 }
 
@@ -366,7 +376,8 @@ describe("ProjectIntegrationsPage", () => {
     renderIntegrationsPage();
     const card = await screen.findByTestId("integration-card-asr1");
     await userEvent.click(within(card).getByRole("button", { name: "Probar" }));
-    expect(await screen.findByText(/modelos: small, base/)).toBeInTheDocument();
+    const testedToast = await screen.findByText(/modelos: small, base/);
+    expect(testedToast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
   it("renders the shared integration card with the localized kind label and the database policy", async () => {

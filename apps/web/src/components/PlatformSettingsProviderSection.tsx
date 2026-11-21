@@ -4,6 +4,7 @@ import { api, type ModelInfo } from "../api.ts";
 import { qk } from "../query.ts";
 import { badge, friendlyError, smallMuted, statusBadge } from "../ui.ts";
 import { Skeleton } from "./Skeleton.tsx";
+import { notifySuccess } from "./Toast.tsx";
 import {
   PlatformSettingsFormActions,
   PlatformSettingsInput,
@@ -27,14 +28,13 @@ export function PlatformSettingsProviderSection({
 }) {
   const queryClient = useQueryClient();
   const [apiKey, setApiKey] = useState("");
-  const [status, setStatus] = useState<string>();
   const validation = usePlatformFieldValidation((value) => value.trim() ? undefined : "Introduce la API key de OpenCode Go.");
 
   const connect = useMutation({
     mutationFn: () => api.connectProvider(apiKey.trim()),
     onSuccess: async (result) => {
       setApiKey("");
-      setStatus(`Proveedor conectado. ${result.models.length} modelos disponibles.`);
+      notifySuccess(`Proveedor conectado. ${result.models.length} modelos disponibles.`);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: qk.settings }),
         queryClient.invalidateQueries({ queryKey: qk.models }),
@@ -44,7 +44,6 @@ export function PlatformSettingsProviderSection({
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setStatus(undefined);
     if (validation.validate(apiKey)) {
       document.getElementById("proveedores-api-key")?.focus();
       return;
@@ -79,7 +78,6 @@ export function PlatformSettingsProviderSection({
         />
         <PlatformSettingsFormActions
           pending={connect.isPending}
-          status={status}
           error={connect.error ? friendlyError(connect.error, "No se pudo conectar el proveedor.") : undefined}
           submitLabel="Conectar proveedor"
         />

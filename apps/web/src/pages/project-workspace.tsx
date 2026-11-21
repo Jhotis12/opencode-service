@@ -22,6 +22,7 @@ import {
 } from "../api.ts";
 import { qk } from "../query.ts";
 import { getGraphIssues, mapServerIssue, type GraphIssue } from "../components/canvas/graph-edits.ts";
+import { notifySuccess } from "../components/Toast.tsx";
 
 export interface ProjectWorkspace {
   slug: string;
@@ -241,7 +242,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       setGraph(saved);
       setDirty(false);
       setSaveIssues([]);
-      setStatus("Flujo guardado");
+      notifySuccess("Flujo guardado");
       setError(undefined);
     },
     onError: (cause) => {
@@ -304,7 +305,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       await queryClient.invalidateQueries({ queryKey: qk.workflowVersions(slug) });
       setGraph(result.graph);
       setDirty(false);
-      setStatus(`Flujo restaurado a v${version}`);
+      notifySuccess(`Flujo restaurado a v${version}`);
       setError(undefined);
     },
     onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo restaurar la versión"),

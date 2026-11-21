@@ -6,6 +6,7 @@ import { badge, buttonGhost, buttonPrimary, card, friendlyError, statusBadge } f
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
 import { Select } from "./Select.tsx";
+import { notifySuccess } from "./Toast.tsx";
 import { modelOptions, type SelectOption } from "./select/options.ts";
 
 const ALIAS_PATTERN = /^[A-Za-z][A-Za-z0-9:_-]*$/;
@@ -71,7 +72,6 @@ function ProjectSettingsSections({
   const [transcriptionIntegrationId, setTranscriptionIntegrationId] = useState("");
   const [speechIntegrationId, setSpeechIntegrationId] = useState("");
   const [nameError, setNameError] = useState<string>();
-  const [status, setStatus] = useState<string>();
 
   useEffect(() => {
     if (!settingsQuery.data) return;
@@ -98,11 +98,10 @@ function ProjectSettingsSections({
         speechIntegrationId: speechIntegrationId || null,
       }),
     onSuccess: async () => {
-      setStatus("Ajustes del proyecto guardados");
+      notifySuccess("Ajustes del proyecto guardados");
       await queryClient.invalidateQueries({ queryKey: qk.projectSettings(projectSlug) });
       await queryClient.invalidateQueries({ queryKey: qk.projects });
     },
-    onError: (error) => setStatus(error instanceof Error ? error.message : "No se pudieron guardar los ajustes"),
   });
 
   const settings = settingsQuery.data;
@@ -185,7 +184,6 @@ function ProjectSettingsSections({
           event.preventDefault();
           if (!name.trim()) {
             setNameError("El nombre es obligatorio.");
-            setStatus(undefined);
             return;
           }
           setNameError(undefined);
@@ -289,7 +287,6 @@ function ProjectSettingsSections({
         <button className={buttonPrimary} disabled={save.isPending}>
           Guardar ajustes
         </button>
-        {status && <p className="text-sm text-ok">{status}</p>}
         {error && <p className="text-sm text-danger">{error instanceof Error ? error.message : "Error de ajustes"}</p>}
       </form>
       )}
@@ -329,7 +326,6 @@ function ProjectSecretsPanel({ projectSlug }: { projectSlug: string }) {
   const [value, setValue] = useState("");
   const [aliasError, setAliasError] = useState<string>();
   const [valueError, setValueError] = useState<string>();
-  const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [pendingDelete, setPendingDelete] = useState<string>();
 
@@ -339,7 +335,7 @@ function ProjectSecretsPanel({ projectSlug }: { projectSlug: string }) {
     onSuccess: async () => {
       setAlias("");
       setValue("");
-      setStatus("Secreto guardado en la bóveda del proyecto");
+      notifySuccess("Secreto guardado en la bóveda del proyecto");
       setError(undefined);
       await queryClient.invalidateQueries({ queryKey: qk.projectSecrets(projectSlug) });
     },
@@ -350,7 +346,7 @@ function ProjectSecretsPanel({ projectSlug }: { projectSlug: string }) {
     mutationFn: (target: string) => api.deleteProjectSecret(projectSlug, target),
     onSuccess: async () => {
       setPendingDelete(undefined);
-      setStatus("Secreto eliminado");
+      notifySuccess("Secreto eliminado");
       setError(undefined);
       await queryClient.invalidateQueries({ queryKey: qk.projectSecrets(projectSlug) });
     },
@@ -373,7 +369,6 @@ function ProjectSecretsPanel({ projectSlug }: { projectSlug: string }) {
     setAliasError(nextAliasError);
     setValueError(nextValueError);
     if (nextAliasError || nextValueError) {
-      setStatus(undefined);
       return;
     }
     save.mutate({ alias: nextAlias, value: nextValue });
@@ -420,7 +415,6 @@ function ProjectSecretsPanel({ projectSlug }: { projectSlug: string }) {
         <button className={buttonPrimary} disabled={save.isPending}>
           {save.isPending ? "Guardando…" : "Guardar secreto"}
         </button>
-        {status && <p className="text-sm text-ok">{status}</p>}
         {(error || queryError) && <p className="text-sm text-danger">{error ?? queryError}</p>}
       </form>
 

@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { Toaster } from "sonner";
 import type { WorkflowGraph } from "@platform/shared";
 import { buildWorkflowDefinition, serializeWorkflowDefinition } from "../src/workflow-transfer.ts";
 import { WorkflowLibraryPanel } from "../src/components/WorkflowLibraryPanel.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 
 function makeGraph(overrides: Partial<WorkflowGraph> = {}): WorkflowGraph {
   return {
@@ -59,13 +61,22 @@ function blobText(blob: Blob): Promise<string> {
 function setup(graph = makeGraph()) {
   const onImport = vi.fn();
   const onClose = vi.fn();
-  render(<WorkflowLibraryPanel graph={graph} onImport={onImport} onClose={onClose} />);
+  render(
+    <>
+      <WorkflowLibraryPanel graph={graph} onImport={onImport} onClose={onClose} />
+      <Toaster theme="dark" position="bottom-right" richColors closeButton />
+    </>,
+  );
   return { onImport, onClose };
 }
 
 function chooseFile(content: File) {
   fireEvent.change(screen.getByLabelText("Archivo JSON"), { target: { files: [content] } });
 }
+
+afterEach(() => {
+  act(() => dismissAll());
+});
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -81,7 +92,8 @@ describe("WorkflowLibraryPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Descargar JSON" }));
 
     expect(click).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("status")).toHaveTextContent("demo.workflow.json");
+    const downloadToast = await screen.findByText(/demo\.workflow\.json/);
+    expect(downloadToast.closest("[data-sonner-toast]")).not.toBeNull();
     const blob = vi.mocked(URL.createObjectURL).mock.calls[0]![0] as Blob;
     const parsed = JSON.parse(await blobText(blob)) as { version: number; graph: WorkflowGraph };
     expect(parsed.version).toBe(1);
@@ -95,7 +107,8 @@ describe("WorkflowLibraryPanel", () => {
 
     chooseFile(jsonFile(envelope(incoming)));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("importado como borrador");
+    const importToast = await screen.findByText(/importado como borrador/);
+    expect(importToast.closest("[data-sonner-toast]")).not.toBeNull();
     expect(onImport).toHaveBeenCalledTimes(1);
     expect(onImport.mock.calls[0]![0]).toMatchObject({ name: "Importado", description: "desde archivo" });
   });
@@ -106,7 +119,8 @@ describe("WorkflowLibraryPanel", () => {
 
     chooseFile(jsonFile(envelope(graph)));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("ya coincide");
+    const matchToast = await screen.findByText(/ya coincide/);
+    expect(matchToast.closest("[data-sonner-toast]")).not.toBeNull();
     expect(onImport).not.toHaveBeenCalled();
   });
 

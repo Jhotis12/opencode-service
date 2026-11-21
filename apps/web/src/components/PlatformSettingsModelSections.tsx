@@ -5,6 +5,7 @@ import { api, type ModelInfo } from "../api.ts";
 import { qk } from "../query.ts";
 import { friendlyError, smallMuted } from "../ui.ts";
 import { Skeleton } from "./Skeleton.tsx";
+import { notifySuccess } from "./Toast.tsx";
 import { useIsPickerSheet } from "./Select.tsx";
 import {
   PlatformSettingsFormActions,
@@ -53,7 +54,6 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
   const inputId = `${copy.id}-value`;
   const selectedValue = initialValue ?? PLATFORM_DEFAULT_MODEL;
   const [draft, setDraft] = useState(selectedValue);
-  const [status, setStatus] = useState<string>();
   const validation = usePlatformFieldValidation(validatePlatformModel);
   // On the sheet surface the commit closes the sheet, so the commit is the phone's blur.
   const isSheet = useIsPickerSheet();
@@ -64,7 +64,7 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
     mutationFn: () => saveModel(kind, draft.trim() || null),
     onSuccess: async () => {
       setDraft(draft.trim());
-      setStatus(copy.success);
+      notifySuccess(copy.success);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: qk.settings }),
         queryClient.invalidateQueries({ queryKey: qk.effectiveConfig() }),
@@ -74,7 +74,6 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setStatus(undefined);
     if (validation.validate(draft)) {
       document.getElementById(inputId)?.focus();
       return;
@@ -129,7 +128,6 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
         )}
         <PlatformSettingsFormActions
           pending={save.isPending}
-          status={status}
           error={save.error ? friendlyError(save.error, "No se pudo guardar el modelo.") : undefined}
         />
       </form>

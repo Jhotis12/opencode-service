@@ -50,7 +50,7 @@ export const tabActive = "border-line bg-panel-2 text-slate-100";
 
 export const skeleton = "shrink-0 animate-pulse bg-panel-2 motion-reduce:animate-none";
 
-type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
+export type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
 
 const STATUS_LABELS: Record<string, { label: string; tone: StatusTone }> = {
   queued: { label: "En cola", tone: "neutral" },
@@ -89,6 +89,19 @@ export function statusLabel(status: string): string {
 
 export function statusTone(status: string): StatusTone {
   return STATUS_LABELS[status]?.tone ?? "neutral";
+}
+
+const STATUS_TONE_TEXT: Record<StatusTone, string> = {
+  success: "text-ok",
+  warning: "text-warn",
+  danger: "text-danger",
+  info: "text-accent",
+  neutral: "text-muted",
+};
+
+/** The text colour for an already-classified tone, so prose never has to re-derive it. */
+export function statusToneText(tone: StatusTone): string {
+  return STATUS_TONE_TEXT[tone];
 }
 
 export function agentModeLabel(mode: string): string {

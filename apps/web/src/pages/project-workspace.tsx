@@ -23,6 +23,13 @@ import {
 import { qk } from "../query.ts";
 import { getGraphIssues, mapServerIssue, type GraphIssue } from "../components/canvas/graph-edits.ts";
 import { notifySuccess } from "../components/Toast.tsx";
+import type { StatusTone } from "../ui.ts";
+
+/** A transient run/save notice; the tone travels with the copy so a failure is never painted green. */
+export interface StatusMessage {
+  message: string;
+  tone: StatusTone;
+}
 
 export interface ProjectWorkspace {
   slug: string;
@@ -49,8 +56,8 @@ export interface ProjectWorkspace {
   chatHistory: ChatHistoryMessage[];
   settings: ProjectSettingsView | undefined;
   versions: WorkflowVersion[];
-  status: string | undefined;
-  setStatus(next: string | undefined): void;
+  status: StatusMessage | undefined;
+  setStatus(next: StatusMessage | undefined): void;
   error: string | undefined;
   setError(next: string | undefined): void;
   displayError: string | undefined;
@@ -150,7 +157,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
   const [dirty, setDirty] = useState(false);
   const [runningNodeId, setRunningNodeId] = useState<string>();
   const [detailRun, setDetailRun] = useState<RunRecord>();
-  const [status, setStatus] = useState<string>();
+  const [status, setStatus] = useState<StatusMessage>();
   const [error, setError] = useState<string>();
   const [launchOpen, setLaunchOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -212,11 +219,11 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
         setRunningNodeId(undefined);
       }
       if (data.status === "succeeded") {
-        setStatus("Ejecución completada. El detalle está en Ejecuciones.");
+        setStatus({ message: "Ejecución completada. El detalle está en Ejecuciones.", tone: "success" });
       } else if (["failed", "timed_out", "cancelled"].includes(data.status)) {
-        setStatus("La ejecución terminó con error. El detalle está en Ejecuciones.");
+        setStatus({ message: "La ejecución terminó con error. El detalle está en Ejecuciones.", tone: "danger" });
       } else if (data.status === "paused") {
-        setStatus("Ejecución pausada. Revisa Ejecuciones para el detalle.");
+        setStatus({ message: "Ejecución pausada. Revisa Ejecuciones para el detalle.", tone: "warning" });
       }
       void queryClient.invalidateQueries({ queryKey: qk.runs(slug) });
     });
@@ -276,8 +283,8 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       await queryClient.invalidateQueries({ queryKey: qk.runs(slug) });
       setStatus(
         run.status === "paused"
-          ? "Ejecución pausada. Revisa Ejecuciones para el detalle."
-          : "Ejecución iniciada. El recorrido se muestra en el canvas.",
+          ? { message: "Ejecución pausada. Revisa Ejecuciones para el detalle.", tone: "warning" }
+          : { message: "Ejecución iniciada. El recorrido se muestra en el canvas.", tone: "info" },
       );
       setError(undefined);
     },
@@ -292,7 +299,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     onSuccess: async (replayed) => {
       await queryClient.invalidateQueries({ queryKey: qk.runs(slug) });
       setDetailRun(replayed);
-      setStatus(`Ejecución ${replayed.id.slice(0, 8)} re-ejecutada`);
+      setStatus({ message: `Ejecución ${replayed.id.slice(0, 8)} re-ejecutada`, tone: "success" });
       setError(undefined);
     },
     onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo re-ejecutar"),

@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import type { SubagentProfile, WorkflowGraph } from "@platform/shared";
@@ -147,6 +147,40 @@ function renderApp(entry: string) {
   );
 }
 
+/**
+ * The suite-wide stub in test/setup.ts swallows listeners, so a run-status event can
+ * only reach the shell when the spec owns the EventSource. This one keeps the listeners
+ * and lets a spec emit the `run.updated` frames the server sends.
+ */
+class RecordingEventSource {
+  static instances: RecordingEventSource[] = [];
+  private listeners = new Map<string, Array<(event: MessageEvent) => void>>();
+
+  constructor() {
+    RecordingEventSource.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
+  }
+
+  removeEventListener(type: string, listener: (event: MessageEvent) => void) {
+    this.listeners.set(type, (this.listeners.get(type) ?? []).filter((item) => item !== listener));
+  }
+
+  close() {
+    this.listeners.clear();
+  }
+
+  emit(type: string, payload: unknown) {
+    act(() => {
+      for (const listener of this.listeners.get(type) ?? []) {
+        listener(new MessageEvent(type, { data: JSON.stringify(payload) }));
+      }
+    });
+  }
+}
+
 // Every section renders behind the workspace shell: the workflow query resolves, the
 // shell commits, and only then does the router transition commit the section. A single
 // assertion therefore spans several commits, so testing-library's 1 s async budget is a
@@ -206,6 +240,33 @@ describe("routed project workspace", { timeout: 20_000 }, () => {
       expect(screen.getByRole("heading", { level: 1, name: heading })).toBeInTheDocument();
     });
   }
+
+  it("tones a run status by its outcome instead of always using the success colour", async () => {
+    RecordingEventSource.instances = [];
+    vi.stubGlobal("EventSource", RecordingEventSource);
+    try {
+      renderApp("/projects/demo/overview");
+      expect(await screen.findByRole("heading", { name: "Resumen" }, ROUTE_READY)).toBeInTheDocument();
+      await waitFor(() => expect(RecordingEventSource.instances).toHaveLength(1));
+      const source = RecordingEventSource.instances[0]!;
+
+      source.emit("run.updated", { projectSlug: "demo", status: "failed" });
+      const failed = await screen.findByText("La ejecución terminó con error. El detalle está en Ejecuciones.");
+      expect(failed.className).not.toContain("text-ok");
+      expect(failed.className).toContain("text-danger");
+
+      source.emit("run.updated", { projectSlug: "demo", status: "paused" });
+      const paused = await screen.findByText("Ejecución pausada. Revisa Ejecuciones para el detalle.");
+      expect(paused.className).not.toContain("text-ok");
+      expect(paused.className).toContain("text-warn");
+
+      source.emit("run.updated", { projectSlug: "demo", status: "succeeded" });
+      const succeeded = await screen.findByText("Ejecución completada. El detalle está en Ejecuciones.");
+      expect(succeeded.className).toContain("text-ok");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 
   it("routes between sections when tabs are clicked", async () => {
     renderApp("/projects/demo/overview");

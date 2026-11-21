@@ -294,6 +294,8 @@ test("the rail stays pinned while a long page scrolls", async ({ page }) => {
   const nav = page.getByRole("navigation", { name: "Navegación principal" });
   for (const path of ["/system/health", "/projects", "/runs", "/settings", "/orchestrator"]) {
     await page.goto(path);
+    await expect(page.getByRole("main").or(page.getByTestId("app-main"))).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
     const metrics = await page.evaluate(() => {
       window.scrollTo(0, document.documentElement.scrollHeight);
       return {
@@ -304,7 +306,20 @@ test("the rail stays pinned while a long page scrolls", async ({ page }) => {
     });
     if (metrics.documentHeight <= metrics.viewportHeight + 80) continue;
     expect(metrics.scrolled, `${path} should scroll`).toBeGreaterThan(0);
-    const box = await nav.boundingBox();
-    expect(box?.y ?? -1, `${path} keeps the rail pinned`).toBeLessThan(4);
+    // A sticky element's box must be read with getBoundingClientRect: Playwright's boundingBox()
+    // reports a different y for it here (76px while the element sits at -0.3px), which made this
+    // assertion fail on CI while the rail was demonstrably pinned.
+    await expect
+      .poll(
+        async () => {
+          return await page.evaluate(() => {
+            window.scrollTo(0, document.documentElement.scrollHeight);
+            const nav = document.querySelector("#app-navigation");
+            return nav ? Math.round(nav.getBoundingClientRect().top) : Number.NaN;
+          });
+        },
+        { message: `${path} keeps the rail pinned at the bottom of the page`, timeout: 5000 },
+      )
+      .toBeLessThan(4);
   }
 });

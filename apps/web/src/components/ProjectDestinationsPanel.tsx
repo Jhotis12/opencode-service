@@ -3,17 +3,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DestinationKind, ProjectDestination } from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
-import { badge, button, buttonDanger, buttonGhost, card, friendlyError, notify } from "../ui.ts";
+import { badge, button, buttonDanger, buttonGhost, card, friendlyError } from "../ui.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
+import { Select } from "./Select.tsx";
+import { DESTINATION_KIND_LABELS } from "./select/options.ts";
+import { notifyError, notifySuccess } from "./Toast.tsx";
 
-const KINDS: Array<{ value: DestinationKind; label: string }> = [
-  { value: "telegram_chat", label: "Chat de Telegram" },
-  { value: "whatsapp", label: "Chat de WhatsApp" },
-  { value: "email", label: "Email" },
-  { value: "webhook", label: "Webhook" },
-  { value: "custom", label: "Otro" },
-];
+const KINDS: Array<{ value: DestinationKind; label: string }> = Object.entries(DESTINATION_KIND_LABELS).map(
+  ([value, label]) => ({ value: value as DestinationKind, label }),
+);
 
 export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string }) {
   const queryClient = useQueryClient();
@@ -28,7 +27,6 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
   const [valueError, setValueError] = useState<string>();
   const [editing, setEditing] = useState<ProjectDestination>();
   const [pendingDelete, setPendingDelete] = useState<ProjectDestination>();
-  const [error, setError] = useState<string>();
   const destinations = query.data ?? [];
 
   async function refresh() {
@@ -41,11 +39,10 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
     onSuccess: async () => {
       setLabel("");
       setValue("");
-      notify.success("Destino creado");
-      setError(undefined);
+      notifySuccess("Destino creado");
       await refresh();
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo crear el destino.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo crear el destino.")),
   });
 
   const update = useMutation({
@@ -57,24 +54,22 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
       }),
     onSuccess: async () => {
       setEditing(undefined);
-      notify.success("Destino actualizado");
-      setError(undefined);
+      notifySuccess("Destino actualizado");
       await refresh();
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo actualizar el destino.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo actualizar el destino.")),
   });
 
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteDestination(projectSlug, id),
     onSuccess: async () => {
       setPendingDelete(undefined);
-      notify.success("Destino eliminado");
-      setError(undefined);
+      notifySuccess("Destino eliminado");
       await refresh();
     },
     onError: (cause) => {
       setPendingDelete(undefined);
-      setError(friendlyError(cause, "No se pudo eliminar el destino; revisa las referencias."));
+      notifyError(friendlyError(cause, "No se pudo eliminar el destino; revisa las referencias."));
     },
   });
 
@@ -96,18 +91,18 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
         Los destinos etiquetados se reutilizan en allowlists, alertas, aprobaciones y nodos Notificar. También puedes seguir
         usando un chat ID o email crudo; adoptar un valor existente no rompe las referencias actuales.
       </p>
-      {error && <p className="text-sm text-danger">{error}</p>}
       <form className={`${card} !grid gap-3 md:grid-cols-3`} onSubmit={submit} aria-label="Crear destino" noValidate>
-        <label>
-          Tipo
-          <select value={kind} onChange={(event) => setKind(event.target.value as DestinationKind)}>
-            {KINDS.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Field id="destination-kind" label="Tipo">
+          <Select
+            label="Tipo"
+            options={KINDS}
+            value={kind}
+            emptyValue=""
+            onChange={(next) => {
+              if (next !== undefined) setKind(next as DestinationKind);
+            }}
+          />
+        </Field>
         <Field id="destination-label" label="Etiqueta" error={labelError}>
           <input
             value={label}
@@ -138,19 +133,17 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
           <article className="flex flex-col gap-2 rounded-lg border border-line bg-well p-3" key={destination.id}>
             {editing?.id === destination.id ? (
               <div className="grid gap-2 md:grid-cols-3">
-                <label>
-                  Tipo
-                  <select
+                <Field id={`destination-kind-${destination.id}`} label="Tipo">
+                  <Select
+                    label="Tipo"
+                    options={KINDS}
                     value={editing.kind}
-                    onChange={(event) => setEditing({ ...editing, kind: event.target.value as DestinationKind })}
-                  >
-                    {KINDS.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    emptyValue=""
+                    onChange={(next) => {
+                      if (next !== undefined) setEditing({ ...editing, kind: next as DestinationKind });
+                    }}
+                  />
+                </Field>
                 <label>
                   Etiqueta
                   <input value={editing.label} onChange={(event) => setEditing({ ...editing, label: event.target.value })} />
@@ -169,12 +162,15 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
                 </div>
               </div>
             ) : (
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  <strong className="text-sm">{destination.label}</strong> <span className={badge}>{destination.kind}</span>
-                  <small className="block break-all text-xs text-muted">{destination.value}</small>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="flex min-w-0 flex-col items-start gap-0.5">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <strong className="text-sm">{destination.label}</strong>
+                    <span className={badge}>{destination.kind}</span>
+                  </span>
+                  <small className="break-all text-xs text-muted">{destination.value}</small>
                 </span>
-                <span className="flex gap-1.5">
+                <span className="ml-auto flex gap-1.5">
                   <button className={buttonGhost} onClick={() => setEditing(destination)}>
                     Editar
                   </button>

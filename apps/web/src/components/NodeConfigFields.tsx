@@ -9,11 +9,63 @@ import {
   type NodeSpec,
   type ProjectDestination,
   type ValidateRule,
+  type WorkflowVersion,
 } from "@platform/shared";
-import { getConfigValue, isFieldVisible, setConfigValue, toList } from "./config-field-utils.ts";
+import { getConfigValue, isFieldVisible, toList } from "./config-field-utils.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
+import { Select } from "./Select.tsx";
+import { destinationOptions, type SelectOption } from "./select/options.ts";
 import { buttonGhost, fieldError } from "../ui.ts";
+
+const INHERIT_CONNECTION_LABEL = "Heredar de la conexión";
+const EMPTY_DESTINATION_LABEL = "Sin destinatario";
+const EMPTY_VERSION_LABEL = "Selecciona una versión";
+const DEFAULT_EVENT = "message.received";
+const TYPE_OPTIONS: readonly SelectOption[] = [
+  { value: "string", label: "texto" },
+  { value: "number", label: "número" },
+  { value: "boolean", label: "booleano" },
+  { value: "json", label: "JSON" },
+];
+const OPERATOR_OPTIONS: readonly SelectOption[] = [
+  { value: "equals", label: "igual a" },
+  { value: "not_equals", label: "distinto de" },
+  { value: "contains", label: "contiene" },
+  { value: "greater_than", label: "mayor que" },
+  { value: "less_than", label: "menor que" },
+  { value: "exists", label: "existe" },
+  { value: "truthy", label: "es verdadero" },
+];
+
+/** The speech connections this node may draw from: the chosen one, or every one when it inherits. */
+function speechSources(integrations: readonly IntegrationRecord[], config: Record<string, unknown>): IntegrationRecord[] {
+  return integrations.filter(
+    (integration) =>
+      integration.kind === "speech" &&
+      (typeof config.integrationId !== "string" || !config.integrationId || integration.id === config.integrationId),
+  );
+}
+
+/**
+ * Discovered values, first source winning a duplicate. When more than one connection contributes,
+ * the connection name is the group, so an operator can tell which provider offers the value.
+ */
+function catalogueOptions(
+  sources: readonly IntegrationRecord[],
+  key: "models" | "voices",
+): readonly SelectOption[] {
+  const seen = new Set<string>();
+  const options: SelectOption[] = [];
+  for (const source of sources) {
+    for (const item of toList(source.config[key])) {
+      if (item.length === 0 || seen.has(item)) continue;
+      seen.add(item);
+      options.push({ value: item, label: item, ...(sources.length > 1 ? { group: source.name } : {}) });
+    }
+  }
+  return options;
+}
 
 function InputFieldsEditor({ fields, onChange }: { fields: InputField[]; onChange(fields: InputField[]): void }) {
   return (
@@ -26,18 +78,16 @@ function InputFieldsEditor({ fields, onChange }: { fields: InputField[]; onChang
             aria-label={`Campo ${index + 1}`}
             onChange={(event) => onChange(fields.map((item, i) => (i === index ? { ...item, name: event.target.value } : item)))}
           />
-          <select
+          <Select
+            label={`Tipo ${index + 1}`}
+            options={TYPE_OPTIONS}
             value={field.type}
-            aria-label={`Tipo ${index + 1}`}
-            onChange={(event) =>
-              onChange(fields.map((item, i) => (i === index ? { ...item, type: event.target.value as InputField["type"] } : item)))
-            }
-          >
-            <option value="string">texto</option>
-            <option value="number">número</option>
-            <option value="boolean">booleano</option>
-            <option value="json">JSON</option>
-          </select>
+            emptyValue=""
+            onChange={(next) => {
+              if (next === undefined) return;
+              onChange(fields.map((item, i) => (i === index ? { ...item, type: next as InputField["type"] } : item)));
+            }}
+          />
           <label className="flex-row items-center gap-1 text-[11px]">
             <input
               type="checkbox"
@@ -77,18 +127,16 @@ function ValidateRulesEditor({ rules, onChange }: { rules: ValidateRule[]; onCha
               aria-label={`Regla ${index + 1}`}
               onChange={(event) => onChange(rules.map((item, i) => (i === index ? { ...item, name: event.target.value } : item)))}
             />
-            <select
+            <Select
+              label={`Tipo de regla ${index + 1}`}
+              options={TYPE_OPTIONS}
               value={rule.type}
-              aria-label={`Tipo de regla ${index + 1}`}
-              onChange={(event) =>
-                onChange(rules.map((item, i) => (i === index ? { ...item, type: event.target.value as ValidateRule["type"] } : item)))
-              }
-            >
-              <option value="string">texto</option>
-              <option value="number">número</option>
-              <option value="boolean">booleano</option>
-              <option value="json">JSON</option>
-            </select>
+              emptyValue=""
+              onChange={(next) => {
+                if (next === undefined) return;
+                onChange(rules.map((item, i) => (i === index ? { ...item, type: next as ValidateRule["type"] } : item)));
+              }}
+            />
             <label className="flex-row items-center gap-1 text-[11px]">
               <input
                 type="checkbox"
@@ -205,6 +253,7 @@ export function NodeConfigFields({
   node,
   integrations,
   destinations,
+  versions = [],
   scheduleNextRun,
   onConfig,
   onReplaceConfig,
@@ -213,6 +262,8 @@ export function NodeConfigFields({
   node: NodeSpec;
   integrations: IntegrationRecord[];
   destinations: ProjectDestination[];
+  /** Project workflow versions; the subflow picker's catalogue. */
+  versions?: readonly WorkflowVersion[];
   scheduleNextRun?: string;
   onConfig(patch: Record<string, unknown>): void;
   onReplaceConfig(config: Record<string, unknown>): void;
@@ -275,98 +326,53 @@ export function NodeConfigFields({
 
     if (field.type === "custom") {
       if (field.widget === "speech-model-picker") {
-        const sources = integrations.filter(
-          (integration) =>
-            integration.kind === "speech" &&
-            (typeof config.integrationId !== "string" || !config.integrationId || integration.id === config.integrationId),
-        );
-        const models = [
-          ...new Set(
-            sources.flatMap((integration) =>
-              Array.isArray(integration.config.models) ? integration.config.models.map(String) : [],
-            ),
-          ),
-        ];
-        const current = String(value ?? "");
-        if (models.length > 0) {
-          const options = current && !models.includes(current) ? [current, ...models] : models;
-          return (
-            <label key={field.key}>
-              {field.label}
-              <select aria-label={field.label} value={current} onChange={(event) => set(field, event.target.value || undefined)}>
-                <option value="">Heredar de la conexión</option>
-                {options.map((model) => (
-                  <option key={model} value={model}>
-                    {model}
-                  </option>
-                ))}
-              </select>
-              {help}
-            </label>
-          );
-        }
+        const models = catalogueOptions(speechSources(integrations, config), "models");
         return (
-          <Field key={field.key} id={fieldId} label={field.label} hint={field.help} error={error}>
-            <input
-              value={current}
-              placeholder={field.placeholder}
-              onChange={(event) => set(field, event.target.value || undefined)}
-            />
-          </Field>
+          <Select
+            key={field.key}
+            label={field.label}
+            options={[
+              { value: "", label: INHERIT_CONNECTION_LABEL },
+              ...models,
+            ]}
+            value={String(value ?? "")}
+            emptyValue="undefined"
+            searchable
+            allowCustom
+            placeholder={field.placeholder}
+            helper={models.length > 0 ? `${models.length} modelos disponibles en la conexión.` : field.help}
+            error={error}
+            emptyLabel="Sin modelos disponibles"
+            onChange={(next) => set(field, next)}
+          />
         );
       }
       if (field.widget === "voice-picker") {
-        const sources = integrations.filter(
-          (integration) =>
-            integration.kind === "speech" &&
-            (typeof config.integrationId !== "string" || !config.integrationId || integration.id === config.integrationId),
-        );
-        const voices = [
-          ...new Set(
-            sources.flatMap((integration) =>
-              Array.isArray(integration.config.voices) ? integration.config.voices.map(String) : [],
-            ),
-          ),
-        ];
-        const current = String(value ?? "");
-        if (voices.length > 0) {
-          const options = current && !voices.includes(current) ? [current, ...voices] : voices;
-          return (
-            <label key={field.key}>
-              {field.label}
-              <select aria-label={field.label} value={current} onChange={(event) => set(field, event.target.value || undefined)}>
-                <option value="">Heredar de la conexión</option>
-                {options.map((voice) => (
-                  <option key={voice} value={voice}>
-                    {voice}
-                  </option>
-                ))}
-              </select>
-              {help}
-            </label>
-          );
-        }
+        // Discovered voices win; otherwise the registry suggestions seed the catalogue. A voice the
+        // provider knows but the connection did not list stays legal through `allowCustom`.
+        const discovered = catalogueOptions(speechSources(integrations, config), "voices");
+        const voices: readonly SelectOption[] =
+          discovered.length > 0
+            ? discovered
+            : (field.suggestions ?? []).map((voice) => ({ value: voice, label: voice }));
         return (
-          <label key={field.key}>
-            {field.label}
-            <input
-              id={fieldId}
-              aria-label={field.label}
-              aria-invalid={Boolean(error)}
-              aria-describedby={[helpId, error ? errorId : ""].filter(Boolean).join(" ") || undefined}
-              value={current}
-              placeholder={field.placeholder}
-              list="node-voice-suggestions"
-              onChange={(event) => set(field, event.target.value || undefined)}
-            />
-            <datalist id="node-voice-suggestions">
-              {(field.suggestions ?? []).map((suggestion) => (
-                <option key={suggestion} value={suggestion} />
-              ))}
-            </datalist>
-            {help}
-            {error && <p id={errorId} className={fieldError}>{error}</p>}
-          </label>
+          <Select
+            key={field.key}
+            label={field.label}
+            options={[
+              { value: "", label: INHERIT_CONNECTION_LABEL },
+              ...voices,
+            ]}
+            value={String(value ?? "")}
+            emptyValue="undefined"
+            searchable
+            allowCustom
+            placeholder={field.placeholder}
+            helper={discovered.length > 0 ? `${discovered.length} voces disponibles en la conexión.` : field.help}
+            error={error}
+            emptyLabel="Sin voces disponibles"
+            onChange={(next) => set(field, next)}
+          />
         );
       }
       if (field.widget === "integration-picker") {
@@ -377,29 +383,36 @@ export function NodeConfigFields({
         );
         return (
           <Field key={field.key} id={fieldId} label={field.label} hint={field.help} error={error}>
-            <select value={String(value ?? "")} onChange={(event) => set(field, event.target.value || undefined)}>
-              <option value="">Selecciona una integración</option>
-              {options.map((integration) => (
-                <option key={integration.id} value={integration.id}>
-                  {integration.name} · {integration.kind}
-                </option>
-              ))}
-            </select>
+            <Select
+              label={field.label}
+              options={[
+                { value: "", label: "Selecciona una integración" },
+                ...options.map((integration) => ({
+                  value: integration.id,
+                  label: `${integration.name} · ${integration.kind}`,
+                })),
+              ]}
+              value={String(value ?? "")}
+              emptyValue="undefined"
+              searchable
+              onChange={(next) => set(field, next)}
+            />
           </Field>
         );
       }
       if (field.widget === "channel-event") {
         return (
-          <label key={field.key}>
-            {field.label}
-            <select value={String(value ?? "message.received")} onChange={(event) => set(field, event.target.value)}>
-              {eventOptions.map((event) => (
-                <option key={event} value={event}>
-                  {event}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            key={field.key}
+            label={field.label}
+            options={eventOptions.map((event) => ({ value: event, label: event }))}
+            value={String(value ?? DEFAULT_EVENT)}
+            emptyValue=""
+            onChange={(next) => {
+              if (next === undefined) return;
+              set(field, next);
+            }}
+          />
         );
       }
       if (field.widget === "media-kinds") {
@@ -464,21 +477,13 @@ export function NodeConfigFields({
                 placeholder="status"
               />
             </label>
-            <label>
-              Operador
-              <select
-                value={condition.operator ?? "equals"}
-                onChange={(event) => set(field, { ...condition, operator: event.target.value })}
-              >
-                <option value="equals">igual a</option>
-                <option value="not_equals">distinto de</option>
-                <option value="contains">contiene</option>
-                <option value="greater_than">mayor que</option>
-                <option value="less_than">menor que</option>
-                <option value="exists">existe</option>
-                <option value="truthy">es verdadero</option>
-              </select>
-            </label>
+            <Select
+              label="Operador"
+              options={OPERATOR_OPTIONS}
+              value={condition.operator ?? "equals"}
+              emptyValue=""
+              onChange={(next) => set(field, { ...condition, operator: next ?? "equals" })}
+            />
             <label>
               Valor
               <input
@@ -490,75 +495,81 @@ export function NodeConfigFields({
         );
       }
       if (field.widget === "destination-picker") {
+        // A saved id the project no longer lists stays visible as `(no disponible)` and re-emits
+        // unchanged; a raw chat id can still be typed, exactly like the integration editor.
         return (
-          <label key={field.key}>
-            {field.label}
-            <input
-              aria-label={field.label}
-              value={String(value ?? "")}
-              onChange={(event) => set(field, event.target.value || undefined)}
-              placeholder={field.placeholder}
-              list="node-destinations"
-            />
-            <datalist id="node-destinations">
-              {destinations.map((destination) => (
-                <option key={destination.id} value={destination.id}>
-                  {destination.label} · {destination.value}
-                </option>
-              ))}
-            </datalist>
-            {help}
-          </label>
+          <Select
+            key={field.key}
+            label={field.label}
+            options={[{ value: "", label: EMPTY_DESTINATION_LABEL }, ...destinationOptions(destinations)]}
+            value={String(value ?? "")}
+            emptyValue="undefined"
+            searchable
+            allowCustom
+            placeholder={field.placeholder}
+            helper={field.help}
+            error={error}
+            emptyLabel="Sin destinos configurados"
+            onChange={(next) => set(field, next)}
+          />
         );
       }
       if (field.widget === "workflow-version") {
+        // The server resolves the id globally, so the project catalogue is a suggestion list:
+        // typing an id that this project did not mint stays legal through `allowCustom`.
+        const options: readonly SelectOption[] = [
+          { value: "", label: EMPTY_VERSION_LABEL },
+          ...versions.map((version) => ({
+            value: version.id,
+            label: `v${version.version}`,
+            description: new Date(version.createdAt).toLocaleString(),
+          })),
+        ];
         return (
-          <label key={field.key}>
-            {field.label}
-            <input
-              value={String(value ?? "")}
-              onChange={(event) => set(field, event.target.value || undefined)}
-              placeholder="ID de workflow_versions"
-            />
-          </label>
+          <Select
+            key={field.key}
+            label={field.label}
+            options={options}
+            value={String(value ?? "")}
+            emptyValue="undefined"
+            searchable
+            allowCustom
+            placeholder={field.placeholder ?? "ID de workflow_versions"}
+            helper={field.help}
+            error={error}
+            emptyLabel="Sin versiones guardadas"
+            onChange={(next) => set(field, next)}
+          />
         );
       }
     }
 
     if (node.type === "decision" && field.key === "mode") {
       return (
-        <label key={field.key}>
-          {field.label}
-          <select
-            aria-label={field.label}
-            value={String(config.mode ?? (node.codeFile ? "code" : "condition"))}
-            onChange={(event) => {
-              if (event.target.value === "code") onEnableDecisionCode();
-              else onConfig({ mode: "condition" });
-            }}
-          >
-            {field.options?.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          key={field.key}
+          label={field.label}
+          options={field.options ?? []}
+          value={String(config.mode ?? (node.codeFile ? "code" : "condition"))}
+          emptyValue=""
+          onChange={(next) => {
+            if (next === "code") onEnableDecisionCode();
+            else onConfig({ mode: "condition" });
+          }}
+        />
       );
     }
 
     if (field.key === "kind") {
       return (
-        <label key={field.key}>
-          {field.label}
-          <select aria-label={field.label} value={String(value ?? "manual")} onChange={(event) => changeTriggerKind(event.target.value)}>
-            {field.options?.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          key={field.key}
+          label={field.label}
+          options={field.options ?? []}
+          value={String(value ?? "manual")}
+          emptyValue=""
+          onChange={(next) => changeTriggerKind(next ?? "manual")}
+        />
       );
     }
 
@@ -578,17 +589,15 @@ export function NodeConfigFields({
 
     if (field.type === "select") {
       return (
-        <label key={field.key}>
-          {field.label}
-          <select aria-label={field.label} value={String(value ?? "")} onChange={(event) => set(field, event.target.value)}>
-            {field.options?.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          {help}
-        </label>
+        <Select
+          key={field.key}
+          label={field.label}
+          options={field.options ?? []}
+          value={String(value ?? "")}
+          emptyValue=""
+          helper={field.help}
+          onChange={(next) => set(field, next ?? "")}
+        />
       );
     }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ApiClientError } from "../src/api.ts";
 import { agentModeLabel, friendlyError, statusBadge, statusLabel, statusTone } from "../src/ui.ts";
 
 describe("status labels", () => {
@@ -44,16 +45,44 @@ describe("status labels", () => {
     expect(agentModeLabel("all")).toBe("Principal y sub-agente");
   });
 
-  it("maps common API failures to actionable copy", () => {
-    expect(friendlyError(new Error("invalid username or password"), "fallback")).toBe(
-      "Usuario o contraseña incorrectos.",
+  it.each([
+    ["invalid username or password", "Usuario o contraseña incorrectos."],
+    ["already exists", "Ya existe un recurso con ese identificador."],
+    ["failed to fetch", "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo."],
+    ["unauthorized", "Tu sesión expiró. Vuelve a iniciar sesión."],
+    ["timed out", "La operación tardó demasiado. Vuelve a intentarlo."],
+  ])("maps %s to its Spanish copy", (message, copy) => {
+    expect(friendlyError(new Error(message), "fallback")).toBe(copy);
+  });
+
+  it("keeps the mapped copy when the server error also carries a code", () => {
+    expect(friendlyError(new ApiClientError(401, "UNAUTHORIZED", "unauthorized"), "fallback")).toBe(
+      "Tu sesión expiró. Vuelve a iniciar sesión.",
     );
-    expect(friendlyError(new Error("already exists"), "fallback")).toBe(
-      "Ya existe un recurso con ese identificador.",
+  });
+
+  it("answers an unmapped server code with the fallback plus the copyable code, never the server text", () => {
+    const copy = friendlyError(
+      new ApiClientError(500, "DB_POLICY_DENIED", "row level security policy denied"),
+      "No se pudieron guardar los ajustes.",
     );
-    expect(friendlyError(new Error("failed to fetch"), "fallback")).toMatch(/No se pudo conectar/);
-    expect(friendlyError(new Error("timed out"), "fallback")).toMatch(/tardó demasiado/);
-    expect(friendlyError(new Error("custom detail"), "fallback")).toBe("custom detail");
+    expect(copy).toBe("No se pudieron guardar los ajustes. (código: DB_POLICY_DENIED)");
+    expect(copy).not.toContain("row level security");
+  });
+
+  it("never passes an unmapped raw message through, even when it has no code", () => {
+    expect(friendlyError(new Error("database policy denied"), "fallback")).toBe("fallback");
+    expect(friendlyError("row level security policy denied", "fallback")).toBe("fallback");
+  });
+
+  it("uses a generic Spanish sentence when the call site has no fallback", () => {
+    expect(friendlyError(new ApiClientError(500, "INTERNAL_ERROR", "boom"), "")).toBe(
+      "La operación no se pudo completar. (código: INTERNAL_ERROR)",
+    );
+    expect(friendlyError(new Error("boom"), "")).toBe("La operación no se pudo completar.");
+  });
+
+  it("keeps the fallback for a rejection that carries nothing", () => {
     expect(friendlyError(undefined, "fallback")).toBe("fallback");
   });
 });

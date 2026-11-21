@@ -131,7 +131,7 @@ describe("orchestrator page", () => {
     renderPage();
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("request failed (500)");
+    expect(alert).toHaveTextContent("No se pudo cargar el resumen del orquestador. (código: HTTP_ERROR)");
     expect(screen.getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
 
@@ -179,7 +179,9 @@ describe("orchestrator page", () => {
       .mockResolvedValueOnce({ data: [] });
     renderPage();
 
-    expect(await screen.findByText(/request failed \(500\)/)).toBeInTheDocument();
+    expect(
+      await screen.findByText("No se pudo cargar el historial del chat. (código: HTTP_ERROR)"),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
 
     await waitFor(() => expect(api.controlChatHistory).toHaveBeenCalledTimes(2));
@@ -207,6 +209,30 @@ describe("orchestrator page", () => {
     expect(api.controlChat).toHaveBeenCalledWith("¿Cómo va la plataforma?", expect.any(Function));
     expect(await screen.findByText(reply)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("¿Cómo va la plataforma?")).toBeInTheDocument());
+  });
+
+  it("puts the chat first in DOM order and keeps the xl split with a dvh single scroll", async () => {
+    vi.mocked(api.controlOverview).mockResolvedValue(overviewFixture);
+    const { container } = renderPage();
+
+    await screen.findByText("Fallos recientes");
+
+    const aside = container.querySelector('aside[aria-label="Chat del orquestador global"]') as HTMLElement;
+    expect(aside).not.toBeNull();
+    const grid = aside.parentElement as HTMLElement;
+    expect(grid.className).toContain("xl:grid-cols-[minmax(0,1fr)_420px]");
+    expect(grid.firstElementChild).toBe(aside);
+
+    const cardsColumn = aside.nextElementSibling as HTMLElement;
+    expect(cardsColumn).not.toBeNull();
+    expect(aside.compareDocumentPosition(cardsColumn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(cardsColumn).getByRole("heading", { name: "Proyectos" })).toBeInTheDocument();
+    expect(within(cardsColumn).getByRole("heading", { name: "Ejecuciones recientes" })).toBeInTheDocument();
+    expect(within(cardsColumn).getAllByText("Fallos recientes").length).toBeGreaterThan(0);
+
+    expect(aside.className).toContain("xl:order-last");
+    expect(aside.className).toContain("100dvh");
+    expect(aside.className).not.toContain("100vh");
   });
 
   it("shows a visible error in the chat when the turn fails", async () => {

@@ -1,9 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Position, ReactFlow } from "@xyflow/react";
 import type { WorkflowGraph } from "@platform/shared";
-import { renderWithProviders } from "./render.tsx";
+import { PlatformEdge } from "../src/components/PlatformEdge.tsx";
+import { CanvasActionsContext } from "../src/components/nodes/canvas-actions.ts";
+import { chooseOption, renderWithProviders } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
   getWorkflow: vi.fn(),
@@ -44,6 +47,7 @@ import { ProjectAgentsPage } from "../src/pages/ProjectAgentsPage.tsx";
 import { ProjectKnowledgePage } from "../src/pages/ProjectKnowledgePage.tsx";
 import { ProjectIntegrationsPage } from "../src/pages/ProjectIntegrationsPage.tsx";
 import { ProjectSettingsPage } from "../src/pages/ProjectSettingsPage.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 
 const graph: WorkflowGraph = {
   version: 1,
@@ -116,13 +120,147 @@ function renderPage() {
   );
 }
 
+/**
+ * Edges need measured nodes before React Flow renders them, which jsdom never
+ * provides. This host keeps the real edge wrapper and renders the branches
+ * directly, so the picker is exercised through the component's own props.
+ */
+function renderEdgeHost(branches: ReadonlyArray<{ id: string; condition?: string; selected?: boolean }>) {
+  const actions = {
+    onDuplicateNode: vi.fn(),
+    onStartConnect: vi.fn(),
+    onDeleteNode: vi.fn(),
+    onDeleteEdge: vi.fn(),
+    onChangeEdgeCondition: vi.fn(),
+  };
+  const result = renderWithProviders(
+    <CanvasActionsContext.Provider value={actions}>
+      <div style={{ width: 800, height: 600 }}>
+        <ReactFlow
+          nodes={[]}
+          edges={branches.map((branch) => ({ id: branch.id, source: "a", target: "b" }))}
+          edgeTypes={{ platform: PlatformEdge }}
+          onNodesChange={vi.fn()}
+          onEdgesChange={vi.fn()}
+          onConnect={vi.fn()}
+        >
+          {branches.map((branch, index) => (
+            <svg key={branch.id} width={0} height={0}>
+              <PlatformEdge
+                id={branch.id}
+                source="a"
+                target="b"
+                sourceX={0}
+                sourceY={index * 120}
+                targetX={240}
+                targetY={index * 120}
+                sourcePosition={Position.Right}
+                targetPosition={Position.Left}
+                selected={branch.selected ?? false}
+                data={{ condition: branch.condition, isDecision: true }}
+              />
+            </svg>
+          ))}
+        </ReactFlow>
+      </div>
+    </CanvasActionsContext.Provider>,
+  );
+  return { ...result, actions };
+}
+
+describe("decision edge branches", () => {
+  it("renders both branches of a decision edge", async () => {
+    const { container } = renderEdgeHost([
+      { id: "e-true", condition: "true" },
+      { id: "e-false", condition: "false" },
+    ]);
+    await waitFor(() => expect(container.querySelector(".react-flow__edgelabel-renderer")).not.toBeNull());
+    const labels = container.querySelector(".react-flow__edgelabel-renderer") as HTMLElement;
+    expect(within(labels).getAllByText("sí").length).toBeGreaterThan(0);
+    expect(within(labels).getAllByText("no").length).toBeGreaterThan(0);
+  });
+
+  it("falls back to the sí branch and emits the branch value through the shared picker", async () => {
+    const user = userEvent.setup();
+    const { actions } = renderEdgeHost([{ id: "e1", selected: true }]);
+
+    const trigger = await screen.findByRole("combobox", { name: "Rama de la conexión" });
+    expect(trigger).toHaveTextContent("sí");
+
+    await chooseOption(user, "Rama de la conexión", "no");
+
+    expect(actions.onChangeEdgeCondition).toHaveBeenCalledWith("e1", "false");
+  });
+
+  it("shows a saved false branch through the shared picker", async () => {
+    renderEdgeHost([{ id: "e1", condition: "false", selected: true }]);
+
+    expect(await screen.findByRole("combobox", { name: "Rama de la conexión" })).toHaveTextContent("no");
+  });
+
+  it("displays a saved branch value that is not one of the options", async () => {
+    renderEdgeHost([{ id: "e1", condition: "legacy", selected: true }]);
+
+    expect(await screen.findByRole("combobox", { name: "Rama de la conexión" })).toHaveTextContent("legacy");
+  });
+
+  it("does not forward an unknown saved condition when its pinned row is chosen", async () => {
+    const user = userEvent.setup();
+    const { actions } = renderEdgeHost([{ id: "e1", condition: "legacy", selected: true }]);
+
+    const trigger = await screen.findByRole("combobox", { name: "Rama de la conexión" });
+    expect(trigger).toHaveTextContent("legacy");
+
+    await user.click(trigger);
+    await user.click(screen.getByRole("option", { name: /legacy/ }));
+    await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+
+    expect(actions.onChangeEdgeCondition).not.toHaveBeenCalled();
+    expect(trigger).toHaveTextContent("legacy");
+  });
+});
+
 describe("ProjectLayout flow section", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupApi();
   });
 
+  afterEach(() => {
+    act(() => dismissAll());
+  });
+
+  it("keeps the single-trigger rule inline and fires no toast", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText("Demo")).toBeInTheDocument();
+
+    fireEvent.click(document.querySelector('[data-node-id="start"]')!);
+    const inspector = await screen.findByRole("dialog", { name: "Nodo: Inicio" });
+    await user.click(within(inspector).getByRole("button", { name: "Duplicar" }));
+
+    expect(await screen.findByText("Solo puede existir un trigger. No se puede duplicar.")).toBeInTheDocument();
+    expect(document.querySelector("[data-sonner-toast]")).toBeNull();
+  });
+
+  it("announces a rejected node creation as a toast", async () => {
+    const user = userEvent.setup();
+    apiMock.writeNode.mockRejectedValueOnce(new Error("failed to fetch"));
+    renderPage();
+    expect(await screen.findByText("Demo")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "+ Nodo" }));
+    const palette = screen.getByRole("dialog", { name: "Agregar nodo" });
+    await user.click(within(palette).getByRole("button", { name: /Código/ }));
+
+    const toast = await screen.findByText(
+      "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.",
+    );
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
+  });
+
   it("adds a node from the modal palette, preserves unsaved edits and saves it", async () => {
+    const user = userEvent.setup();
     const { container } = renderPage();
     expect(await screen.findByText("Demo")).toBeInTheDocument();
 
@@ -140,10 +278,8 @@ describe("ProjectLayout flow section", () => {
     fireEvent.click(container.querySelector('[data-node-id="code"]')!);
     const codeInspector = await screen.findByRole("dialog", { name: "Nodo: Consultar" });
     await userEvent.click(within(codeInspector).getByRole("tab", { name: "Conexiones" }));
-    await userEvent.selectOptions(
-      within(codeInspector).getByLabelText("Nodo destino"),
-      within(codeInspector).getByRole("option", { name: "Mi HTTP" }),
-    );
+    // The destination picker is the shared Select now, not a native <select>.
+    await chooseOption(user, "Nodo destino", "Mi HTTP");
     await userEvent.click(within(codeInspector).getByRole("button", { name: "Conectar" }));
     await userEvent.click(within(codeInspector).getByRole("button", { name: "Cerrar" }));
 

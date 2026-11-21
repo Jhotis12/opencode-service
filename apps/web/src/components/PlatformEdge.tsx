@@ -7,6 +7,14 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 import { useCanvasActions } from "./nodes/canvas-actions.ts";
+import { Select } from "./Select.tsx";
+import type { SelectOption } from "./select/options.ts";
+
+// Labels stay as they were; the emitted values are the graph's branch strings.
+const BRANCH_OPTIONS: readonly SelectOption[] = [
+  { value: "true", label: "sí" },
+  { value: "false", label: "no" },
+];
 
 export type PlatformEdgeData = {
   condition?: string;
@@ -80,17 +88,24 @@ export function PlatformEdge({
           </span>
         )}
         {data?.isDecision && (
-          <select
-            aria-label="Rama de la conexión"
-            className="!w-auto !rounded-md !border-line !bg-panel-2 !px-2 !py-1 !text-[11px]"
-            value={data.condition ?? "true"}
+          <label
+            className="nodrag nopan flex items-center"
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
-            onChange={(event) => actions?.onChangeEdgeCondition(id, event.target.value as "true" | "false")}
           >
-            <option value="true">sí</option>
-            <option value="false">no</option>
-          </select>
+            <span className="sr-only">Rama de la conexión</span>
+            <Select
+              id={`edge-branch-${id}`}
+              label="Rama de la conexión"
+              options={BRANCH_OPTIONS}
+              value={data.condition ?? "true"}
+              emptyValue="undefined"
+              className="w-20"
+              onChange={(value) => {
+                if (value === "true" || value === "false") actions?.onChangeEdgeCondition(id, value);
+              }}
+            />
+          </label>
         )}
         <button
           type="button"

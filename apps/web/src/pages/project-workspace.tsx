@@ -22,6 +22,14 @@ import {
 } from "../api.ts";
 import { qk } from "../query.ts";
 import { getGraphIssues, mapServerIssue, type GraphIssue } from "../components/canvas/graph-edits.ts";
+import { notifyError, notifySuccess, notifyWarning } from "../components/Toast.tsx";
+import { friendlyError, type StatusTone } from "../ui.ts";
+
+/** A transient run/save notice; the tone travels with the copy so a failure is never painted green. */
+export interface StatusMessage {
+  message: string;
+  tone: StatusTone;
+}
 
 export interface AgentFlowUpdate {
   summary: string;
@@ -48,15 +56,14 @@ export interface ProjectWorkspace {
   agentsLoading: boolean;
   agentsError: Error | null;
   models: ModelInfo[];
-  modelOptions: string[];
   integrations: IntegrationRecord[];
   destinations: ProjectDestination[];
   schedules: ScheduleState[];
   chatHistory: ChatHistoryMessage[];
   settings: ProjectSettingsView | undefined;
   versions: WorkflowVersion[];
-  status: string | undefined;
-  setStatus(next: string | undefined): void;
+  status: StatusMessage | undefined;
+  setStatus(next: StatusMessage | undefined): void;
   error: string | undefined;
   setError(next: string | undefined): void;
   displayError: string | undefined;
@@ -166,7 +173,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
   const [dirty, setDirty] = useState(false);
   const [runningNodeId, setRunningNodeId] = useState<string>();
   const [detailRun, setDetailRun] = useState<RunRecord>();
-  const [status, setStatus] = useState<string>();
+  const [status, setStatus] = useState<StatusMessage>();
   const [error, setError] = useState<string>();
   const [launchOpen, setLaunchOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -243,11 +250,11 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
         setRunningNodeId(undefined);
       }
       if (data.status === "succeeded") {
-        setStatus("Ejecución completada. El detalle está en Ejecuciones.");
+        setStatus({ message: "Ejecución completada. El detalle está en Ejecuciones.", tone: "success" });
       } else if (["failed", "timed_out", "cancelled"].includes(data.status)) {
-        setStatus("La ejecución terminó con error. El detalle está en Ejecuciones.");
+        setStatus({ message: "La ejecución terminó con error. El detalle está en Ejecuciones.", tone: "danger" });
       } else if (data.status === "paused") {
-        setStatus("Ejecución pausada. Revisa Ejecuciones para el detalle.");
+        setStatus({ message: "Ejecución pausada. Revisa Ejecuciones para el detalle.", tone: "warning" });
       }
       void queryClient.invalidateQueries({ queryKey: qk.runs(slug) });
     });
@@ -279,7 +286,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       setGraph(saved);
       setDirty(false);
       setSaveIssues([]);
-      setStatus("Flujo guardado");
+      notifySuccess("Flujo guardado");
       setError(undefined);
     },
     onError: (cause) => {
@@ -301,7 +308,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
         );
         setError(undefined);
       } else {
-        setError(cause instanceof Error ? cause.message : "No se pudo guardar");
+        notifyError(friendlyError(cause, "No se pudo guardar"));
       }
       setStatus(undefined);
     },
@@ -312,16 +319,15 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     onSuccess: async (run) => {
       setLaunchOpen(false);
       await queryClient.invalidateQueries({ queryKey: qk.runs(slug) });
-      setStatus(
-        run.status === "paused"
-          ? "Ejecución pausada. Revisa Ejecuciones para el detalle."
-          : "Ejecución iniciada. El recorrido se muestra en el canvas.",
-      );
+      if (run.status === "paused") {
+        notifyWarning("Ejecución pausada. Revisa Ejecuciones para el detalle.");
+      } else {
+        notifySuccess("Ejecución iniciada. El recorrido se muestra en el canvas.");
+      }
       setError(undefined);
     },
     onError: (cause) => {
-      setError(cause instanceof Error ? cause.message : "No se pudo ejecutar");
-      setStatus(undefined);
+      notifyError(friendlyError(cause, "No se pudo ejecutar"));
     },
   });
 
@@ -330,10 +336,10 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     onSuccess: async (replayed) => {
       await queryClient.invalidateQueries({ queryKey: qk.runs(slug) });
       setDetailRun(replayed);
-      setStatus(`Ejecución ${replayed.id.slice(0, 8)} re-ejecutada`);
+      setStatus({ message: `Ejecución ${replayed.id.slice(0, 8)} re-ejecutada`, tone: "success" });
       setError(undefined);
     },
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo re-ejecutar"),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo re-ejecutar")),
   });
 
   const rollbackVersionMutation = useMutation({
@@ -351,10 +357,10 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       await queryClient.invalidateQueries({ queryKey: qk.workflowVersions(slug) });
       setGraph(result.graph);
       setDirty(false);
-      setStatus(`Flujo restaurado a v${version}`);
+      notifySuccess(`Flujo restaurado a v${version}`);
       setError(undefined);
     },
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo restaurar la versión"),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo restaurar la versión")),
   });
 
   const chatMutation = useMutation({
@@ -365,8 +371,6 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       if (!chatOpenRef.current) setChatUnread(true);
     },
   });
-
-  const modelOptions = useMemo(() => models.map((model) => `${model.providerID}/${model.modelID}`), [models]);
 
   function changeGraph(next: WorkflowGraph) {
     setGraph(next);
@@ -454,7 +458,11 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     chatQuery.error ??
     integrationsQuery.error ??
     settingsQuery.error;
-  const displayError = error ?? (queryError instanceof Error ? queryError.message : undefined);
+  const displayError =
+    error ??
+    (queryError
+      ? friendlyError(queryError, "No se pudo cargar el proyecto. Revisa la conexión y vuelve a intentarlo.")
+      : undefined);
 
   const workspace: ProjectWorkspace = {
     slug,
@@ -475,7 +483,6 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     agentsLoading: agentsQuery.isLoading,
     agentsError: agentsQuery.error,
     models,
-    modelOptions,
     integrations,
     destinations,
     schedules,

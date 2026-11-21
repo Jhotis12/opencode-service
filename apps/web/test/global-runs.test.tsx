@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import type { RunRecord, StepRun } from "../src/api.ts";
@@ -12,8 +12,11 @@ import {
   runsToCsv,
   runsToJson,
 } from "../src/components/RunsTable.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 import { GlobalRunsPage } from "../src/pages/GlobalRunsPage.tsx";
-import { renderWithProviders } from "./render.tsx";
+import { renderWithProviders, setViewportMatches } from "./render.tsx";
+
+const NETWORK_COPY = "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.";
 
 const apiMock = vi.hoisted(() => ({
   listGlobalRuns: vi.fn(),
@@ -92,10 +95,23 @@ function renderPage(initialEntries: string[] = ["/runs"]) {
   );
 }
 
+async function chooseFilter(name: string, option: string) {
+  await userEvent.click(screen.getByRole("combobox", { name }));
+  // A searchable combobox that kept focus after a commit only reopens from the keyboard.
+  if (screen.queryByRole("listbox") === null) await userEvent.keyboard("{ArrowDown}");
+  await userEvent.click(await screen.findByRole("option", { name: option }));
+}
+
 function lastCall() {
   const calls = apiMock.listGlobalRuns.mock.calls;
   return calls[calls.length - 1]?.[0] as Record<string, unknown>;
 }
+
+const normalize = (text: string | null): string => (text ?? "").replace(/\s+/g, " ").trim();
+
+afterEach(() => {
+  act(() => dismissAll());
+});
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -136,7 +152,7 @@ describe("GlobalRunsPage", () => {
     await screen.findByText("aaaa1111");
 
     apiMock.listGlobalRuns.mockResolvedValue(pageOf([failedWebhook]));
-    await userEvent.selectOptions(screen.getByLabelText("Estado"), "failed");
+    await chooseFilter("Estado", "Fallido");
 
     await waitFor(() => expect(lastCall()).toMatchObject({ status: "failed", limit: 50, offset: 0 }));
     expect(screen.getByTestId("location")).toHaveTextContent("/runs?status=failed");
@@ -149,13 +165,58 @@ describe("GlobalRunsPage", () => {
     renderPage(["/runs?status=failed"]);
 
     const empty = await screen.findByRole("heading", { name: "Ninguna ejecución coincide" });
-    expect(screen.getByLabelText("Estado")).toHaveValue("failed");
+    expect(screen.getByRole("combobox", { name: "Estado" })).toHaveTextContent("Fallido");
 
     await userEvent.click(within(empty.closest("section")!).getByRole("button", { name: "Limpiar filtros" }));
 
     await waitFor(() => expect(lastCall().status).toBeUndefined());
     expect(await screen.findByRole("heading", { name: "Sin ejecuciones todavía" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/runs$/);
+  });
+
+  it("filters by project slug and restores every run with Todos los proyectos", async () => {
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi, failedWebhook, runningSchedule]));
+    renderPage();
+    await screen.findByText("aaaa1111");
+
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi]));
+    await chooseFilter("Proyecto", "alpha");
+
+    await waitFor(() => expect(lastCall()).toMatchObject({ project: "alpha", limit: 50, offset: 0 }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/runs?project=alpha");
+    expect(screen.getAllByTestId("run-row")).toHaveLength(1);
+    expect(screen.getByTestId("global-runs-count")).toHaveTextContent("Mostrando 1–1 de 1 ejecuciones");
+
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi, failedWebhook, runningSchedule]));
+    await chooseFilter("Proyecto", "Todos los proyectos");
+
+    await waitFor(() => expect(lastCall().project).toBeUndefined());
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/runs$/);
+    expect(screen.getAllByTestId("run-row")).toHaveLength(3);
+    expect(screen.getByTestId("global-runs-count")).toHaveTextContent("Mostrando 1–3 de 3 ejecuciones");
+  });
+
+  it("keeps the project picker usable when no project exists yet", async () => {
+    apiMock.listProjects.mockResolvedValue({ data: [] });
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi]));
+    renderPage();
+    await screen.findByText("aaaa1111");
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Proyecto" }));
+
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("option", { name: "Todos los proyectos" })).toBeInTheDocument();
+    expect(screen.getAllByTestId("run-row")).toHaveLength(1);
+  });
+
+  it("keeps a deep-linked project visible when it is missing from the project list", async () => {
+    apiMock.listProjects.mockResolvedValue({ data: [] });
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi]));
+    renderPage(["/runs?project=alpha"]);
+
+    await screen.findByText("aaaa1111");
+    expect(screen.getByRole("combobox", { name: "Proyecto" })).toHaveValue("alpha");
+    expect(lastCall()).toMatchObject({ project: "alpha" });
   });
 
   it("indents each child run directly under its parent", async () => {
@@ -287,6 +348,129 @@ describe("GlobalRunsPage", () => {
     } finally {
       URL.createObjectURL = originalCreate;
       URL.revokeObjectURL = originalRevoke;
+    }
+  });
+
+  it("announces a rejected export as exactly one error toast and keeps no inline copy", async () => {
+    apiMock.listGlobalRuns.mockImplementation((filters: { limit?: number }) =>
+      filters.limit === 200
+        ? Promise.reject(new Error("failed to fetch"))
+        : Promise.resolve(pageOf([succeededWebUi])),
+    );
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/runs"]}>
+        <GlobalRunsPage />
+      </MemoryRouter>,
+    );
+    await screen.findByText("aaaa1111");
+
+    await userEvent.click(screen.getByRole("button", { name: "Exportar JSON" }));
+
+    const copy = await screen.findByText(NETWORK_COPY);
+    const toast = copy.closest("[data-sonner-toast]");
+    expect(toast).not.toBeNull();
+    // Secondary export controls still announce the outcome: sonner's host is a polite live region.
+    expect((toast as HTMLElement).closest("section[aria-live]")).toHaveAttribute("aria-live", "polite");
+    expect(screen.getAllByText(NETWORK_COPY)).toHaveLength(1);
+    expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(1);
+    // The failure left the filter panel: no inline red copy anywhere on the page.
+    expect(document.querySelector("search p.text-danger")).toBeNull();
+    expect(document.querySelector(".text-danger")?.textContent ?? "").not.toContain(NETWORK_COPY);
+  });
+
+  it("stacks each run row at 390px keeping the id, the status and every fact", async () => {
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi, runningSchedule]));
+    const restore = setViewportMatches("(max-width: 639px)", true);
+    try {
+      renderPage();
+      await screen.findByText("aaaa1111");
+
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      const rows = screen.getAllByTestId("run-row");
+      expect(rows).toHaveLength(2);
+      for (const term of ["Ejecución", "Estado", "Proyecto", "Origen", "Inicio", "Duración", "Acciones"]) {
+        expect(within(rows[0]!).getByText(term)).toBeInTheDocument();
+      }
+      expect(within(rows[0]!).getByLabelText("Estado: Completado")).toBeInTheDocument();
+      expect(within(rows[0]!).getByRole("link", { name: /alpha/ })).toHaveAttribute(
+        "href",
+        "/projects/alpha/runs?run=aaaa1111-succeeded",
+      );
+      expect(within(rows[0]!).getByText("Interfaz web")).toBeInTheDocument();
+      expect(within(rows[0]!).getByText("5 s")).toBeInTheDocument();
+      expect(within(rows[0]!).getByRole("button", { name: "Ver detalle" })).toBeInTheDocument();
+      expect(within(rows[1]!).getByLabelText("Estado: En ejecución")).toBeInTheDocument();
+      expect(within(rows[1]!).getByText("En curso")).toBeInTheDocument();
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+    } finally {
+      restore();
+    }
+  });
+
+  it("shows every desktop cell inside the stacked run cards", async () => {
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi, runningSchedule]));
+    const restoreDesktop = setViewportMatches("(max-width: 639px)", false);
+    const desktop = renderPage();
+    await screen.findByText("aaaa1111");
+    const desktopCells = [...screen.getByRole("table").querySelectorAll("tbody tr")].map((row) =>
+      [...row.querySelectorAll("td")].map((cell) => normalize(cell.textContent)),
+    );
+    desktop.unmount();
+    restoreDesktop();
+
+    const restoreNarrow = setViewportMatches("(max-width: 639px)", true);
+    try {
+      renderPage();
+      await screen.findByText("aaaa1111");
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      const narrowCells = screen.getAllByTestId("run-row").map((row) =>
+        [...row.querySelectorAll("dd")].map((cell) => normalize(cell.textContent)),
+      );
+      expect(narrowCells).toEqual(desktopCells);
+    } finally {
+      restoreNarrow();
+    }
+  });
+
+  it("keeps the empty and error states usable at 320px", async () => {
+    const restore = setViewportMatches("(max-width: 639px)", true);
+    try {
+      apiMock.listGlobalRuns.mockRejectedValueOnce(new Error("failed to fetch"));
+      const view = renderPage();
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("No se pudo conectar con el servidor");
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(320);
+      view.unmount();
+
+      apiMock.listGlobalRuns.mockResolvedValue(pageOf([]));
+      renderPage();
+      expect(await screen.findByRole("heading", { name: "Sin ejecuciones todavía" })).toBeInTheDocument();
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(320);
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the 1280px run columns unchanged", async () => {
+    apiMock.listGlobalRuns.mockResolvedValue(pageOf([succeededWebUi]));
+    const restore = setViewportMatches("(max-width: 639px)", false);
+    try {
+      renderPage();
+      await screen.findByText("aaaa1111");
+
+      const table = screen.getByRole("table");
+      expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+        "Ejecución",
+        "Estado",
+        "Proyecto",
+        "Origen",
+        "Inicio",
+        "Duración",
+        "Acciones",
+      ]);
+    } finally {
+      restore();
     }
   });
 });

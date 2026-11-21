@@ -10,7 +10,6 @@ import {
   buttonPrimary,
   card,
   friendlyError,
-  notify,
   sectionTitle,
 } from "../ui.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
@@ -18,6 +17,7 @@ import { EmptyState } from "./EmptyState.tsx";
 import { Modal } from "./Modal.tsx";
 import { NodeIcon } from "./nodes/node-icons.tsx";
 import { Skeleton } from "./Skeleton.tsx";
+import { notifyError, notifySuccess } from "./Toast.tsx";
 
 function PendingNote({ children }: { children: ReactNode }) {
   return (
@@ -68,11 +68,11 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
     onSuccess: (notebook) => {
       setSlug("");
       setName("");
-      notify.success("Notebook creado.");
+      notifySuccess("Notebook creado.");
       setSelected(notebook.slug);
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
-    onError: (cause) => notify.error(friendlyError(cause, "No se pudo crear el notebook.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo crear el notebook.")),
   });
 
   const upload = useMutation({
@@ -82,31 +82,31 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
     },
     onSuccess: (result) => {
       setUploadName(undefined);
-      notify.success(`Fuente indexada: ${result.source.title} (${result.chunks} fragmentos)`);
+      notifySuccess(`Fuente indexada: ${result.source.title} (${result.chunks} fragmentos)`);
       void queryClient.invalidateQueries({ queryKey: qk.sources(projectSlug, selected!) });
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
     onError: (cause) => {
       setUploadName(undefined);
-      notify.error(friendlyError(cause, "No se pudo indexar el documento."));
+      notifyError(friendlyError(cause, "No se pudo indexar el documento."));
     },
   });
 
   const ingest = useMutation({
     mutationFn: () => api.ingestUrl(projectSlug, selected!, url),
     onSuccess: (result) => {
-      notify.success(`URL indexada: ${result.source.title} (${result.chunks} fragmentos)`);
+      notifySuccess(`URL indexada: ${result.source.title} (${result.chunks} fragmentos)`);
       setUrl("");
       void queryClient.invalidateQueries({ queryKey: qk.sources(projectSlug, selected!) });
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
-    onError: (cause) => notify.error(friendlyError(cause, "No se pudo indexar la URL.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo indexar la URL.")),
   });
 
   const search = useMutation({
     mutationFn: () => api.searchNotebook(projectSlug, selected!, query),
     onSuccess: (result) => setHits(result.data),
-    onError: (cause) => notify.error(friendlyError(cause, "No se pudo buscar en el notebook.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo buscar en el notebook.")),
   });
 
   const removeSource = useMutation({
@@ -114,25 +114,31 @@ export function ProjectKnowledgePanel({ projectSlug }: { projectSlug: string }) 
       api.deleteSource(projectSlug, input.notebookSlug, input.source.id),
     onSuccess: (_result, input) => {
       setConfirmSource(undefined);
-      notify.success(`Fuente eliminada: ${input.source.title}`);
+      notifySuccess(`Fuente eliminada: ${input.source.title}`);
       void queryClient.invalidateQueries({ queryKey: qk.sources(projectSlug, input.notebookSlug) });
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
-    onError: (cause) => notify.error(friendlyError(cause, "No se pudo eliminar la fuente.")),
+    onError: (cause) => {
+      setConfirmSource(undefined);
+      notifyError(friendlyError(cause, "No se pudo eliminar la fuente."));
+    },
   });
 
   const removeNotebook = useMutation({
     mutationFn: (notebook: NotebookSummary) => api.deleteNotebook(projectSlug, notebook.slug),
     onSuccess: (_result, notebook) => {
       setConfirmNotebook(undefined);
-      notify.success(`Notebook eliminado: ${notebook.name}`);
+      notifySuccess(`Notebook eliminado: ${notebook.name}`);
       if (selected === notebook.slug) {
         setSelected(undefined);
         setHits([]);
       }
       void queryClient.invalidateQueries({ queryKey: qk.notebooks(projectSlug) });
     },
-    onError: (cause) => notify.error(friendlyError(cause, "No se pudo eliminar el notebook.")),
+    onError: (cause) => {
+      setConfirmNotebook(undefined);
+      notifyError(friendlyError(cause, "No se pudo eliminar el notebook."));
+    },
   });
 
   function submitCreate(event: FormEvent) {

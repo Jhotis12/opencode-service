@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { SubagentProfile } from "@platform/shared";
-import { api } from "../api.ts";
+import { api, type ModelInfo } from "../api.ts";
 import { qk } from "../query.ts";
 import { AgentEditorModal } from "./AgentEditorModal.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { NodeIcon } from "./nodes/node-icons.tsx";
+import { notifyError, notifySuccess } from "./Toast.tsx";
 import {
   agentModeLabel,
   badge,
@@ -13,8 +14,8 @@ import {
   buttonGhost,
   buttonPrimary,
   card,
+  friendlyError,
   input,
-  notify,
 } from "../ui.ts";
 
 function deniedTools(agent: SubagentProfile): string[] {
@@ -96,20 +97,19 @@ function AgentCard({
 export function AgentCatalog({
   projectSlug,
   agents,
-  modelOptions,
+  models,
   isLoading = false,
   error,
 }: {
   projectSlug: string;
   agents: SubagentProfile[];
-  modelOptions: string[];
+  models: readonly ModelInfo[];
   isLoading?: boolean;
   error?: unknown;
 }) {
   const queryClient = useQueryClient();
   const [editor, setEditor] = useState<{ agent?: SubagentProfile } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SubagentProfile>();
-  const [removeError, setRemoveError] = useState<string>();
   const [query, setQuery] = useState("");
 
   const sorted = useMemo(
@@ -139,14 +139,16 @@ export function AgentCatalog({
         queryClient.invalidateQueries({ queryKey: qk.agents(projectSlug) }),
         queryClient.invalidateQueries({ queryKey: qk.projectSettings(projectSlug) }),
       ]);
-      notify.success(`Agente ${agentKey(agent)} eliminado`);
-      setRemoveError(undefined);
+      notifySuccess(`Agente ${agentKey(agent)} eliminado`);
       setDeleteTarget(undefined);
     },
-    onError: (cause) => setRemoveError(cause instanceof Error ? cause.message : "No se pudo eliminar el agente"),
+    onError: (cause) => {
+      setDeleteTarget(undefined);
+      notifyError(friendlyError(cause, "No se pudo eliminar el agente"));
+    },
   });
 
-  const queryError = error instanceof Error ? error.message : error ? "Error al cargar agentes" : undefined;
+  const queryError = error ? friendlyError(error, "Error al cargar agentes") : undefined;
 
   return (
     <section className="flex flex-col gap-5">
@@ -175,12 +177,6 @@ export function AgentCatalog({
           )}
         </div>
       </header>
-
-      {removeError && (
-        <p className="text-sm text-danger" role="alert">
-          {removeError}
-        </p>
-      )}
 
       {queryError ? (
         <div className={`${card} items-start`} role="alert">
@@ -212,10 +208,7 @@ export function AgentCatalog({
               agent={agent}
               primary={agent.frontmatter.mode === "primary"}
               onEdit={() => setEditor({ agent })}
-              onDelete={() => {
-                setRemoveError(undefined);
-                setDeleteTarget(agent);
-              }}
+              onDelete={() => setDeleteTarget(agent)}
             />
           ))}
         </div>
@@ -253,12 +246,9 @@ export function AgentCatalog({
         <AgentEditorModal
           projectSlug={projectSlug}
           agent={editor.agent}
-          modelOptions={modelOptions}
+          models={models}
           onClose={() => setEditor(null)}
-          onSaved={(saved) => {
-            notify.success(`Agente ${agentKey(saved)} guardado`);
-            setRemoveError(undefined);
-          }}
+          onSaved={(saved) => notifySuccess(`Agente ${agentKey(saved)} guardado`)}
         />
       )}
 
@@ -273,11 +263,6 @@ export function AgentCatalog({
           <p className="text-sm text-muted">
             ¿Eliminar <code>{agentKey(deleteTarget)}</code>? Esta acción borra el perfil del agente y no se puede deshacer.
           </p>
-          {removeError && (
-            <p className="text-sm text-danger" role="alert">
-              {removeError}
-            </p>
-          )}
         </ConfirmDialog>
       )}
     </section>

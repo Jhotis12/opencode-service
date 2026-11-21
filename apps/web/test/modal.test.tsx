@@ -176,6 +176,66 @@ describe("Modal", () => {
     expect(document.body.style.overflow).toBe("");
   });
 
+  it("keeps a readable title width when three header actions compete", () => {
+    render(
+      <Modal
+        title="Nodo: Calificar leads del formulario de contacto"
+        onClose={vi.fn()}
+        actions={
+          <>
+            <button type="button">Duplicar</button>
+            <button type="button">Conexiones</button>
+            <button type="button">Eliminar</button>
+          </>
+        }
+      >
+        <p>Contenido</p>
+      </Modal>,
+    );
+    const dialog = screen.getByRole("dialog", { name: /Nodo: Calificar leads/ });
+    const title = screen.getByRole("heading", { name: /Nodo: Calificar leads/ });
+    // The floor is what pushes the action cluster onto a second line instead of shrinking
+    // the title to nothing; truncation still handles titles longer than the line.
+    expect(title).toHaveClass("min-w-28", "truncate");
+    expect(title).not.toHaveClass("min-w-0");
+    expect(dialog.querySelector("header > div")).toHaveClass("ml-auto");
+  });
+
+  it("scrolls the body once and pins the header and footer", () => {
+    render(
+      <Modal title="Con pie" onClose={vi.fn()} footer={<button type="button">Guardar</button>}>
+        <p>Contenido</p>
+      </Modal>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Con pie" });
+    const scrollers = dialog.querySelectorAll(".overflow-auto");
+    expect(scrollers).toHaveLength(1);
+    expect(scrollers[0]).toHaveAttribute("data-modal-body");
+    expect(dialog.querySelector("header")).toHaveClass("shrink-0");
+    expect(dialog.lastElementChild).toHaveClass("shrink-0");
+    expect(dialog.lastElementChild).not.toHaveClass("overflow-auto");
+  });
+
+  it("pays the bottom sheet the gesture-area inset", () => {
+    render(
+      <Modal title="Hoja" onClose={vi.fn()}>
+        <p>Contenido</p>
+      </Modal>,
+    );
+    expect(screen.getByRole("dialog", { name: "Hoja" })).toHaveClass("pb-[env(safe-area-inset-bottom)]");
+  });
+
+  // jsdom cannot resolve env(), so the safe-area rule is pinned as the class string.
+  it("pays the bottom-sheet header the top safe-area inset", () => {
+    render(
+      <Modal title="Hoja alta" onClose={vi.fn()}>
+        <p>Contenido</p>
+      </Modal>,
+    );
+    const header = screen.getByRole("dialog", { name: "Hoja alta" }).querySelector("header");
+    expect(header?.className).toContain("pt-[calc(1rem+env(safe-area-inset-top))]");
+  });
+
   it("maps each size to a distinct width", () => {
     const { rerender } = render(
       <Modal title="Size" onClose={vi.fn()} size="sm">

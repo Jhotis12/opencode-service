@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
-import { badge, friendlyError, notify } from "../ui.ts";
+import { badge, friendlyError } from "../ui.ts";
+import { notifySuccess } from "./Toast.tsx";
 import {
   PlatformSettingsFormActions,
   PlatformSettingsInput,
@@ -20,7 +21,7 @@ export function PlatformSettingsTelemetrySection({ configured }: { readonly conf
     mutationFn: () => api.saveSettings({ sentryDsn: sentryDsn.trim() }),
     onSuccess: async () => {
       setSentryDsn("");
-      notify.success("DSN guardado. Reinicia el servicio para activar Sentry.");
+      notifySuccess("DSN guardado. Reinicia el servicio para activar Sentry.");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: qk.settings }),
         queryClient.invalidateQueries({ queryKey: qk.effectiveConfig() }),

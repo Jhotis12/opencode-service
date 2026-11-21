@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IntegrationRecord } from "@platform/shared";
-import { renderWithProviders } from "./render.tsx";
+import { chooseOption, renderWithProviders } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
   listDestinations: vi.fn().mockResolvedValue({ data: [] }),
@@ -15,6 +15,7 @@ const apiMock = vi.hoisted(() => ({
 vi.mock("../src/api.ts", () => ({ api: apiMock }));
 
 import { IntegrationEditor } from "../src/components/IntegrationEditor.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 
 const baseIntegration: IntegrationRecord = {
   id: "tg1",
@@ -31,16 +32,36 @@ const baseIntegration: IntegrationRecord = {
   updatedAt: new Date().toISOString(),
 };
 
+const projectDestination = {
+  id: "dest-1",
+  scope: "project",
+  projectSlug: "ventas",
+  kind: "telegram",
+  label: "Soporte",
+  value: "123",
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
+function elementIds(): string[] {
+  return [...document.querySelectorAll("[id]")].map((element) => element.id);
+}
+
+afterEach(() => {
+  act(() => dismissAll());
+});
+
 describe("IntegrationEditor", () => {
   it("creates a guided integration from registry fields", async () => {
+    const user = userEvent.setup();
     apiMock.createIntegration.mockResolvedValueOnce({ integration: baseIntegration });
     const saved = vi.fn();
     renderWithProviders(<IntegrationEditor scope="project" projectSlug="ventas" onSaved={saved} />);
     expect(screen.getByText("Configuración avanzada")).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText("Nombre"), "Bot");
-    await userEvent.type(screen.getByLabelText("Slug"), "bot");
-    await userEvent.type(screen.getByLabelText("Token del bot (@BotFather)"), "123:ABC");
-    await userEvent.click(screen.getByRole("button", { name: "Crear integración" }));
+    await user.type(screen.getByLabelText("Nombre"), "Bot");
+    await user.type(screen.getByLabelText("Slug"), "bot");
+    await user.type(screen.getByLabelText("Token del bot (@BotFather)"), "123:ABC");
+    await user.click(screen.getByRole("button", { name: "Crear integración" }));
     await waitFor(() =>
       expect(apiMock.createIntegration).toHaveBeenCalledWith(
         "ventas",
@@ -58,15 +79,37 @@ describe("IntegrationEditor", () => {
     expect(saved).toHaveBeenCalled();
   });
 
+  it("saves the kind chosen through the picker and resets the new kind config", async () => {
+    const user = userEvent.setup();
+    apiMock.createIntegration.mockResolvedValueOnce({
+      integration: { ...baseIntegration, kind: "whatsapp", name: "Wa", slug: "wa" },
+    });
+    renderWithProviders(<IntegrationEditor scope="project" projectSlug="ventas" onSaved={vi.fn()} />);
+    await chooseOption(user, "Tipo", "WhatsApp");
+    await user.type(screen.getByLabelText("Nombre"), "Wa");
+    await user.type(screen.getByLabelText("Slug"), "wa");
+    await user.click(screen.getByRole("button", { name: "Crear integración" }));
+    await waitFor(() =>
+      expect(apiMock.createIntegration).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({
+          kind: "whatsapp",
+          config: expect.objectContaining({ mode: "baileys" }),
+        }),
+      ),
+    );
+  });
+
   it("edits an integration without resending the existing secret", async () => {
+    const user = userEvent.setup();
     apiMock.updateIntegration.mockResolvedValueOnce({ ...baseIntegration, name: "Bot nuevo" });
     const saved = vi.fn();
     renderWithProviders(
       <IntegrationEditor scope="project" projectSlug="ventas" integration={baseIntegration} onSaved={saved} />,
     );
-    await userEvent.clear(screen.getByLabelText("Nombre"));
-    await userEvent.type(screen.getByLabelText("Nombre"), "Bot nuevo");
-    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await user.clear(screen.getByLabelText("Nombre"));
+    await user.type(screen.getByLabelText("Nombre"), "Bot nuevo");
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
     await waitFor(() =>
       expect(apiMock.updateIntegration).toHaveBeenCalledWith(
         "ventas",
@@ -78,12 +121,13 @@ describe("IntegrationEditor", () => {
   });
 
   it("saves the telegram voice reply preference inside routing", async () => {
+    const user = userEvent.setup();
     apiMock.updateIntegration.mockResolvedValueOnce({ ...baseIntegration, name: "Bot" });
     renderWithProviders(
       <IntegrationEditor scope="project" projectSlug="ventas" integration={baseIntegration} onSaved={vi.fn()} />,
     );
-    await userEvent.selectOptions(screen.getByLabelText("Responder con audio cuando llegue audio"), "auto");
-    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await chooseOption(user, "Responder con audio cuando llegue audio", "Nota de voz si el mensaje trae audio");
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
     await waitFor(() =>
       expect(apiMock.updateIntegration).toHaveBeenCalledWith(
         "ventas",
@@ -95,23 +139,19 @@ describe("IntegrationEditor", () => {
     );
   });
 
-  it("creates a guided speech integration with voice suggestions", async () => {
+  it("creates a guided speech integration from the suggested voices", async () => {
+    const user = userEvent.setup();
     apiMock.createIntegration.mockResolvedValueOnce({
       integration: { ...baseIntegration, kind: "speech", slug: "voz", name: "Voz" },
     });
     const saved = vi.fn();
     renderWithProviders(<IntegrationEditor scope="project" projectSlug="ventas" onSaved={saved} />);
-    await userEvent.selectOptions(screen.getByLabelText("Tipo"), "speech");
-    expect(screen.getByLabelText("Voz por defecto")).toHaveAttribute("list", "integration-suggestions-voice");
-    expect(
-      document.getElementById("integration-suggestions-voice")?.querySelector('option[value="ef_dora"]'),
-    ).not.toBeNull();
-    await userEvent.type(screen.getByLabelText("Nombre"), "Voz");
-    await userEvent.type(screen.getByLabelText("Slug"), "voz");
-    await userEvent.clear(screen.getByLabelText("Voz por defecto"));
-    await userEvent.type(screen.getByLabelText("Voz por defecto"), "em_alex");
-    await userEvent.type(screen.getByLabelText("API key del TTS"), "sk-voz");
-    await userEvent.click(screen.getByRole("button", { name: "Crear integración" }));
+    await chooseOption(user, "Tipo", "Voz (TTS)");
+    await chooseOption(user, "Voz por defecto", "em_alex");
+    await user.type(screen.getByLabelText("Nombre"), "Voz");
+    await user.type(screen.getByLabelText("Slug"), "voz");
+    await user.type(screen.getByLabelText("API key del TTS"), "sk-voz");
+    await user.click(screen.getByRole("button", { name: "Crear integración" }));
     await waitFor(() =>
       expect(apiMock.createIntegration).toHaveBeenCalledWith(
         "ventas",
@@ -131,7 +171,33 @@ describe("IntegrationEditor", () => {
     expect(saved).toHaveBeenCalled();
   });
 
-  it("selects a discovered voice when the connection exposes them", async () => {
+  it("keeps a raw voice that the provider suggested but did not list", async () => {
+    const user = userEvent.setup();
+    apiMock.createIntegration.mockResolvedValueOnce({
+      integration: { ...baseIntegration, kind: "speech", slug: "voz", name: "Voz" },
+    });
+    renderWithProviders(<IntegrationEditor scope="project" projectSlug="ventas" onSaved={vi.fn()} />);
+    await chooseOption(user, "Tipo", "Voz (TTS)");
+    const voice = screen.getByRole("combobox", { name: "Voz por defecto" });
+    await user.click(voice);
+    await user.type(voice, "xx_custom");
+    await user.click(screen.getByRole("option", { name: /Usar «xx_custom»/ }));
+    await user.type(screen.getByLabelText("Nombre"), "Voz");
+    await user.type(screen.getByLabelText("Slug"), "voz");
+    await user.click(screen.getByRole("button", { name: "Crear integración" }));
+    await waitFor(() =>
+      expect(apiMock.createIntegration).toHaveBeenCalledWith(
+        "ventas",
+        expect.objectContaining({
+          kind: "speech",
+          config: expect.objectContaining({ voice: "xx_custom" }),
+        }),
+      ),
+    );
+  });
+
+  it("selects a discovered voice and model when the connection exposes them", async () => {
+    const user = userEvent.setup();
     const speechIntegration: IntegrationRecord = {
       ...baseIntegration,
       id: "tts1",
@@ -151,30 +217,140 @@ describe("IntegrationEditor", () => {
     renderWithProviders(
       <IntegrationEditor scope="project" projectSlug="ventas" integration={speechIntegration} onSaved={vi.fn()} />,
     );
-    const select = screen.getByLabelText("Voz por defecto");
-    expect(select.tagName).toBe("SELECT");
-    expect(screen.getByRole("option", { name: "em_alex" })).toBeInTheDocument();
-    const model = screen.getByLabelText("Modelo por defecto");
-    expect(model.tagName).toBe("SELECT");
-    expect(screen.getByRole("option", { name: "rhasspy/piper-voices" })).toBeInTheDocument();
-    await userEvent.selectOptions(select, "em_alex");
-    await userEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await chooseOption(user, "Modelo por defecto", "rhasspy/piper-voices");
+    await chooseOption(user, "Voz por defecto", "em_alex");
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
     await waitFor(() =>
       expect(apiMock.updateIntegration).toHaveBeenCalledWith(
         "ventas",
         "tts1",
-        expect.objectContaining({ config: expect.objectContaining({ voice: "em_alex" }) }),
+        expect.objectContaining({
+          config: expect.objectContaining({
+            model: "rhasspy/piper-voices",
+            voice: "em_alex",
+          }),
+        }),
       ),
     );
   });
 
-  it("shows an actionable error when the transport fails", async () => {
-    apiMock.createIntegration.mockRejectedValueOnce(new Error("failed to fetch"));
+  it("picks a destination by id and keeps a raw recipient legal", async () => {
+    const user = userEvent.setup();
+    apiMock.listDestinations.mockResolvedValueOnce({ data: [projectDestination] });
+    apiMock.updateIntegration.mockResolvedValue({ ...baseIntegration, name: "Bot" });
+    renderWithProviders(
+      <IntegrationEditor scope="project" projectSlug="ventas" integration={baseIntegration} onSaved={vi.fn()} />,
+    );
+    await chooseOption(user, "Destinatario de alertas", "Soporte · 123");
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() =>
+      expect(apiMock.updateIntegration).toHaveBeenCalledWith(
+        "ventas",
+        "tg1",
+        expect.objectContaining({ config: expect.objectContaining({ alertRecipient: "dest-1" }) }),
+      ),
+    );
+
+    const recipient = screen.getByRole("combobox", { name: "Destinatario de alertas" });
+    await user.click(recipient);
+    await user.type(recipient, "999");
+    await user.click(screen.getByRole("option", { name: /Usar «999»/ }));
+    apiMock.updateIntegration.mockClear();
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() =>
+      expect(apiMock.updateIntegration).toHaveBeenCalledWith(
+        "ventas",
+        "tg1",
+        expect.objectContaining({ config: expect.objectContaining({ alertRecipient: "999" }) }),
+      ),
+    );
+  });
+
+  it("adds a destination to the allowlist and still accepts raw chat ids", async () => {
+    const user = userEvent.setup();
+    apiMock.listDestinations.mockResolvedValueOnce({ data: [projectDestination] });
+    apiMock.updateIntegration.mockResolvedValue({ ...baseIntegration, name: "Bot" });
+    renderWithProviders(
+      <IntegrationEditor scope="project" projectSlug="ventas" integration={baseIntegration} onSaved={vi.fn()} />,
+    );
+    await chooseOption(user, "Allowlist de administradores", "Soporte · 123");
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() =>
+      expect(apiMock.updateIntegration).toHaveBeenCalledWith(
+        "ventas",
+        "tg1",
+        expect.objectContaining({
+          config: expect.objectContaining({
+            routing: expect.objectContaining({ allowlist: ["dest-1"] }),
+          }),
+        }),
+      ),
+    );
+
+    const allowlist = screen.getByRole("combobox", { name: "Allowlist de administradores" });
+    await user.click(allowlist);
+    await user.type(allowlist, "555, 666");
+    await user.click(screen.getByRole("option", { name: /Usar «555, 666»/ }));
+    apiMock.updateIntegration.mockClear();
+    await user.click(screen.getByRole("button", { name: "Guardar cambios" }));
+    await waitFor(() =>
+      expect(apiMock.updateIntegration).toHaveBeenCalledWith(
+        "ventas",
+        "tg1",
+        expect.objectContaining({
+          config: expect.objectContaining({
+            routing: expect.objectContaining({ allowlist: ["555", "666"] }),
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("points each picker label at its own control", async () => {
+    const user = userEvent.setup();
     renderWithProviders(<IntegrationEditor scope="project" projectSlug="ventas" onSaved={vi.fn()} />);
-    await userEvent.type(screen.getByLabelText("Nombre"), "Bot");
-    await userEvent.type(screen.getByLabelText("Slug"), "bot");
-    await userEvent.type(screen.getByLabelText("Token del bot (@BotFather)"), "123:ABC");
-    await userEvent.click(screen.getByRole("button", { name: "Crear integración" }));
-    expect(await screen.findByText(/No se pudo conectar con el servidor/)).toHaveAttribute("title", "failed to fetch");
+    const voiceLabel = screen.getByText("Responder con audio cuando llegue audio", { selector: "label" });
+    const voiceControl = screen.getByRole("combobox", { name: "Responder con audio cuando llegue audio" });
+    expect(voiceLabel).toHaveAttribute("for", voiceControl.id);
+    await user.click(voiceLabel);
+    expect(voiceControl).toHaveFocus();
+  });
+
+  it("gives every element a unique id with two editors mounted together", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <IntegrationEditor scope="project" projectSlug="ventas" onSaved={vi.fn()} />
+        <IntegrationEditor scope="project" projectSlug="ventas" onSaved={vi.fn()} />
+      </>,
+    );
+    const ids = elementIds();
+    expect(ids.length).toBeGreaterThan(10);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const label of document.querySelectorAll("label[for]")) {
+      const target = label.getAttribute("for");
+      expect(target === null ? null : document.getElementById(target)).not.toBeNull();
+    }
+
+    const kinds = screen.getAllByRole("combobox", { name: "Tipo" });
+    await user.click(kinds[1]!);
+    await user.click(screen.getAllByRole("option", { name: "Voz (TTS)" })[0]!);
+    const afterSwitch = elementIds();
+    expect(new Set(afterSwitch).size).toBe(afterSwitch.length);
+  });
+
+  it("shows an actionable error when the transport fails", async () => {
+    const user = userEvent.setup();
+    apiMock.createIntegration.mockRejectedValueOnce(new Error("failed to fetch"));
+    renderWithProviders(
+      <>
+        <IntegrationEditor scope="project" projectSlug="ventas" onSaved={vi.fn()} />
+      </>,
+    );
+    await user.type(screen.getByLabelText("Nombre"), "Bot");
+    await user.type(screen.getByLabelText("Slug"), "bot");
+    await user.type(screen.getByLabelText("Token del bot (@BotFather)"), "123:ABC");
+    await user.click(screen.getByRole("button", { name: "Crear integración" }));
+    expect((await screen.findByText(/No se pudo conectar con el servidor/)).closest("[data-sonner-toast]")).not.toBeNull();
   });
 });

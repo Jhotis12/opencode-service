@@ -1,19 +1,36 @@
 import { useId, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   PlatformToolNameSchema,
   type PermissionRule,
   type PlatformToolName,
   type SubagentProfile,
 } from "@platform/shared";
-import { api } from "../api.ts";
+import { api, type ModelInfo } from "../api.ts";
 import { qk } from "../query.ts";
 import { Field } from "./Field.tsx";
 import { Modal } from "./Modal.tsx";
-import { buttonDanger, buttonGhost, buttonPrimary } from "../ui.ts";
+import { MultiSelect } from "./MultiSelect.tsx";
+import { Select } from "./Select.tsx";
+import { inheritModelOption, modelOptions, type SelectOption } from "./select/options.ts";
+import { notifyError } from "./Toast.tsx";
+import { buttonDanger, buttonGhost, buttonPrimary, friendlyError } from "../ui.ts";
 
 type AgentMode = "primary" | "subagent" | "all";
 type ToolEffect = PermissionRule["effect"];
+
+const INHERIT_MODEL_LABEL = "Heredar del flujo";
+
+/** Visible copy comes from the design standard; the values are the API's strings. */
+const MODE_OPTIONS: readonly SelectOption[] = [
+  { value: "subagent", label: "Sub-agente" },
+  { value: "primary", label: "Principal" },
+  { value: "all", label: "Principal y sub-agente" },
+];
+
+function isAgentMode(value: string | undefined): value is AgentMode {
+  return value === "primary" || value === "subagent" || value === "all";
+}
 
 const PLATFORM_TOOL_META: Record<PlatformToolName, { label: string; description: string }> = {
   workflow_list: {
@@ -131,7 +148,7 @@ type AgentFormState = {
   body: string;
   model: string;
   mode: AgentMode;
-  notebooks: string;
+  notebooks: string[];
   toolEffects: Partial<Record<PlatformToolName, ToolEffect>>;
   unknownRules: PermissionRule[];
 };
@@ -145,7 +162,7 @@ function toForm(agent?: SubagentProfile): AgentFormState {
     body: agent?.body ?? "",
     model: agent?.frontmatter.model ?? "",
     mode: agent?.frontmatter.mode ?? "subagent",
-    notebooks: (agent?.frontmatter.notebooks ?? []).join(", "),
+    notebooks: [...(agent?.frontmatter.notebooks ?? [])],
     toolEffects: effects,
     unknownRules,
   };
@@ -157,13 +174,13 @@ const effectPill =
 export function AgentEditorModal({
   projectSlug,
   agent,
-  modelOptions,
+  models,
   onClose,
   onSaved,
 }: {
   projectSlug: string;
   agent?: SubagentProfile;
-  modelOptions: string[];
+  models: readonly ModelInfo[];
   onClose(): void;
   onSaved?(agent: SubagentProfile): void;
 }) {
@@ -171,7 +188,25 @@ export function AgentEditorModal({
   const permissionGroupId = useId();
   const editing = Boolean(agent);
   const [form, setForm] = useState<AgentFormState>(() => toForm(agent));
-  const [error, setError] = useState<string>();
+  // Shared cache contract: ProjectKnowledgePanel and ProjectOverviewPage store the
+  // unwrapped NotebookSummary[] under this same key, and React Query keys by key
+  // alone, so this consumer must unwrap the envelope too or poison their cache.
+  const notebooksQuery = useQuery({
+    queryKey: qk.notebooks(projectSlug),
+    queryFn: () => api.listNotebooks(projectSlug).then((result) => result.data),
+  });
+  const notebookOptions: readonly SelectOption[] = (notebooksQuery.data ?? []).map((notebook) => ({
+    value: notebook.slug,
+    label: notebook.name,
+    ...(notebook.description ? { description: notebook.description } : {}),
+    keywords: [notebook.slug],
+  }));
+  // A catalogue entry without a name falls back to its ref. A model-less agent inherits
+  // the flow model, so the empty row names the flow.
+  const modelPickerOptions: readonly SelectOption[] = [
+    ...modelOptions(models).map((choice) => ({ ...choice, label: choice.label || choice.value })),
+    inheritModelOption(INHERIT_MODEL_LABEL),
+  ];
 
   const identityValid =
     /^[a-z0-9][a-z0-9-]*$/.test(form.category.trim()) &&
@@ -187,12 +222,10 @@ export function AgentEditorModal({
       return api.upsertAgent(projectSlug, form.category.trim(), form.role.trim(), {
         description: form.description.trim(),
         body: form.body,
-        model: form.model || undefined,
+        // Inheriting the flow model means the key never reaches the request body.
+        ...(form.model ? { model: form.model } : {}),
         mode: form.mode,
-        notebooks: form.notebooks
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
+        notebooks: form.notebooks,
         permissions: toolEffectsToPermissionRules(form.toolEffects),
       });
     },
@@ -204,7 +237,7 @@ export function AgentEditorModal({
       onSaved?.(saved);
       onClose();
     },
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo guardar el agente"),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo guardar el agente")),
   });
 
   function patch(patch: Partial<AgentFormState>) {
@@ -225,7 +258,6 @@ export function AgentEditorModal({
   }
 
   function submit() {
-    setError(undefined);
     if (!canSave) return;
     save.mutate();
   }
@@ -253,7 +285,6 @@ export function AgentEditorModal({
           submit();
         }}
         aria-label={editing ? "Editar agente" : "Nuevo agente"}
-        aria-describedby={error ? "agent-form-error" : undefined}
       >
         <section className="flex flex-col gap-3">
           <div>
@@ -300,11 +331,15 @@ export function AgentEditorModal({
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <Field id="agent-mode" label="Modo">
-              <select value={form.mode} onChange={(event) => patch({ mode: event.target.value as AgentMode })}>
-                <option value="subagent">Sub-agente</option>
-                <option value="primary">Principal</option>
-                <option value="all">Principal y sub-agente</option>
-              </select>
+              <Select
+                label="Modo"
+                options={MODE_OPTIONS}
+                value={form.mode}
+                emptyValue="undefined"
+                onChange={(mode) => {
+                  if (isAgentMode(mode)) patch({ mode });
+                }}
+              />
             </Field>
           </div>
           <Field id="agent-body" label="Instrucciones (.md)">
@@ -324,22 +359,25 @@ export function AgentEditorModal({
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <Field id="agent-model" label="Modelo">
-              <select value={form.model} onChange={(event) => patch({ model: event.target.value })}>
-                <option value="">Heredar del flujo</option>
-                {modelOptions.map((model) => (
-                  <option key={model} value={model}>
-                    {model}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field id="agent-notebooks" label="Notebooks (separados por coma)">
-              <input
-                value={form.notebooks}
-                onChange={(event) => patch({ notebooks: event.target.value })}
-                placeholder="manual-ventas, politicas"
+              <Select
+                label="Modelo"
+                options={modelPickerOptions}
+                value={form.model}
+                emptyValue=""
+                onChange={(model) => patch({ model: model ?? "" })}
               />
             </Field>
+            <MultiSelect
+              label="Notebooks"
+              placeholder="Selecciona notebooks"
+              options={notebookOptions}
+              value={form.notebooks}
+              onChange={(notebooks) => patch({ notebooks })}
+              loading={notebooksQuery.isLoading}
+              loadingLabel="Cargando notebooks…"
+              loadError={notebooksQuery.isError ? "No se pudieron cargar los notebooks." : null}
+              onRetry={() => void notebooksQuery.refetch()}
+            />
           </div>
         </section>
 
@@ -411,12 +449,6 @@ export function AgentEditorModal({
             ))}
           </div>
         </section>
-
-        {error && (
-          <p id="agent-form-error" className="text-sm text-danger" role="alert">
-            {error}
-          </p>
-        )}
 
       </form>
     </Modal>

@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Link } from "react-router-dom";
 import type { WorkflowGraph, WorkflowVersion } from "@platform/shared";
+import type { ModelInfo } from "../api.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { Field } from "./Field.tsx";
 import { Modal } from "./Modal.tsx";
+import { OverflowMenu } from "./OverflowMenu.tsx";
+import { Select } from "./Select.tsx";
 import { WorkflowLibraryPanel } from "./WorkflowLibraryPanel.tsx";
+import { inheritModelOption, modelOptions } from "./select/options.ts";
 import { badge, button, buttonGhost, buttonPrimary, focusRing, statusBadge } from "../ui.ts";
 
 export type ProjectTab = "overview" | "flow" | "runs" | "agents" | "knowledge" | "integrations" | "settings";
@@ -20,6 +25,48 @@ const TABS: Array<[ProjectTab, string]> = [
 
 export function isProjectTab(value: string): value is ProjectTab {
   return TABS.some(([key]) => key === value);
+}
+
+// This bar sets the flow default, so its empty choice falls back to the project default.
+const INHERIT_MODEL_LABEL = "Heredar del proyecto";
+
+const TOP_BAR_ICON_PROPS = {
+  width: 16,
+  height: 16,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.8,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+  className: "h-4 w-4 sm:hidden",
+  "aria-hidden": true,
+};
+
+/** Icon-only fallback for the flow actions under 640 px; the text label returns at `sm`. */
+function TopBarActionIcon({ name }: { name: "save" | "play" | "chat" }) {
+  switch (name) {
+    case "save":
+      return (
+        <svg {...TOP_BAR_ICON_PROPS}>
+          <path d="M5 4h11l3 3v13H5z" />
+          <path d="M8.5 4v5h5.5V4M8.5 20v-6h7v6" />
+        </svg>
+      );
+    case "play":
+      return (
+        <svg {...TOP_BAR_ICON_PROPS}>
+          <path d="M8 5.5 19 12 8 18.5z" />
+        </svg>
+      );
+    case "chat":
+      return (
+        <svg {...TOP_BAR_ICON_PROPS}>
+          <path d="M4.5 5h15v10.5H9.5L4.5 19z" />
+          <path d="M8 9h8M8 12h5" />
+        </svg>
+      );
+  }
 }
 
 export function projectTabPath(slug: string, tab: ProjectTab): string {
@@ -39,7 +86,7 @@ export function ProjectTopBar({
   dirty,
   issueCount,
   saving,
-  modelOptions,
+  models,
   chatBusy,
   chatUnread,
   versions = [],
@@ -58,7 +105,7 @@ export function ProjectTopBar({
   dirty: boolean;
   issueCount: number;
   saving: boolean;
-  modelOptions: string[];
+  models: readonly ModelInfo[];
   chatBusy?: boolean;
   chatUnread?: boolean;
   versions?: WorkflowVersion[];
@@ -73,11 +120,10 @@ export function ProjectTopBar({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [rollbackTarget, setRollbackTarget] = useState<WorkflowVersion>();
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
-  const menuRef = useRef<HTMLDivElement>(null);
-  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const modelChoices = modelOptions(models);
+  const modelPickerOptions = [...modelChoices, inheritModelOption(INHERIT_MODEL_LABEL)];
   const navRef = useRef<HTMLElement>(null);
 
   const updateTabOverflow = useCallback(() => {
@@ -119,54 +165,12 @@ export function ProjectTopBar({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [dirty, saving, issueCount, onSave]);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setMenuOpen(false);
-        menuButtonRef.current?.focus();
-      }
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [menuOpen]);
-
-  function focusFirstMenuItem() {
-    requestAnimationFrame(() => {
-      menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    });
-  }
-
-  function onMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const items = Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []);
-    if (items.length === 0) return;
-    const current = items.indexOf(document.activeElement as HTMLElement);
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const delta = event.key === "ArrowDown" ? 1 : -1;
-      const next = (current + delta + items.length) % items.length;
-      items[next]?.focus();
-    } else if (event.key === "Home" || event.key === "End") {
-      event.preventDefault();
-      items[event.key === "Home" ? 0 : items.length - 1]?.focus();
-    }
-  }
-
   function closeVersions() {
     setVersionsOpen(false);
-    menuButtonRef.current?.focus();
   }
 
   function closeSettings() {
     setSettingsOpen(false);
-    menuButtonRef.current?.focus();
   }
 
   function guardNavigation(event: ReactMouseEvent<HTMLAnchorElement>, target: string) {
@@ -180,174 +184,160 @@ export function ProjectTopBar({
 
   function closeLibrary() {
     setLibraryOpen(false);
-    menuButtonRef.current?.focus();
   }
 
   return (
     <>
-      <header className="flex h-14 items-center gap-2 border-b border-line bg-ink/90 px-3 lg:px-4">
-        <div className="flex min-w-0 shrink-0 items-center gap-2">
+      <header
+        data-testid="project-top-bar"
+        className="flex flex-col gap-1.5 border-b border-line bg-ink/90 px-3 py-1.5 sm:h-14 sm:flex-row sm:items-center sm:gap-2 sm:py-0 lg:px-4"
+      >
+        <nav aria-label="Migas de pan" className="flex min-w-0 items-center gap-2 sm:shrink-0">
           <Link
             className="shrink-0 text-xs text-accent hover:underline"
             to="/projects"
             onClick={(event) => guardNavigation(event, "/projects")}
           >
-            ← Proyectos
+            <span aria-hidden="true">←</span> Proyectos
           </Link>
-          <span className="text-xs text-muted">/</span>
-          <strong className="max-w-[120px] truncate text-sm text-slate-100 min-[1400px]:max-w-[240px]" title={graph.name}>
-            {graph.name}
-          </strong>
-          <span className="hidden text-[11px] text-muted 2xl:inline">{slug}</span>
-        </div>
-
-        <div className="relative min-w-0 flex-1">
-          <nav
-            ref={navRef}
-            className="flex min-w-0 items-center gap-1 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            aria-label="Secciones del proyecto"
+          <span aria-hidden="true" className="text-xs text-muted">
+            /
+          </span>
+          <Link
+            to={projectTabPath(slug, "overview")}
+            aria-current="page"
+            title={graph.name}
+            onClick={(event) => guardNavigation(event, projectTabPath(slug, "overview"))}
+            className={`min-w-0 max-w-[120px] truncate text-sm font-semibold text-slate-100 underline-offset-2 hover:underline max-sm:max-w-full max-sm:flex-1 min-[1400px]:max-w-[240px] ${focusRing}`}
           >
-            {TABS.map(([key, label]) => {
-              const count =
-                key === "runs" ? counts.runs : key === "agents" ? counts.agents : key === "integrations" ? counts.integrations : undefined;
-              const showCount = count !== undefined && count > 0;
-              return (
-                <Link
-                  key={key}
-                  to={projectTabPath(slug, key)}
-                  data-active={tab === key}
-                  aria-current={tab === key ? "page" : undefined}
-                  className={`shrink-0 rounded-md border px-2 py-1.5 text-xs transition ${focusRing} ${
-                    tab === key
-                      ? "border-line bg-panel-2 text-slate-100"
-                      : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
-                  }`}
-                  onClick={(event) => guardNavigation(event, projectTabPath(slug, key))}
-                >
-                  {label}
-                  {showCount ? ` (${count})` : ""}
-                </Link>
-              );
-            })}
-          </nav>
-          {tabOverflow.left && (
-            <span className="pointer-events-none absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-ink to-transparent" />
-          )}
-          {tabOverflow.right && (
-            <span className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-ink to-transparent" />
-          )}
-        </div>
+            {graph.name}
+          </Link>
+          <span className="hidden text-[11px] text-muted 2xl:inline">{slug}</span>
+        </nav>
 
-        <div className="flex shrink-0 items-center gap-1.5">
-          {issueCount > 0 && (
-            <span className={statusBadge("paused")} title="Hay conexiones o nodos que requieren atención">
-              {issueCount} {issueCount === 1 ? "problema" : "problemas"}
-            </span>
-          )}
-          {dirty && (
-            <span
-              role="status"
-              aria-label="Cambios sin guardar"
-              title="Cambios sin guardar"
-              className="grid h-5 w-5 place-items-center rounded-full border border-warn/40 bg-warn/10 text-[11px] font-semibold text-warn"
+        <div className="flex min-w-0 items-center gap-1.5 sm:flex-1 sm:gap-2">
+          <div className="relative min-w-0 flex-1">
+            <nav
+              ref={navRef}
+              className="flex min-w-0 items-center gap-1 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              aria-label="Secciones del proyecto"
             >
-              !
-            </span>
-          )}
-          <div ref={menuRef} className="relative">
-            <button
-              ref={menuButtonRef}
-              type="button"
-              className={`${buttonGhost} !px-2`}
-              aria-label="Más acciones del flujo"
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              title="Más acciones del flujo"
-              onClick={() => setMenuOpen((open) => !open)}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  setMenuOpen(true);
-                  focusFirstMenuItem();
-                }
-              }}
-            >
-              ...
-            </button>
-            {menuOpen && (
-              <div
-                role="menu"
-                aria-label="Más acciones del flujo"
-                className="absolute right-0 top-full z-50 mt-2 flex min-w-[210px] flex-col gap-1 rounded-xl border border-line bg-panel p-1.5 shadow-2xl"
-                onKeyDown={onMenuKeyDown}
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={`rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 ${focusRing}`}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setVersionsOpen(true);
-                  }}
-                >
-                  Versiones del flujo{versions.length > 0 ? ` (v${versions[0]!.version})` : ""}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={`rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 ${focusRing}`}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setLibraryOpen(true);
-                  }}
-                >
-                  Biblioteca del flujo
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={`rounded-lg px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-panel-2 focus:bg-panel-2 ${focusRing}`}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setSettingsOpen(true);
-                  }}
-                >
-                  Ajustes del flujo
-                </button>
-              </div>
+              {TABS.map(([key, label]) => {
+                const count =
+                  key === "runs" ? counts.runs : key === "agents" ? counts.agents : key === "integrations" ? counts.integrations : undefined;
+                const showCount = count !== undefined && count > 0;
+                return (
+                  <Link
+                    key={key}
+                    to={projectTabPath(slug, key)}
+                    data-active={tab === key}
+                    aria-current={tab === key ? "page" : undefined}
+                    className={`shrink-0 rounded-md border px-2 py-1.5 text-xs transition ${focusRing} ${
+                      tab === key
+                        ? "border-line bg-panel-2 text-slate-100"
+                        : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
+                    }`}
+                    onClick={(event) => guardNavigation(event, projectTabPath(slug, key))}
+                  >
+                    {label}
+                    {showCount ? ` (${count})` : ""}
+                  </Link>
+                );
+              })}
+            </nav>
+            {tabOverflow.left && (
+              <span className="pointer-events-none absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-ink to-transparent" />
+            )}
+            {tabOverflow.right && (
+              <span className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-ink to-transparent" />
             )}
           </div>
-          <button
-            type="button"
-            className={button}
-            onClick={onSave}
-            disabled={saving || issueCount > 0}
-            title={
-              issueCount > 0
-                ? `Corrige ${issueCount === 1 ? "el problema" : `los ${issueCount} problemas`} del flujo para guardar.`
-                : undefined
-            }
-          >
-            Guardar<span className="hidden min-[1400px]:inline"> flujo</span>
-          </button>
-          <button type="button" className={buttonPrimary} onClick={onRun}>
-            Ejecutar
-          </button>
-          <button
-            type="button"
-            className={button}
-            onClick={onChat}
-            title={chatBusy ? "El agente está trabajando" : chatUnread ? "Hay una respuesta nueva" : undefined}
-          >
-            Agente
-            {(chatBusy || chatUnread) && (
+
+          <div data-testid="top-bar-actions" className="flex shrink-0 items-center gap-1.5 max-sm:relative">
+            {issueCount > 0 && (
               <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  chatBusy ? "animate-pulse bg-accent motion-reduce:animate-none" : "bg-ok"
-                }`}
-              />
+                className={statusBadge("paused")}
+                title="Hay conexiones o nodos que requieren atención"
+                aria-label={`${issueCount} ${issueCount === 1 ? "problema" : "problemas"}`}
+              >
+                <span aria-hidden="true" className="sm:hidden">{issueCount}</span>
+                <span aria-hidden="true" className="max-sm:hidden">
+                  {issueCount} {issueCount === 1 ? "problema" : "problemas"}
+                </span>
+              </span>
             )}
-          </button>
+            {dirty && (
+              <span
+                role="status"
+                aria-label="Cambios sin guardar"
+                title="Cambios sin guardar"
+                className="grid h-5 w-5 place-items-center rounded-full border border-warn/40 bg-warn/10 text-[11px] font-semibold text-warn"
+              >
+                !
+              </span>
+            )}
+            {/* Below `sm` the shared panel anchors to this cluster instead of the
+                trigger (`className="max-sm:static"` drops the trigger wrapper's
+                positioning), so its right edge lands on the header padding and the
+                210px panel cannot spill past the left viewport edge at 320px. */}
+            <OverflowMenu
+              label="Más acciones del flujo"
+              className="max-sm:static"
+              triggerClassName="max-sm:border max-sm:border-line max-sm:bg-panel-2"
+              items={[
+                {
+                  id: "versions",
+                  label: `Versiones del flujo${versions.length > 0 ? ` (v${versions[0]!.version})` : ""}`,
+                  onSelect: () => setVersionsOpen(true),
+                },
+                { id: "library", label: "Biblioteca del flujo", onSelect: () => setLibraryOpen(true) },
+                { id: "settings", label: "Ajustes del flujo", onSelect: () => setSettingsOpen(true) },
+              ]}
+            />
+            <button
+              type="button"
+              className={`${button} max-sm:px-2`}
+              onClick={onSave}
+              disabled={saving || issueCount > 0}
+              aria-label="Guardar flujo"
+              title={
+                issueCount > 0
+                  ? `Corrige ${issueCount === 1 ? "el problema" : `los ${issueCount} problemas`} del flujo para guardar.`
+                  : undefined
+              }
+            >
+              <TopBarActionIcon name="save" />
+              <span className="max-sm:sr-only">
+                Guardar<span className="hidden min-[1400px]:inline"> flujo</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`${buttonPrimary} max-sm:px-2`}
+              onClick={onRun}
+              aria-label="Ejecutar"
+            >
+              <TopBarActionIcon name="play" />
+              <span className="max-sm:sr-only">Ejecutar</span>
+            </button>
+            <button
+              type="button"
+              className={`${button} max-sm:px-2`}
+              onClick={onChat}
+              aria-label="Agente"
+              title={chatBusy ? "El agente está trabajando" : chatUnread ? "Hay una respuesta nueva" : undefined}
+            >
+              <TopBarActionIcon name="chat" />
+              <span className="max-sm:sr-only">Agente</span>
+              {(chatBusy || chatUnread) && (
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    chatBusy ? "animate-pulse bg-accent motion-reduce:animate-none" : "bg-ok"
+                  }`}
+                />
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -362,20 +352,15 @@ export function ProjectTopBar({
               placeholder="Describe qué automatiza este flujo."
             />
           </label>
-          <label>
-            Modelo por defecto
-            <select
+          <Field id="flow-default-model" label="Modelo por defecto">
+            <Select
+              label="Modelo por defecto"
+              options={modelPickerOptions}
               value={graph.defaultModel ?? ""}
-              onChange={(event) => onChange({ defaultModel: event.target.value || undefined })}
-            >
-              <option value="">Modelo por defecto del proyecto</option>
-              {modelOptions.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          </label>
+              emptyValue=""
+              onChange={(value) => onChange({ defaultModel: value || undefined })}
+            />
+          </Field>
           <p className="text-xs text-muted">
             Estos cambios forman parte del flujo y se persisten con <strong>Guardar flujo</strong>.
           </p>
@@ -400,7 +385,7 @@ export function ProjectTopBar({
           {versions.length === 0 ? (
             <p className="text-xs text-muted">Todavía no hay snapshots registrados para este flujo.</p>
           ) : (
-            <div className="flex max-h-80 flex-col gap-2 overflow-auto">
+            <div className="flex flex-col gap-2">
               {versions.map((item) => (
                 <div
                   key={item.id}

@@ -2,7 +2,17 @@ import { useMemo, useState } from "react";
 import { InputSchemaSchema, type WorkflowGraph } from "@platform/shared";
 import { Modal } from "./Modal.tsx";
 import { Field } from "./Field.tsx";
+import { Select } from "./Select.tsx";
+import type { SelectOption } from "./select/options.ts";
 import { buttonPrimary } from "../ui.ts";
+
+// The emitted values stay behind the visible copy: the API expects the string "true"
+// for a checked boolean and "false" for an unchecked one.
+const BOOLEAN_FIELD_OPTIONS: readonly SelectOption[] = [
+  { value: "", label: "Sin valor" },
+  { value: "true", label: "Sí" },
+  { value: "false", label: "No" },
+];
 
 export function RunLaunchModal({
   graph,
@@ -65,11 +75,13 @@ export function RunLaunchModal({
               hint={field.description}
             >
               {field.type === "boolean" ? (
-                <select value={values[field.name] ?? ""} onChange={(event) => setValues({ ...values, [field.name]: event.target.value })}>
-                  <option value="">Sin valor</option>
-                  <option value="true">Sí</option>
-                  <option value="false">No</option>
-                </select>
+                <Select
+                  label={field.label ?? field.name}
+                  options={BOOLEAN_FIELD_OPTIONS}
+                  value={values[field.name] ?? ""}
+                  emptyValue=""
+                  onChange={(value) => setValues((current) => ({ ...current, [field.name]: value ?? "" }))}
+                />
               ) : field.type === "json" ? (
                 <textarea
                   rows={3}

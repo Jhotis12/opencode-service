@@ -63,6 +63,14 @@ const rules: readonly Rule[] = [
     skip: (file) => file.endsWith("/index.css"),
     prepare: stripTokenFallbacks,
   },
+  {
+    id: "native-select",
+    description: "native <select> instead of the shared picker",
+    pattern: /<select\b/,
+    sample: '<select value="" />',
+    // Every component file is scanned; there are no per-file exemptions.
+    skip: (file) => !file.endsWith(".tsx"),
+  },
 ];
 
 function sourceFiles(dir: string): string[] {
@@ -93,11 +101,104 @@ function violations(files: readonly string[], rule: Rule): string[] {
 
 const files = sourceFiles(SRC_ROOT);
 
+/**
+ * Feedback inventory (plan row 67). A request failure is a toast now: every
+ * mutation `onError` calls `notifyError`, so no panel writes one into inline
+ * state. What still writes inline copy is validation, plus the node inspector's
+ * error-strategy config field. `REQUEST_FAILURE_DEBT` stays empty; adding a file
+ * here is how a new request failure rendered inline would be recorded.
+ */
+export const REQUEST_FAILURE_DEBT = [] as const;
+
+/** Inline state that is validation and must stay next to the field, never a toast. */
+export const VALIDATION_INLINE = [
+  "components/IntegrationEditor.tsx",
+  "components/NodeConfigFields.tsx",
+  "components/PlatformSettingsFields.tsx",
+  "components/RunLaunchModal.tsx",
+  "pages/ProjectFlowPage.tsx",
+  "pages/project-workspace.tsx",
+] as const;
+
+export const NOT_A_FAILURE_PATH = ["components/NodeInspector.tsx"] as const;
+
+/** Inline error state; a toast never routes through it (`workspace.setError(` matches). */
+const INLINE_ERROR_STATE = /setError\(/;
+/** The node inspector's error-strategy config field, the one `onError` that is not a failure. */
+const CONFIG_FIELD = /onError:/;
+/** A request handler that writes its failure into inline state instead of a toast. */
+const INLINE_REQUEST_FAILURE =
+  /onError:\s*(?:\([^)]*\)|[\w$]+)\s*=>\s*(?:[^\n}]*\bsetError\(|\{[^}]*\bsetError\()/;
+
+function filesHoldingInlineErrorState(): string[] {
+  return files
+    .filter((file) => INLINE_ERROR_STATE.test(readFileSync(file, "utf8")))
+    .map((file) => relative(SRC_ROOT, file))
+    .sort();
+}
+
+describe("request failure feedback classification", () => {
+  const validationFiles: readonly string[] = VALIDATION_INLINE;
+  const classified: string[] = [
+    ...REQUEST_FAILURE_DEBT,
+    ...VALIDATION_INLINE,
+    ...NOT_A_FAILURE_PATH,
+  ].sort();
+
+  const occurrences = (file: string, signal: RegExp): number =>
+    (readFileSync(join(SRC_ROOT, file), "utf8").match(new RegExp(signal.source, "g")) ?? []).length;
+
+  it("keeps the request-failure debt empty because the failures are toasts", () => {
+    expect(REQUEST_FAILURE_DEBT).toEqual([]);
+  });
+
+  it("classifies every source file that writes inline error state", () => {
+    const unclassified = filesHoldingInlineErrorState().filter((file) => !validationFiles.includes(file));
+    expect(unclassified).toEqual([]);
+  });
+
+  it("keeps no stale classification for a file that stopped writing inline state", () => {
+    const staleValidation = VALIDATION_INLINE.filter((file) => occurrences(file, INLINE_ERROR_STATE) === 0);
+    const staleConfigField = NOT_A_FAILURE_PATH.filter((file) => occurrences(file, CONFIG_FIELD) === 0);
+    expect([...staleValidation, ...staleConfigField]).toEqual([]);
+  });
+
+  it("puts each file in exactly one category", () => {
+    expect(classified).toHaveLength(new Set(classified).size);
+  });
+
+  it("keeps the config-field category free of inline error state", () => {
+    const withErrorState = NOT_A_FAILURE_PATH.filter((file) => occurrences(file, INLINE_ERROR_STATE) > 0);
+    expect(withErrorState).toEqual([]);
+  });
+
+  it("writes no request failure into inline state", () => {
+    const offenders = files
+      .filter((file) => INLINE_REQUEST_FAILURE.test(readFileSync(file, "utf8")))
+      .map((file) => relative(SRC_ROOT, file));
+    expect(offenders).toEqual([]);
+  });
+
+  it("detects its own forbidden sample for an inline request failure", () => {
+    expect(INLINE_REQUEST_FAILURE.test('onError: (cause) => setError(cause.message).')).toBe(true);
+    expect(INLINE_REQUEST_FAILURE.test('onError: (cause) => { setError(cause.message); }')).toBe(true);
+    expect(INLINE_REQUEST_FAILURE.test('onError: (cause) => notifyError(cause.message),')).toBe(false);
+  });
+});
+
 describe("design-conformance scanner", () => {
   it("walks the whole source tree instead of passing on an empty file list", () => {
     expect(files.length).toBeGreaterThan(30);
     expect(files.some((file) => file.endsWith("/App.tsx"))).toBe(true);
     expect(files.some((file) => file.endsWith("/index.css"))).toBe(true);
+  });
+
+  it("exempts no component file from the native-select rule", () => {
+    const rule = rules.find((candidate) => candidate.id === "native-select");
+    if (!rule) throw new Error("the native-select rule is missing");
+    const components = files.filter((file) => file.endsWith(".tsx"));
+    expect(components.length).toBeGreaterThan(30);
+    expect(components.filter((file) => rule.skip?.(file))).toEqual([]);
   });
 
   it.each(rules)("detects its own forbidden sample for $id", (rule) => {

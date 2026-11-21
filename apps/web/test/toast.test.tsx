@@ -1,0 +1,88 @@
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it } from "vitest";
+import { dismissAll, notifyError, notifySuccess, AppToaster } from "../src/components/Toast.tsx";
+
+function renderToaster() {
+  render(<AppToaster />);
+}
+
+afterEach(() => {
+  act(() => dismissAll());
+});
+
+describe("toast host", () => {
+  it("keeps the fixed host above the bottom safe area", async () => {
+    render(<AppToaster />);
+    act(() => notifySuccess("Listo"));
+    const host = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>("[data-sonner-toaster]");
+      if (!element) throw new Error("the toast host has not mounted");
+      return element;
+    });
+    expect(host.style.getPropertyValue("--offset-bottom")).toBe("calc(1.5rem + env(safe-area-inset-bottom))");
+    expect(host.style.getPropertyValue("--mobile-offset-bottom")).toBe("calc(1rem + env(safe-area-inset-bottom))");
+  });
+});
+
+describe("notifySuccess", () => {
+  it("puts the message inside the polite live region", async () => {
+    renderToaster();
+
+    act(() => notifySuccess("Ejecución iniciada"));
+
+    const title = await screen.findByText("Ejecución iniciada");
+    const liveRegion = title.closest("[aria-live]");
+
+    expect(liveRegion).not.toBeNull();
+    expect(liveRegion?.getAttribute("aria-live")).toBe("polite");
+    expect(within(liveRegion as HTMLElement).getByText("Ejecución iniciada")).toBe(title);
+  });
+});
+
+describe("notifyError", () => {
+  it("renders an error toast that is dismissible with the keyboard", async () => {
+    const user = userEvent.setup();
+    renderToaster();
+
+    act(() => notifyError("No se pudo guardar el flujo"));
+
+    const title = await screen.findByText("No se pudo guardar el flujo");
+    const toastItem = title.closest("[data-sonner-toast]") as HTMLElement;
+    expect(toastItem).not.toBeNull();
+
+    const closeButton = within(toastItem).getByRole("button", { name: "Cerrar notificación" });
+    closeButton.focus();
+    expect(closeButton).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+
+    await waitFor(
+      () => expect(screen.queryByText("No se pudo guardar el flujo")).not.toBeInTheDocument(),
+      { timeout: 3000 },
+    );
+  });
+});
+
+describe("dismissAll", () => {
+  it("clears every queued toast", async () => {
+    renderToaster();
+
+    act(() => {
+      notifySuccess("Uno listo");
+      notifyError("Dos falló");
+    });
+    await screen.findByText("Uno listo");
+    await screen.findByText("Dos falló");
+
+    act(() => dismissAll());
+
+    await waitFor(
+      () => {
+        expect(screen.queryByText("Uno listo")).not.toBeInTheDocument();
+        expect(screen.queryByText("Dos falló")).not.toBeInTheDocument();
+      },
+      { timeout: 3000 },
+    );
+  });
+});

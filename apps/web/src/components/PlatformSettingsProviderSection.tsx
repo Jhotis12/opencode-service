@@ -2,8 +2,9 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type ModelInfo } from "../api.ts";
 import { qk } from "../query.ts";
-import { badge, friendlyError, notify, smallMuted, statusBadge } from "../ui.ts";
+import { badge, friendlyError, smallMuted, statusBadge } from "../ui.ts";
 import { Skeleton } from "./Skeleton.tsx";
+import { notifySuccess } from "./Toast.tsx";
 import {
   PlatformSettingsFormActions,
   PlatformSettingsInput,
@@ -33,7 +34,7 @@ export function PlatformSettingsProviderSection({
     mutationFn: () => api.connectProvider(apiKey.trim()),
     onSuccess: async (result) => {
       setApiKey("");
-      notify.success(`Proveedor conectado. ${result.models.length} modelos disponibles.`);
+      notifySuccess(`Proveedor conectado. ${result.models.length} modelos disponibles.`);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: qk.settings }),
         queryClient.invalidateQueries({ queryKey: qk.models }),

@@ -91,7 +91,7 @@ export function Layout() {
       >
         Saltar al contenido
       </a>
-      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-line bg-ink/95 px-4 lg:hidden">
+      <header className="sticky top-0 z-40 flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center gap-3 border-b border-line bg-ink/95 px-4 pt-[env(safe-area-inset-top)] lg:hidden">
         <button
           type="button"
           className={buttonGhost}
@@ -113,7 +113,7 @@ export function Layout() {
 
       <aside
         id="app-navigation"
-        className={`nav-drawer fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col gap-6 border-r border-line bg-ink/95 p-4 lg:sticky lg:top-0 lg:bottom-auto lg:z-auto lg:h-dvh lg:w-auto lg:translate-x-0 lg:overflow-hidden ${
+        className={`nav-drawer fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col gap-6 border-r border-line bg-ink/95 p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-[calc(1rem+env(safe-area-inset-bottom))] lg:sticky lg:top-0 lg:bottom-auto lg:z-auto lg:h-dvh lg:w-auto lg:translate-x-0 lg:overflow-hidden ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         } ${collapsed ? "lg:gap-4 lg:p-3" : "lg:p-5"}`}
         aria-label="Navegación lateral"
@@ -218,7 +218,7 @@ export function Layout() {
         data-testid="app-main"
         className={
           fluid
-            ? "h-[calc(100dvh-3.5rem)] min-w-0 overflow-hidden lg:h-dvh"
+            ? "h-[calc(100dvh-3.5rem-env(safe-area-inset-top))] min-w-0 overflow-hidden lg:h-dvh"
             : "mx-auto w-full max-w-[1500px] px-5 py-6 lg:px-8 lg:py-8"
         }
       >

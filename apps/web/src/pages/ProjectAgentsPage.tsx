@@ -14,7 +14,7 @@ export function ProjectAgentsPage() {
       <AgentCatalog
         projectSlug={workspace.slug}
         agents={workspace.agents}
-        modelOptions={workspace.modelOptions}
+        models={workspace.models}
         isLoading={workspace.agentsLoading}
         error={workspace.agentsError}
       />

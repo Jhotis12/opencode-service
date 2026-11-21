@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 import { createServer } from "node:http";
 
+/** Action outcomes are announced by sonner, so they are asserted inside the toast host. */
+function toast(page: Page, text: string | RegExp) {
+  return page.locator("[data-sonner-toast]").filter({ hasText: text });
+}
+
 test("first boot, project canvas, project resources, sub-agent, external chat and health", async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
@@ -56,13 +61,14 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   const startInspector = page.getByRole("dialog", { name: "Nodo: Inicio manual" });
   await expect(startInspector).toBeVisible();
   await startInspector.getByRole("tab", { name: "Conexiones" }).click();
-  await startInspector.getByLabel("Nodo destino").selectOption({ label: "Preparar datos" });
+  await startInspector.getByRole("combobox", { name: "Nodo destino" }).click();
+  await page.getByRole("option", { name: "Preparar datos" }).click();
   await startInspector.getByRole("button", { name: "Conectar", exact: true }).click();
   await startInspector.getByRole("button", { name: "Cerrar" }).click();
 
   // Save, reload and verify the node and connection persisted.
   await page.getByRole("button", { name: "Guardar flujo" }).click();
-  await expect(page.getByText("Flujo guardado")).toBeVisible();
+  await expect(toast(page, "Flujo guardado")).toBeVisible();
   await page.reload();
   await expect(page.getByText("Preparar datos", { exact: true })).toBeVisible();
 
@@ -128,11 +134,12 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await page.locator('[data-testid="rf__node-start"]').click();
   const reconnectInspector = page.getByRole("dialog", { name: "Nodo: Inicio manual" });
   await reconnectInspector.getByRole("tab", { name: "Conexiones" }).click();
-  await reconnectInspector.getByLabel("Nodo destino").selectOption({ label: "Preparar datos" });
+  await reconnectInspector.getByRole("combobox", { name: "Nodo destino" }).click();
+  await page.getByRole("option", { name: "Preparar datos" }).click();
   await reconnectInspector.getByRole("button", { name: "Conectar", exact: true }).click();
   await reconnectInspector.getByRole("button", { name: "Cerrar" }).click();
   await page.getByRole("button", { name: "Guardar flujo" }).click();
-  await expect(page.getByText("Flujo guardado")).toBeVisible();
+  await expect(toast(page, "Flujo guardado")).toBeVisible();
 
   // Keep the code node busy long enough to observe live canvas progress.
   const workflowResponse = await page.request.get("http://127.0.0.1:3100/api/projects/e2e-bot/workflow");
@@ -196,7 +203,7 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await expect(page.getByRole("dialog", { name: /Nodo:/ })).toHaveCount(0);
   await expect(codeNode).toBeVisible();
   await page.getByRole("button", { name: "Guardar flujo" }).click();
-  await expect(page.getByText("Flujo guardado")).toBeVisible();
+  await expect(toast(page, "Flujo guardado")).toBeVisible();
   await page.reload();
   await expect(page.getByText("Preparar datos", { exact: true })).toBeVisible();
 
@@ -225,7 +232,7 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   await newAgent.getByLabel("Instrucciones (.md)").fill("Eres el calificador de ventas. Devuelve un score de 1 a 10.");
   await newAgent.getByRole("button", { name: "Guardar agente" }).click();
   await expect(newAgent).toBeHidden();
-  await expect(page.getByText("Agente ventas/calificador guardado")).toBeVisible();
+  await expect(toast(page, "Agente ventas/calificador guardado")).toBeVisible();
 
   const agentCard = page.getByTestId("agent-card-ventas-calificador");
   await expect(agentCard).toBeVisible();
@@ -283,12 +290,12 @@ test("first boot, project canvas, project resources, sub-agent, external chat an
   const telegramCard = page.getByTestId(`integration-card-${telegramBody.integration.id}`);
   await expect(telegramCard).toContainText("E2E Telegram");
   await telegramCard.getByRole("button", { name: "Probar" }).click();
-  await expect(page.getByText(/E2E Telegram: Operativo/)).toBeVisible();
+  await expect(toast(page, /E2E Telegram: Operativo/)).toBeVisible();
 
   await telegramCard.getByRole("button", { name: "Editar" }).click();
   await telegramCard.getByLabel("Token del bot (@BotFather)").fill("invalid-token");
   await telegramCard.getByRole("button", { name: "Guardar cambios" }).click();
-  await expect(page.getByText(/E2E Telegram guardada/)).toBeVisible();
+  await expect(toast(page, /E2E Telegram guardada/)).toBeVisible();
   await telegramCard.getByRole("button", { name: "Probar" }).click();
   await expect(page.getByText(/E2E Telegram: Error/)).toBeVisible();
 

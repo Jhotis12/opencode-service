@@ -12,9 +12,21 @@ import {
   filterRuns,
   groupRunsByParent,
 } from "../components/RunsTable.tsx";
+import { Select } from "../components/Select.tsx";
+import type { SelectOption } from "../components/select/options.ts";
 import { Skeleton } from "../components/Skeleton.tsx";
 import { button, buttonGhost, card, friendlyError, input, statusLabel } from "../ui.ts";
 import { ProjectSectionBody, useProjectWorkspace } from "./project-workspace.tsx";
+
+const STATUS_OPTIONS: readonly SelectOption[] = [
+  { value: "", label: "Todos" },
+  ...RUN_STATUS_OPTIONS.map((status) => ({ value: status, label: statusLabel(status) })),
+];
+
+const ORIGIN_OPTIONS: readonly SelectOption[] = [
+  { value: "", label: "Todos" },
+  ...RUN_ORIGIN_OPTIONS.map((origin) => ({ value: origin, label: origin })),
+];
 
 export function ProjectRunsPage() {
   const workspace = useProjectWorkspace();
@@ -79,32 +91,22 @@ export function ProjectRunsPage() {
           <search className={card} aria-label="Filtros de ejecuciones">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <Field id="runs-status-filter" label="Estado">
-                <select
-                  className={input}
+                <Select
+                  label="Estado"
+                  options={STATUS_OPTIONS}
                   value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value)}
-                >
-                  <option value="">Todos</option>
-                  {RUN_STATUS_OPTIONS.map((status) => (
-                    <option key={status} value={status}>
-                      {statusLabel(status)}
-                    </option>
-                  ))}
-                </select>
+                  emptyValue=""
+                  onChange={(value) => setStatusFilter(value ?? "")}
+                />
               </Field>
               <Field id="runs-origin-filter" label="Origen">
-                <select
-                  className={input}
+                <Select
+                  label="Origen"
+                  options={ORIGIN_OPTIONS}
                   value={originFilter}
-                  onChange={(event) => setOriginFilter(event.target.value)}
-                >
-                  <option value="">Todos</option>
-                  {RUN_ORIGIN_OPTIONS.map((origin) => (
-                    <option key={origin} value={origin}>
-                      {origin}
-                    </option>
-                  ))}
-                </select>
+                  emptyValue=""
+                  onChange={(value) => setOriginFilter(value ?? "")}
+                />
               </Field>
               <Field id="runs-from-filter" label="Desde" hint="Fecha de inicio en UTC (día inclusivo).">
                 <input

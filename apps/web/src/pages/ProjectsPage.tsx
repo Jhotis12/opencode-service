@@ -10,6 +10,7 @@ import { Modal } from "../components/Modal.tsx";
 import { NavIcon } from "../components/NavIcon.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
+import { notifyError, notifySuccess } from "../components/Toast.tsx";
 import {
   badge,
   button,
@@ -19,7 +20,6 @@ import {
   card,
   friendlyError,
   muted,
-  notify,
   sectionTitle,
   smallMuted,
 } from "../ui.ts";
@@ -103,8 +103,6 @@ export function ProjectsPage() {
   const [slugTouched, setSlugTouched] = useState(false);
   const [nameError, setNameError] = useState<string>();
   const [slugError, setSlugError] = useState<string>();
-  const [formError, setFormError] = useState<string>();
-  const [rawError, setRawError] = useState<string>();
   const [showOnboarding, setShowOnboarding] = useState(() => !onboardingDismissed());
 
   const projects = projectsQuery.data ?? [];
@@ -124,12 +122,10 @@ export function ProjectsPage() {
     setSlugTouched(false);
     setNameError(undefined);
     setSlugError(undefined);
-    setFormError(undefined);
   }
 
   function closeCreate() {
     setCreateOpen(false);
-    setFormError(undefined);
   }
 
   const create = useMutation({
@@ -142,15 +138,12 @@ export function ProjectsPage() {
       }),
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: qk.projects });
-      notify.success(`Proyecto ${result.project.name} creado`);
+      notifySuccess(`Proyecto ${result.project.name} creado`);
       setCreateOpen(false);
       resetCreate();
       navigate(`/projects/${result.project.slug}`);
     },
-    onError: (error) => {
-      setRawError(error instanceof Error ? error.message : undefined);
-      setFormError(friendlyError(error, "No se pudo crear el proyecto."));
-    },
+    onError: (error) => notifyError(friendlyError(error, "No se pudo crear el proyecto.")),
   });
 
   const remove = useMutation({
@@ -161,17 +154,16 @@ export function ProjectsPage() {
         queryClient.invalidateQueries({ queryKey: qk.controlOverview }),
       ]);
       setDeleteTarget(undefined);
-      notify.success(`Proyecto ${project.name} eliminado`);
+      notifySuccess(`Proyecto ${project.name} eliminado`);
     },
     onError: (error) => {
-      setRawError(error instanceof Error ? error.message : undefined);
-      setFormError(friendlyError(error, "No se pudo eliminar el proyecto."));
+      setDeleteTarget(undefined);
+      notifyError(friendlyError(error, "No se pudo eliminar el proyecto."));
     },
   });
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    setFormError(undefined);
     const nextNameError = name.trim() ? undefined : "El nombre es obligatorio.";
     const nextSlugError = /^[a-z0-9][a-z0-9-]{1,60}$/.test(slug)
       ? undefined
@@ -306,7 +298,7 @@ export function ProjectsPage() {
       ) : projectsQuery.isError ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-danger/40 bg-danger/10 px-4 py-3">
           <p className="text-sm text-danger">
-            {projectsQuery.error instanceof Error ? projectsQuery.error.message : "No se pudieron cargar los proyectos."}
+            {friendlyError(projectsQuery.error, "No se pudieron cargar los proyectos.")}
           </p>
           <button type="button" className={buttonGhost} onClick={() => void projectsQuery.refetch()}>
             Reintentar
@@ -383,7 +375,6 @@ export function ProjectsPage() {
                       className={buttonDanger}
                       onClick={() => {
                         setDeleteTarget(project);
-                        setFormError(undefined);
                       }}
                     >
                       Eliminar
@@ -483,11 +474,6 @@ export function ProjectsPage() {
                 ))}
               </div>
             </fieldset>
-            {formError && (
-              <p className="text-sm text-danger" title={rawError}>
-                {formError}
-              </p>
-            )}
             <div className="flex justify-end gap-2">
               <button type="button" className={buttonGhost} onClick={closeCreate}>
                 Cancelar
@@ -516,11 +502,6 @@ export function ProjectsPage() {
             Se borrarán del disco y de la base: workflow, nodos, agentes, conocimiento, integraciones, secretos, chats y ejecuciones.
             Esta acción no se puede deshacer.
           </p>
-          {formError && (
-            <p className="text-sm text-danger" title={rawError}>
-              {formError}
-            </p>
-          )}
         </ConfirmDialog>
       )}
     </section>

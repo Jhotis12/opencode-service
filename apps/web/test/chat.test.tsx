@@ -18,6 +18,19 @@ function stubClipboard(writeText?: (text: string) => Promise<void>) {
   };
 }
 
+/** Places the end-of-list marker at `top` inside the jsdom viewport (768 px tall). */
+function placeEndMarker(top: number) {
+  const marker = screen.getByTestId("chat-end");
+  marker.getBoundingClientRect = () =>
+    ({ top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+}
+
+function setListScroll(list: HTMLElement, scrollHeight: number, clientHeight: number, scrollTop: number) {
+  Object.defineProperty(list, "scrollHeight", { value: scrollHeight, configurable: true });
+  Object.defineProperty(list, "clientHeight", { value: clientHeight, configurable: true });
+  list.scrollTop = scrollTop;
+}
+
 describe("ChatPanel", () => {
   it("renders markdown tables and code blocks safely", async () => {
     renderWithProviders(
@@ -51,6 +64,19 @@ describe("ChatPanel", () => {
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
   });
 
+  it("keeps the minimised restore control above the bottom safe area", async () => {
+    renderWithProviders(<ChatPanel storageKey="safe-area-test" onSend={async () => "ok"} />);
+    await userEvent.click(screen.getByRole("button", { name: "Minimizar chat" }));
+    const restore = screen.getByRole("button", { name: "Restaurar chat del agente" });
+    // jsdom has no layout engine, so `env(safe-area-inset-bottom)` never resolves here: this test
+    // can only pin that the viewport-fixed control consumes the inset on top of its 16 px gap.
+    // The resolved geometry (390x844, 24 px inset) is proved by the Chromium probe recorded in
+    // .omo/evidence/task-69-chat-pill.md.
+    expect(restore.className).toContain("fixed");
+    expect(restore.className).toContain("bottom-[calc(1rem+env(safe-area-inset-bottom))]");
+    expect(restore.className).not.toMatch(/\sbottom-4\s/);
+  });
+
   it("falls back to docked from a persisted expanded value", () => {
     localStorage.setItem("chat-surface:legacy-expanded", "expanded");
     renderWithProviders(<ChatPanel storageKey="legacy-expanded" onSend={async () => "ok"} />);
@@ -58,24 +84,92 @@ describe("ChatPanel", () => {
     expect(screen.queryByRole("button", { name: "Expandir chat" })).not.toBeInTheDocument();
   });
 
-  it("shows a jump-to-latest pill above the composer and respects reduced motion", async () => {
+  it("offers the jump on the page surface only while the latest message is out of view", async () => {
     const scrollIntoView = vi.fn();
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = scrollIntoView;
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
-    renderWithProviders(<ChatPanel storageKey="jump-test" onSend={async () => "ok"} />);
-    scrollIntoView.mockClear();
+    try {
+      renderWithProviders(<ChatPanel storageKey="jump-test" onSend={async () => "ok"} />);
+      scrollIntoView.mockClear();
 
+      // The latest message is on screen: the control must stay hidden.
+      placeEndMarker(600);
+      fireEvent.scroll(window);
+      expect(screen.queryByRole("button", { name: "Ir al último mensaje" })).not.toBeInTheDocument();
+
+      // The conversation scrolled past above the fold (reading the cards below on a phone).
+      placeEndMarker(-120);
+      fireEvent.scroll(window);
+      const jump = screen.getByRole("button", { name: "Ir al último mensaje" });
+      expect(jump.closest("form")).toBeNull();
+
+      await userEvent.click(jump);
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "end" });
+
+      // Back on the latest message: the control disappears again.
+      placeEndMarker(600);
+      fireEvent.scroll(window);
+      expect(screen.queryByRole("button", { name: "Ir al último mensaje" })).not.toBeInTheDocument();
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("pins the fill scroller and drives the jump control from the message list", () => {
+    renderWithProviders(<ChatPanel storageKey="fill-jump-test" onSend={async () => "ok"} fill />);
     const list = screen.getByTestId("chat-messages");
-    Object.defineProperty(list, "scrollHeight", { value: 1000, configurable: true });
-    Object.defineProperty(list, "clientHeight", { value: 200, configurable: true });
-    list.scrollTop = 0;
-    fireEvent.scroll(list);
+    expect(list.className).toContain("min-h-0 flex-1 overflow-y-auto");
 
-    const jump = await screen.findByRole("button", { name: "Ir al último mensaje" });
-    expect(jump.closest("form")).toBeNull();
-    await userEvent.click(jump);
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "end" });
+    setListScroll(list, 1000, 200, 100);
+    fireEvent.scroll(list);
+    expect(screen.getByRole("button", { name: "Ir al último mensaje" })).toBeInTheDocument();
+
+    setListScroll(list, 1000, 200, 800);
+    fireEvent.scroll(list);
+    expect(screen.queryByRole("button", { name: "Ir al último mensaje" })).not.toBeInTheDocument();
+  });
+
+  it("never offers the jump when the filter leaves no messages to jump to", async () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
+    renderWithProviders(
+      <ChatPanel
+        storageKey="empty-jump-test"
+        initialMessages={[
+          {
+            id: "m1",
+            threadId: "t1",
+            role: "agent",
+            content: "Nodo cotizador listo",
+            createdAt: new Date().toISOString(),
+          },
+        ]}
+        onSend={async () => "ok"}
+      />,
+    );
+    await userEvent.type(screen.getByLabelText("Buscar en el chat"), "inexistente");
+    expect(await screen.findByText("Ningún mensaje coincide")).toBeInTheDocument();
+
+    placeEndMarker(-120);
+    fireEvent.scroll(window);
+    expect(screen.queryByRole("button", { name: "Ir al último mensaje" })).not.toBeInTheDocument();
     vi.unstubAllGlobals();
+  });
+
+  it("lets the page scroll once on the primary surface, with no list cap", () => {
+    renderWithProviders(<ChatPanel storageKey="primary-surface-test" onSend={async () => "ok"} />);
+    const list = screen.getByTestId("chat-messages");
+    expect(list.className).not.toContain("max-h-");
+    expect(list.className).not.toContain("overflow");
+  });
+
+  it("keeps the capped scroll of the message list in the minimizable docked panel", () => {
+    renderWithProviders(
+      <ChatPanel storageKey="docked-cap-test" onSend={async () => "ok"} onMinimize={() => undefined} />,
+    );
+    const list = screen.getByTestId("chat-messages");
+    expect(list.className).toContain("max-h-80 overflow-y-auto");
   });
 
   it("sends a message and appends the reply", async () => {

@@ -155,18 +155,18 @@ export function Modal({
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
-          <h2 id={titleId} className="min-w-0 truncate text-base font-semibold text-slate-100">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line px-5 pb-4 pt-[calc(1rem+env(safe-area-inset-top))]">
+          <h2 id={titleId} className="min-w-28 truncate text-base font-semibold text-slate-100">
             {title}
           </h2>
-          <div className="flex items-center gap-1.5">
+          <div className="ml-auto flex items-center gap-1.5">
             {actions}
             <button ref={closeRef} type="button" className={buttonGhost} onClick={requestClose} aria-label="Cerrar">
               ×
             </button>
           </div>
         </header>
-        <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+        <div data-modal-body="" className="min-h-0 flex-1 overflow-auto px-5 py-4">
           <div className="flex flex-col gap-3">{children}</div>
         </div>
         {footer && <div className="shrink-0 border-t border-line bg-panel px-5 py-3">{footer}</div>}

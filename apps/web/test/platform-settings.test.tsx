@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { api } from "../src/api.ts";
 import { PlatformSettingsPage as SettingsPage } from "../src/pages/PlatformSettingsPage.tsx";
-import { findToast, renderWithProviders } from "./render.tsx";
+import { chooseOption, renderWithProviders, setViewportMatches } from "./render.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 
 vi.mock("../src/api.ts", () => ({
   api: {
@@ -72,17 +73,26 @@ beforeEach(() => {
 });
 
 function renderSettings(entry: string) {
+  // Outcomes are announced by sonner: the real host proves the copy lands in a toast.
   return renderWithProviders(
-    <MemoryRouter initialEntries={[entry]}>
-      <SettingsPage />
-    </MemoryRouter>,
+    <>
+      <MemoryRouter initialEntries={[entry]}>
+        <SettingsPage />
+      </MemoryRouter>
+    </>
   );
 }
+
+afterEach(() => {
+  act(() => dismissAll());
+});
 
 function HashProbe() {
   const location = useLocation();
   return <output data-testid="hash">{location.hash}</output>;
 }
+
+const MODEL_FORMAT_ERROR = "Usa el formato proveedor/modelo#variante. La variante es opcional.";
 
 describe("PlatformSettingsPage", () => {
   it("deep-links to the vault and keeps the secret when deletion is cancelled", async () => {
@@ -122,31 +132,199 @@ describe("PlatformSettingsPage", () => {
     expect(api.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("offers the DeepSeek model id and rejects a model without a provider inline", async () => {
+  it("offers the catalogue grouped by provider plus the DeepSeek suggestion", async () => {
+    const user = userEvent.setup();
     renderSettings("/settings#modelo");
     const panel = await screen.findByRole("tabpanel");
-    expect(document.querySelector('datalist option[value="opencode/deepseek-v4.1-flash-free"]')).not.toBeNull();
-    expect(document.querySelector('datalist option[value="opencode-go/fast"]')).not.toBeNull();
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
+    expect(picker).toHaveValue("Fast");
 
-    const modelInput = within(panel).getByLabelText("Modelo");
-    expect(modelInput).toHaveValue("opencode-go/fast");
-    await userEvent.clear(modelInput);
-    await userEvent.type(modelInput, "modelo-sin-proveedor");
-    await userEvent.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+    await user.click(picker);
+    expect(screen.getByRole("group", { name: "opencode-go" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^Fast\b/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /DeepSeek V4\.1 Flash/ })).toBeInTheDocument();
 
-    expect(
-      within(panel).getByText("Usa el formato proveedor/modelo#variante. La variante es opcional."),
-    ).toBeInTheDocument();
+    fireEvent.keyDown(picker, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("saves the model ref chosen in the picker", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+
+    await chooseOption(user, "Modelo", /DeepSeek V4\.1 Flash/);
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "opencode/deepseek-v4.1-flash-free" });
+    const savedToast = await screen.findByText("Modelo por defecto guardado.");
+    expect(savedToast.closest("[data-sonner-toast]")).not.toBeNull();
+  });
+
+  it("keeps the field-level error and shows no success toast when the save fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.saveSettings).mockRejectedValueOnce(new Error("server down"));
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+
+    await chooseOption(user, "Modelo", /DeepSeek V4\.1 Flash/);
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    const inlineError = await within(panel).findByText("No se pudo guardar el modelo.");
+    expect(inlineError).toHaveClass("text-danger");
+    expect(screen.queryByText("Modelo por defecto guardado.")).toBeNull();
+  });
+
+  it("saves an unlisted provider/model#variant typed into the picker", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
+
+    await user.click(picker);
+    await user.type(picker, "proveedor/modelo#v1");
+    await user.click(screen.getByRole("option", { name: "Usar «proveedor/modelo#v1»" }));
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "proveedor/modelo#v1" });
+  });
+
+  it("rejects a model without a provider inline without saving", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
+
+    await user.click(picker);
+    await user.type(picker, "modelo-sin-proveedor");
+    await user.click(screen.getByRole("option", { name: "Usar «modelo-sin-proveedor»" }));
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    expect(within(panel).getByText(MODEL_FORMAT_ERROR)).toBeInTheDocument();
     expect(api.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("announces a saved platform setting with a toast", async () => {
+  it("reports a typed model reference only once the field is left", async () => {
+    const user = userEvent.setup();
     renderSettings("/settings#modelo");
     const panel = await screen.findByRole("tabpanel");
-    await userEvent.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
 
-    await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "opencode-go/fast" }));
-    expect(await findToast("Modelo por defecto guardado.")).toBeVisible();
+    await user.click(picker);
+    await user.type(picker, "proveedor/");
+    expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+
+    await user.keyboard("{Enter}");
+    expect(picker).toHaveValue("proveedor/");
+    expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+
+    await user.tab();
+
+    expect(within(panel).getByText(MODEL_FORMAT_ERROR)).toBeInTheDocument();
+    expect(picker).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("clears the model error as soon as the empty choice is picked", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
+
+    await user.click(picker);
+    await user.type(picker, "modelo-sin-proveedor");
+    await user.keyboard("{Enter}");
+    await user.tab();
+    expect(within(panel).getByText(MODEL_FORMAT_ERROR)).toBeInTheDocument();
+
+    await user.click(picker);
+    await user.click(screen.getByRole("option", { name: /^Sin modelo/ }));
+
+    expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: null });
+  });
+
+  it("saves null when the empty choice is picked", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+
+    await chooseOption(user, "Modelo", /^Sin modelo/);
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: null });
+  });
+
+  it("saves null when the orchestrator choice is cleared", async () => {
+    const user = userEvent.setup();
+    renderSettings("/settings#orquestador");
+    const panel = await screen.findByRole("tabpanel");
+
+    await chooseOption(user, "Modelo", /^Heredar el modelo por defecto/);
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    expect(api.saveSettings).toHaveBeenCalledWith({ orchestratorModel: null });
+  });
+
+  it("keeps a saved model the catalogue no longer offers and saves it unchanged", async () => {
+    vi.mocked(api.getSettings).mockResolvedValueOnce({
+      data: {
+        opencodeMode: "fake",
+        sentryConfigured: false,
+        providerConnected: true,
+        defaultModel: "legacy/model#v2",
+        orchestratorModel: "opencode-go/fast",
+        dataDir: "/data",
+      },
+    });
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    const picker = within(panel).getByRole("combobox", { name: "Modelo" });
+    expect(picker).toHaveValue("legacy/model#v2");
+
+    await user.click(picker);
+    expect(screen.getByRole("option", { name: /legacy\/model#v2/ })).toHaveTextContent("(no disponible)");
+    fireEvent.keyDown(picker, { key: "Escape" });
+
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "legacy/model#v2" });
+  });
+
+  it("stays usable when the catalogue is empty", async () => {
+    vi.mocked(api.listModels).mockResolvedValueOnce({ data: [] });
+    const user = userEvent.setup();
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    expect(within(panel).getByRole("combobox", { name: "Modelo" })).toHaveValue("opencode-go/fast");
+
+    await chooseOption(user, "Modelo", /DeepSeek V4\.1 Flash/);
+    await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+
+    expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "opencode/deepseek-v4.1-flash-free" });
+  });
+
+  it("keeps a seeded default visible when the catalogue fails to load", async () => {
+    vi.mocked(api.getSettings).mockResolvedValueOnce({
+      data: {
+        opencodeMode: "fake",
+        sentryConfigured: false,
+        providerConnected: true,
+        defaultModel: undefined,
+        orchestratorModel: undefined,
+        dataDir: "/data",
+      },
+    });
+    vi.mocked(api.listModels).mockRejectedValueOnce(new Error(""));
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+
+    expect(within(panel).getByRole("combobox", { name: "Modelo" })).toHaveValue("DeepSeek V4.1 Flash");
+    expect(await within(panel).findByRole("alert")).toHaveTextContent(
+      "No se pudieron cargar las sugerencias. Puedes escribir el modelo manualmente.",
+    );
+    expect(within(panel).getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
   });
 
   it("preselects DeepSeek V4.1 Flash when no platform override is stored", async () => {
@@ -162,7 +340,7 @@ describe("PlatformSettingsPage", () => {
     });
     renderSettings("/settings#modelo");
     const panel = await screen.findByRole("tabpanel");
-    expect(within(panel).getByLabelText("Modelo")).toHaveValue("opencode/deepseek-v4.1-flash-free");
+    expect(within(panel).getByRole("combobox", { name: "Modelo" })).toHaveValue("DeepSeek V4.1 Flash");
   });
 
   it("updates the URL hash when a section is selected", async () => {
@@ -188,5 +366,121 @@ describe("PlatformSettingsPage", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("No se pudieron cargar los ajustes de plataforma.");
     expect(within(alert).getByRole("button", { name: "Reintentar" })).toBeInTheDocument();
+  });
+});
+
+// Under 640px the picker commits inside a sheet, so the commit *is* the close: it has to judge
+// the committed ref there, because the trigger blurred when the sheet opened and the sheet's own
+// search input never reaches the form's blur handler.
+describe("PlatformSettingsPage on the mobile sheet", () => {
+  async function openSheet(user: ReturnType<typeof userEvent.setup>) {
+    renderSettings("/settings#modelo");
+    const panel = await screen.findByRole("tabpanel");
+    await user.click(within(panel).getByRole("combobox", { name: "Modelo" }));
+    const sheet = await screen.findByRole("dialog", { name: "Modelo" });
+    expect(document.querySelector("[data-popover]")).toBeNull();
+    return { panel, sheet };
+  }
+
+  it("shows the model error when the sheet closes on an invalid committed ref", async () => {
+    const restore = setViewportMatches("(max-width: 639px)", true);
+    try {
+      const user = userEvent.setup();
+      const { panel, sheet } = await openSheet(user);
+      expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+
+      await user.type(within(sheet).getByRole("searchbox", { name: "Buscar" }), "modelo-sin-proveedor");
+      expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+      await user.click(within(sheet).getByRole("option", { name: "Usar «modelo-sin-proveedor»" }));
+
+      expect(screen.queryByRole("listbox")).toBeNull();
+      expect(within(panel).getByText(MODEL_FORMAT_ERROR)).toBeInTheDocument();
+      expect(within(panel).getByRole("combobox", { name: "Modelo" })).toHaveAttribute("aria-invalid", "true");
+      expect(api.saveSettings).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it("never shows the error when the sheet commits a valid ref", async () => {
+    const restore = setViewportMatches("(max-width: 639px)", true);
+    try {
+      const user = userEvent.setup();
+      const { panel, sheet } = await openSheet(user);
+
+      await user.type(within(sheet).getByRole("searchbox", { name: "Buscar" }), "proveedor/modelo#v1");
+      await user.click(within(sheet).getByRole("option", { name: "Usar «proveedor/modelo#v1»" }));
+
+      expect(screen.queryByRole("listbox")).toBeNull();
+      expect(within(panel).queryByText(MODEL_FORMAT_ERROR)).toBeNull();
+      expect(within(panel).getByRole("combobox", { name: "Modelo" })).toHaveAttribute("aria-invalid", "false");
+
+      await user.click(within(panel).getByRole("button", { name: "Guardar cambios" }));
+      expect(api.saveSettings).toHaveBeenCalledWith({ defaultModel: "proveedor/modelo#v1" });
+    } finally {
+      restore();
+    }
+  });
+});
+
+// The pixel proof for this layout lives in the browser probe; these assertions exist so the class
+// contract regresses loudly in jsdom, where no layout is computed at all.
+describe("PlatformSettingsSection layout contract", () => {
+  const classes = (element: Element) => element.className.split(/\s+/).filter(Boolean);
+  // An arbitrary grid template spells its track separators as "_"; split at paren depth 0 so a
+  // single "minmax(0,1fr)" stays one track instead of two.
+  const gridTracks = (token: string) => {
+    const template = token.slice("lg:grid-cols-[".length, -1).replace(/_/g, " ");
+    const tracks: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const char of template) {
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      if (char === " " && depth === 0) {
+        if (current) tracks.push(current);
+        current = "";
+        continue;
+      }
+      current += char;
+    }
+    if (current) tracks.push(current);
+    return tracks;
+  };
+
+  it("renders the two-column grid on lg and neutralises any form width cap", async () => {
+    renderSettings("/settings#modelo");
+    const section = await screen.findByRole("region", { name: "Modelo por defecto" });
+
+    const sectionClasses = classes(section);
+    expect(sectionClasses).toContain("lg:grid");
+    const gridTemplate = sectionClasses.find((token) => token.startsWith("lg:grid-cols-["));
+    expect(gridTemplate).toBeDefined();
+    // The prefix alone accepts a one-column template, so the count is the contract: two tracks.
+    expect(gridTracks(gridTemplate!)).toHaveLength(2);
+    // A cap on the section itself would collapse the grid before the lg breakpoint applies.
+    expect(sectionClasses.filter((token) => token.startsWith("max-w-"))).toEqual([]);
+
+    // The body column must be allowed to shrink, and it must strip the internal cap each form carries.
+    const body = Array.from(section.children).find((child) => classes(child).includes("min-w-0"));
+    expect(body).toBeDefined();
+    expect(classes(body!)).toContain("[&>form]:max-w-none");
+
+    const forms = Array.from(section.querySelectorAll("form"));
+    expect(forms.length).toBeGreaterThan(0);
+    const caps = (element: Element) => classes(element).filter((token) => token.startsWith("max-w-"));
+    for (const form of forms) {
+      const wrappers: Element[] = [];
+      for (let node = form.parentElement; node && node !== body; node = node.parentElement) wrappers.push(node);
+
+      // The variant only neutralises a *direct* child, so a form nested any deeper must not
+      // carry its own cap, and nothing between it and the body column may cap it either.
+      if (wrappers.length > 0) {
+        for (const node of [form, ...wrappers]) expect(caps(node)).toEqual([]);
+      }
+
+      // Direct children are the ones the parent's arbitrary variant reaches.
+      expect(form.parentElement).toBe(body);
+    }
   });
 });

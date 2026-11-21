@@ -2,9 +2,10 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
-import { buttonDanger, fieldError, friendlyError, notify, smallMuted } from "../ui.ts";
+import { buttonDanger, fieldError, friendlyError, smallMuted } from "../ui.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Skeleton } from "./Skeleton.tsx";
+import { notifySuccess } from "./Toast.tsx";
 import {
   PlatformSettingsFormActions,
   PlatformSettingsInput,
@@ -41,7 +42,7 @@ export function PlatformSettingsVaultSection({
     onSuccess: async () => {
       setAlias("");
       setSecretValue("");
-      notify.success("Secreto guardado en la bóveda.");
+      notifySuccess("Secreto guardado en la bóveda.");
       await queryClient.invalidateQueries({ queryKey: qk.secrets });
     },
   });
@@ -49,7 +50,7 @@ export function PlatformSettingsVaultSection({
   const remove = useMutation({
     mutationFn: (secretAlias: string) => api.deleteSecret(secretAlias),
     onSuccess: async (_result, secretAlias) => {
-      notify.success(`Secreto ${secretAlias} eliminado.`);
+      notifySuccess(`Secreto ${secretAlias} eliminado.`);
       setAliasToDelete(undefined);
       await queryClient.invalidateQueries({ queryKey: qk.secrets });
     },

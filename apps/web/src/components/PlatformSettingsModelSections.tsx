@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FocusEvent, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PLATFORM_DEFAULT_MODEL } from "@platform/shared";
 import { api, type ModelInfo } from "../api.ts";
 import { qk } from "../query.ts";
-import { friendlyError, notify, smallMuted } from "../ui.ts";
+import { friendlyError, smallMuted } from "../ui.ts";
 import { Skeleton } from "./Skeleton.tsx";
+import { notifySuccess } from "./Toast.tsx";
+import { useIsPickerSheet } from "./Select.tsx";
 import {
   PlatformSettingsFormActions,
   PlatformSettingsModelInput,
@@ -20,12 +22,14 @@ const MODEL_SECTION_COPY = {
     title: "Modelo por defecto",
     description: "Se usa cuando el proyecto, el flujo o el nodo no definen un modelo propio. Por defecto: DeepSeek V4.1 Flash.",
     success: "Modelo por defecto guardado.",
+    emptyLabel: "Sin modelo (usar el valor por defecto)",
   },
   orchestratorModel: {
     id: "orquestador",
     title: "Modelo del orquestador",
     description: "Se usa en el plano de control global. Si lo dejas vacío, hereda el modelo por defecto (DeepSeek V4.1 Flash).",
     success: "Modelo del orquestador guardado.",
+    emptyLabel: "Heredar el modelo por defecto",
   },
 } as const;
 
@@ -51,6 +55,8 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
   const selectedValue = initialValue ?? PLATFORM_DEFAULT_MODEL;
   const [draft, setDraft] = useState(selectedValue);
   const validation = usePlatformFieldValidation(validatePlatformModel);
+  // On the sheet surface the commit closes the sheet, so the commit is the phone's blur.
+  const isSheet = useIsPickerSheet();
 
   useEffect(() => setDraft(selectedValue), [selectedValue]);
 
@@ -58,7 +64,7 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
     mutationFn: () => saveModel(kind, draft.trim() || null),
     onSuccess: async () => {
       setDraft(draft.trim());
-      notify.success(copy.success);
+      notifySuccess(copy.success);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: qk.settings }),
         queryClient.invalidateQueries({ queryKey: qk.effectiveConfig() }),
@@ -75,23 +81,38 @@ function PlatformModelForm({ kind, initialValue, models, modelsPending, modelsEr
     save.mutate();
   }
 
+  // A custom reference is only judged once the user is done with the field: committing
+  // a row clears a stale error when it is now valid, blur/submit validate the value, and on
+  // the sheet the commit that closes it validates too (see onChange below).
+  function onFieldBlur(event: FocusEvent<HTMLFormElement>) {
+    if (!(event.target instanceof HTMLElement) || event.target.id !== inputId) return;
+    validation.validate(draft);
+  }
+
   return (
     <PlatformSettingsSection id={copy.id} title={copy.title} description={copy.description}>
-      <form className="flex max-w-3xl flex-col gap-4" aria-labelledby={`${copy.id}-title`} noValidate onSubmit={onSubmit}>
+      <form
+        className="flex max-w-3xl flex-col gap-4"
+        aria-labelledby={`${copy.id}-title`}
+        noValidate
+        onSubmit={onSubmit}
+        onBlur={onFieldBlur}
+      >
         <PlatformSettingsModelInput
           id={inputId}
-          name={kind}
           label="Modelo"
           hint="Formato: proveedor/modelo#variante. La variante es opcional."
           error={validation.error}
           value={draft}
           models={models}
-          onChange={(event) => {
-            const value = event.target.value;
+          emptyLabel={copy.emptyLabel}
+          onChange={(value) => {
             setDraft(value);
-            validation.clear(value);
+            // On the sheet the commit is also the close, so it replaces the desktop blur:
+            // without this a phone user only ever sees the error after pressing Guardar.
+            if (isSheet) validation.validate(value);
+            else validation.clear(value);
           }}
-          onBlur={() => validation.validate(draft)}
         />
         {modelsPending && (
           <div className="flex flex-col gap-2" aria-label="Cargando sugerencias de modelos">

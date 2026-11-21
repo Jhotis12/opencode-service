@@ -40,6 +40,18 @@ function renderChangePassword(changePassword = vi.fn()) {
 }
 
 describe("LoginPage", () => {
+  it("usa una altura de viewport dinámica y deja el formulario alcanzable al hacer scroll", () => {
+    renderLogin();
+    const main = screen.getByRole("main");
+    expect(main.className).toContain("min-h-dvh");
+    expect(main.className).not.toContain("min-h-screen");
+    expect(main.className).toContain("overflow-y-auto");
+
+    const form = screen.getByRole("form", { name: "Iniciar sesión" });
+    expect(main).toContainElement(form);
+    expect(form.className).toContain("w-full");
+  });
+
   it("mantiene el acceso bloqueado hasta que hay contraseña", async () => {
     const login = renderLogin(vi.fn().mockResolvedValue({ user, mustChangePassword: false }));
     const submit = screen.getByRole("button", { name: "Entrar" });
@@ -72,6 +84,18 @@ describe("LoginPage", () => {
 });
 
 describe("ChangePasswordPage", () => {
+  it("usa una altura de viewport dinámica y deja el formulario alcanzable al hacer scroll", () => {
+    renderChangePassword();
+    const main = screen.getByRole("main");
+    expect(main.className).toContain("min-h-dvh");
+    expect(main.className).not.toContain("min-h-screen");
+    expect(main.className).toContain("overflow-y-auto");
+
+    const form = screen.getByRole("form", { name: "Cambiar contraseña" });
+    expect(main).toContainElement(form);
+    expect(form.className).toContain("w-full");
+  });
+
   it("envía el cambio una sola vez cuando el formulario es válido", async () => {
     const changePassword = renderChangePassword(vi.fn().mockResolvedValue({ user }));
     await userEvent.type(screen.getByLabelText("Contraseña actual"), "admin123!");

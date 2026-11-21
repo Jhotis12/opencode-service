@@ -94,4 +94,35 @@ describe("RunDetailModal approvals", () => {
     );
     expect(screen.getByText(/Origen: Re-ejecución de abcdef12/)).toBeInTheDocument();
   });
+
+  it("keeps the steps in the modal's single scroll container", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ data: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+    renderWithProviders(
+      <RunDetailModal
+        run={run({
+          steps: [
+            {
+              id: "step-1",
+              nodeId: "start",
+              status: "succeeded",
+              durationMs: 12,
+              startedAt: new Date().toISOString(),
+              input: { consulta: "hola" },
+              output: { salida: "texto ".repeat(400) },
+            },
+          ],
+        })}
+        onClose={vi.fn()}
+        onReplay={vi.fn()}
+      />,
+    );
+    const dialog = await screen.findByRole("dialog", { name: /Ejecución/ });
+
+    const scrollers = dialog.querySelectorAll(".overflow-auto");
+    expect(scrollers).toHaveLength(1);
+    expect(scrollers[0]).toHaveAttribute("data-modal-body");
+  });
 });

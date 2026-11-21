@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { WorkflowGraph } from "@platform/shared";
-import { button, buttonGhost, notify, smallMuted } from "../ui.ts";
+import { button, buttonGhost, smallMuted } from "../ui.ts";
 import {
   buildWorkflowDefinition,
   downloadWorkflowDefinition,
@@ -11,6 +11,7 @@ import {
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
 import { Modal } from "./Modal.tsx";
+import { notifyInfo, notifySuccess } from "./Toast.tsx";
 
 type PendingImport = { graph: WorkflowGraph; fileName: string; updatedAt: string };
 
@@ -41,13 +42,13 @@ export function WorkflowLibraryPanel({
     setErrors([]);
     const fileName = workflowFileName(graph);
     downloadWorkflowDefinition(buildWorkflowDefinition(graph), fileName);
-    notify.success(`Descargado ${fileName} con ${graph.nodes.length} nodo${graph.nodes.length === 1 ? "" : "s"}.`);
+    notifySuccess(`Descargado ${fileName} con ${graph.nodes.length} nodo${graph.nodes.length === 1 ? "" : "s"}.`);
   }
 
   function applyImport(next: WorkflowGraph, fileName: string) {
     onImport(next);
     setPending(undefined);
-    notify.success(`"${fileName}" importado como borrador. Revisa el flujo y usa Guardar flujo para conservarlo.`);
+    notifySuccess(`"${fileName}" importado como borrador. Revisa el flujo y usa Guardar flujo para conservarlo.`);
   }
 
   async function importFlow(file: File | undefined) {
@@ -66,7 +67,7 @@ export function WorkflowLibraryPanel({
       return;
     }
     if (isSameGraph(result.graph, graph)) {
-      notify.info(`"${file.name}" ya coincide con el flujo actual. No hay cambios que aplicar.`);
+      notifyInfo(`"${file.name}" ya coincide con el flujo actual. No hay cambios que aplicar.`);
       return;
     }
     if (result.stale) {
@@ -154,6 +155,7 @@ export function WorkflowLibraryPanel({
           </ul>
         </div>
       )}
+
     </Modal>
   );
 }

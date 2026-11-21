@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { findToast, renderWithProviders } from "./render.tsx";
+import { renderWithProviders } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
   listNotebooks: vi.fn(),
@@ -17,6 +17,21 @@ const apiMock = vi.hoisted(() => ({
 vi.mock("../src/api.ts", () => ({ api: apiMock }));
 
 import { ProjectKnowledgePanel } from "../src/components/ProjectKnowledgePanel.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
+
+// Outcomes are announced by sonner: mount the real host so the assertions below
+// prove the copy reaches a toast and not an inline paragraph.
+function renderKnowledge() {
+  return renderWithProviders(
+    <>
+      <ProjectKnowledgePanel projectSlug="demo" />
+    </>,
+  );
+}
+
+afterEach(() => {
+  act(() => dismissAll());
+});
 
 const notebook = {
   id: "nb-1",
@@ -64,7 +79,7 @@ async function selectNotebook() {
 describe("ProjectKnowledgePanel", () => {
   it("shows upload progress with the file name until the mutation settles", async () => {
     mockNotebook([fileSource, urlSource]);
-    renderWithProviders(<ProjectKnowledgePanel projectSlug="demo" />);
+    renderKnowledge();
     await selectNotebook();
 
     let resolveUpload!: (value: { source: { title: string }; chunks: number }) => void;
@@ -82,13 +97,14 @@ describe("ProjectKnowledgePanel", () => {
     expect(apiMock.uploadSource).toHaveBeenCalledWith("demo", "manual-ventas", file);
 
     resolveUpload({ source: { title: "garantias.md" }, chunks: 7 });
-    expect(await findToast(/Fuente indexada: garantias\.md \(7 fragmentos\)/)).toBeVisible();
+    const indexed = await screen.findByText(/Fuente indexada: garantias\.md \(7 fragmentos\)/);
+    expect(indexed.closest("[data-sonner-toast]")).not.toBeNull();
     await waitFor(() => expect(screen.queryByText(/Subiendo garantias\.md…/)).not.toBeInTheDocument());
   });
 
   it("gives URL ingest feedback and previews a source", async () => {
     mockNotebook([fileSource, urlSource]);
-    renderWithProviders(<ProjectKnowledgePanel projectSlug="demo" />);
+    renderKnowledge();
     await selectNotebook();
 
     let resolveIngest!: (value: { source: { title: string }; chunks: number }) => void;
@@ -104,7 +120,8 @@ describe("ProjectKnowledgePanel", () => {
 
     expect(await screen.findByText(/Indexando https:\/\/example\.com\/politica…/)).toBeInTheDocument();
     resolveIngest({ source: { title: "Política de garantías" }, chunks: 4 });
-    expect(await findToast(/URL indexada: Política de garantías \(4 fragmentos\)/)).toBeVisible();
+    const ingested = await screen.findByText(/URL indexada: Política de garantías \(4 fragmentos\)/);
+    expect(ingested.closest("[data-sonner-toast]")).not.toBeNull();
 
     await userEvent.click(screen.getAllByRole("button", { name: "Vista previa" })[0]!);
     const dialog = await screen.findByRole("dialog");
@@ -116,7 +133,7 @@ describe("ProjectKnowledgePanel", () => {
 
   it("deletes a source only after confirmation", async () => {
     mockNotebook([fileSource, urlSource]);
-    renderWithProviders(<ProjectKnowledgePanel projectSlug="demo" />);
+    renderKnowledge();
     await selectNotebook();
     await screen.findByText("devoluciones.md");
 
@@ -135,12 +152,34 @@ describe("ProjectKnowledgePanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Eliminar fuente" }));
     await waitFor(() => expect(apiMock.deleteSource).toHaveBeenCalledWith("demo", "manual-ventas", "source-a"));
     await waitFor(() => expect(screen.queryByText("devoluciones.md")).not.toBeInTheDocument());
-    expect(await findToast(/Fuente eliminada: devoluciones\.md/)).toBeVisible();
+    const removed = await screen.findByText(/Fuente eliminada: devoluciones\.md/);
+    expect(removed.closest("[data-sonner-toast]")).not.toBeNull();
+  });
+
+  it("closes the source confirmation and toasts when deletion fails", async () => {
+    mockNotebook([fileSource]);
+    renderKnowledge();
+    await selectNotebook();
+    await screen.findByText("devoluciones.md");
+
+    apiMock.deleteSource.mockRejectedValueOnce(new Error("failed to fetch"));
+    const row = screen.getByText("devoluciones.md").closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Eliminar" }));
+    const dialog = screen.getByRole("dialog", { name: "Eliminar fuente" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Eliminar fuente" }));
+
+    const toast = await screen.findByText(
+      "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.",
+    );
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Eliminar fuente" })).not.toBeInTheDocument(),
+    );
   });
 
   it("deletes a notebook after confirmation and clears the selection", async () => {
     mockNotebook([]);
-    renderWithProviders(<ProjectKnowledgePanel projectSlug="demo" />);
+    renderKnowledge();
     await selectNotebook();
 
     apiMock.deleteNotebook.mockResolvedValue({ ok: true });
@@ -156,20 +195,40 @@ describe("ProjectKnowledgePanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Eliminar notebook" }));
     await waitFor(() => expect(apiMock.deleteNotebook).toHaveBeenCalledWith("demo", "manual-ventas"));
     await waitFor(() => expect(screen.queryByText("Fuentes de manual-ventas")).not.toBeInTheDocument());
-    expect(await findToast(/Notebook eliminado: Manual de ventas/)).toBeVisible();
+    const removedNotebook = await screen.findByText(/Notebook eliminado: Manual de ventas/);
+    expect(removedNotebook.closest("[data-sonner-toast]")).not.toBeNull();
     await waitFor(() => expect(screen.getByText(/Aún no hay notebooks/)).toBeInTheDocument());
+  });
+
+  it("closes the notebook confirmation and toasts when deletion fails", async () => {
+    mockNotebook([]);
+    renderKnowledge();
+    await selectNotebook();
+
+    apiMock.deleteNotebook.mockRejectedValueOnce(new Error("failed to fetch"));
+    await userEvent.click(screen.getByRole("button", { name: "Eliminar" }));
+    const dialog = screen.getByRole("dialog", { name: "Eliminar notebook" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Eliminar notebook" }));
+
+    const toast = await screen.findByText(
+      "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.",
+    );
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Eliminar notebook" })).not.toBeInTheDocument(),
+    );
   });
 
   it("maps an upload failure to actionable Spanish copy", async () => {
     mockNotebook([fileSource]);
-    renderWithProviders(<ProjectKnowledgePanel projectSlug="demo" />);
+    renderKnowledge();
     await selectNotebook();
 
     apiMock.uploadSource.mockRejectedValueOnce(new Error("failed to fetch"));
     const file = new File(["# Roto"], "error.md", { type: "text/markdown" });
     await userEvent.upload(screen.getByLabelText("Subir documento"), file);
 
-    expect(await findToast(/No se pudo conectar con el servidor/)).toBeVisible();
+    expect((await screen.findByText(/No se pudo conectar con el servidor/)).closest("[data-sonner-toast]")).not.toBeNull();
     await waitFor(() => expect(screen.queryByText(/Subiendo error\.md…/)).not.toBeInTheDocument());
   });
 });

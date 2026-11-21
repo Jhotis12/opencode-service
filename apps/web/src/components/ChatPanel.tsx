@@ -24,6 +24,14 @@ export interface ChatMessage {
 
 type ChatSurface = "docked" | "minimized";
 
+/**
+ * The minimised restore control is fixed to the viewport, so it must clear the bottom gesture
+ * bar: `viewport-fit=cover` (index.html) makes `env(safe-area-inset-bottom)` real, and a bare
+ * `bottom-4` would leave the pill 8 px inside a 24 px strip. The inset rides on top of the 1rem
+ * gap, so flat (0 px) viewports keep exactly the old offset.
+ */
+const minimisedChatPillBottom = "bottom-[calc(1rem+env(safe-area-inset-bottom))]";
+
 /** Lifecycle of the history that feeds the panel. */
 export type ChatHistoryStatus = "loading" | "ready" | "error";
 
@@ -245,6 +253,8 @@ export function ChatPanel({
   const visibleMessages = messages
     .map((message, index) => ({ message, index }))
     .filter(({ message }) => !normalizedQuery || message.text.toLowerCase().includes(normalizedQuery));
+  const primarySurface = !fill && !onMinimize;
+  const hasJumpTarget = historyStatus === "ready" && visibleMessages.length > 0;
 
   useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
@@ -315,6 +325,24 @@ export function ChatPanel({
     scrollToLatest();
   }, [messages, busy, draft, activities, surface, atBottom]);
 
+  // Primary surface: the message list does not scroll, so follow the real
+  // scroller (page, or the orchestrator aside on wide screens) instead.
+  useEffect(() => {
+    if (!primarySurface || !hasJumpTarget) {
+      setAtBottom(true);
+      return;
+    }
+    const update = () => setAtBottom(latestMessageInView());
+    update();
+    // Capture the `scroll` events of any ancestor, then fall back to the window.
+    window.addEventListener("scroll", update, { capture: true, passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, { capture: true });
+      window.removeEventListener("resize", update);
+    };
+  }, [primarySurface, hasJumpTarget, normalizedQuery]);
+
   function upsertActivity(event: Extract<ChatTurnEvent, { type: "activity" }>) {
     setActivities((current) => {
       const next = [...current];
@@ -384,10 +412,47 @@ export function ChatPanel({
     }
   }
 
+  /**
+   * Vertical scroll position of the message list itself (`fill` and minimizable
+   * variants, where the list is the scroller).
+   */
   function handleScroll() {
     const element = listRef.current;
     if (!element) return;
     setAtBottom(element.scrollHeight - element.scrollTop - element.clientHeight < 48);
+  }
+
+  /**
+   * Nearest vertically scrollable ancestor of the end marker. On the primary
+   * surface the page (or the orchestrator aside on desktop) scrolls, not the
+   * message list, so the jump control has to follow whichever element really
+   * moves.
+   */
+  function findScrollContainer(element: HTMLElement): HTMLElement | null {
+    let node = element.parentElement;
+    while (node && node !== document.body) {
+      const { overflowY } = getComputedStyle(node);
+      if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight + 1) {
+        return node;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  /** Whether the last message is inside the scroll viewport of the primary surface. */
+  function latestMessageInView(): boolean {
+    const end = endRef.current;
+    if (!end) return true;
+    const marker = end.getBoundingClientRect();
+    const container = findScrollContainer(end);
+    const viewportTop = container ? container.getBoundingClientRect().top : 0;
+    const viewportHeight = container
+      ? container.clientHeight
+      : window.innerHeight || document.documentElement.clientHeight || 0;
+    // The end marker is zero-height, so it sits on the last line: the ±8 px slack
+    // keeps a marker resting on an edge (smooth scroll, 1x DPR) counted as in view.
+    return marker.top >= viewportTop - 8 && marker.top <= viewportTop + viewportHeight + 8;
   }
 
   const cancelDialog = confirmCancelOpen ? (
@@ -423,7 +488,7 @@ export function ChatPanel({
       <>
         <button
           type="button"
-          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-accent/40 bg-panel px-4 py-3 text-sm text-slate-100 shadow-2xl hover:border-accent"
+          className={`fixed ${minimisedChatPillBottom} right-4 z-40 flex items-center gap-2 rounded-full border border-accent/40 bg-panel px-4 py-3 text-sm text-slate-100 shadow-2xl hover:border-accent`}
           onClick={() => setSurface("docked")}
           aria-label="Restaurar chat del agente"
         >
@@ -487,7 +552,9 @@ export function ChatPanel({
       )}
       <div
         ref={listRef}
-        className={`flex flex-col gap-2 overflow-auto pr-1 ${fill ? "min-h-0 flex-1" : "max-h-80"}`}
+        className={`flex flex-col gap-2 pr-1 ${
+          fill ? "min-h-0 flex-1 overflow-y-auto" : onMinimize ? "max-h-80 overflow-y-auto" : ""
+        }`}
         onScroll={handleScroll}
         aria-live="polite"
         data-testid="chat-messages"
@@ -623,10 +690,10 @@ export function ChatPanel({
             </button>
           </div>
         )}
-        <div ref={endRef} />
+        <div ref={endRef} data-testid="chat-end" />
       </div>
-      <div className="flex min-h-6 items-center justify-end">
-        {!atBottom && (
+      <div className={`flex min-h-6 items-center justify-end ${primarySurface ? "sticky bottom-2 z-20" : ""}`}>
+        {hasJumpTarget && !atBottom && (
           <button
             type="button"
             className="rounded-full border border-line bg-panel-2 px-3 py-1 text-[11px] text-slate-200 transition hover:border-accent"

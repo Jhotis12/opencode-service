@@ -5,9 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import { ConfirmDialog } from "../src/components/ConfirmDialog.tsx";
 import { EmptyState } from "../src/components/EmptyState.tsx";
 import { Field } from "../src/components/Field.tsx";
+import { OverflowMenu } from "../src/components/OverflowMenu.tsx";
 import { PageHeader } from "../src/components/PageHeader.tsx";
 import { Skeleton } from "../src/components/Skeleton.tsx";
 import { Tabs, type TabItem } from "../src/components/Tabs.tsx";
+import { buttonGhost } from "../src/ui.ts";
 
 const items = [
   { id: "overview", label: "Resumen", content: <p>Contenido de resumen</p> },
@@ -189,5 +191,36 @@ describe("PageHeader", () => {
     expect(screen.getByRole("navigation", { name: "Migas de pan" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Proyectos" })).toHaveAttribute("href", "/projects");
     expect(screen.getByRole("button", { name: "Nuevo proyecto" })).toBeInTheDocument();
+  });
+});
+
+describe("OverflowMenu", () => {
+  const menuItems = [{ id: "edit", label: "Editar", onSelect: () => undefined }] as const;
+
+  // IntegrationCard passes neither prop, so these are the classes that keep its menu
+  // anchored to the card and its trigger on the ghost chrome.
+  it("defaults to a relative wrapper and the ghost trigger", () => {
+    renderWithProviders(<OverflowMenu label="Más acciones de la integración" items={menuItems} />);
+
+    const trigger = screen.getByRole("button", { name: "Más acciones de la integración" });
+    const wrapper = trigger.parentElement;
+    expect(wrapper?.className).toBe("relative");
+    expect(trigger.className).toBe(`${buttonGhost} !px-2`);
+  });
+
+  it("forwards className to the positioning wrapper and triggerClassName to the trigger", () => {
+    renderWithProviders(
+      <OverflowMenu
+        label="Más acciones del flujo"
+        items={menuItems}
+        className="max-sm:static"
+        triggerClassName="max-sm:border max-sm:border-line max-sm:bg-panel-2"
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Más acciones del flujo" });
+    const wrapper = trigger.parentElement;
+    expect(wrapper?.className).toBe("relative max-sm:static");
+    expect(trigger.className).toBe(`${buttonGhost} !px-2 max-sm:border max-sm:border-line max-sm:bg-panel-2`);
   });
 });

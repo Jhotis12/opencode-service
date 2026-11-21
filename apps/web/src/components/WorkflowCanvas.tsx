@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -14,6 +14,7 @@ import {
   type EdgeChange,
   type NodeChange,
   type ReactFlowInstance,
+  type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { NodeSpec, WorkflowGraph } from "@platform/shared";
@@ -24,6 +25,32 @@ import { NODE_META } from "./nodes/node-catalog.ts";
 import { getConnectionIssue, resolveConnection, type GraphIssue } from "./canvas/graph-edits.ts";
 import { AgentFlowUpdateNotice, ShortcutsHelp, ZoomReadout } from "./canvas/canvas-overlays.tsx";
 import { focusRing } from "../ui.ts";
+import { useMediaQuery } from "../useMediaQuery.ts";
+
+/** Phone breakpoint shared by the narrow canvas chrome; matches the picker sheet. */
+export const PHONE_QUERY = "(max-width: 639px)";
+/** Drop radius around a handle, so a fingertip does not have to hit a 10 px dot. */
+export const TOUCH_CONNECTION_RADIUS = 32;
+/** Doubles the 10 px handle (`!h-2.5` on PlatformNode) into a 16 px touch target. */
+const NARROW_HANDLE_TARGET = "[&_[data-handlepos]]:h-4! [&_[data-handlepos]]:w-4!";
+/**
+ * Air between the measured top of the fixed chat pill and the bottom of the phone stack. The pill's
+ * own band is never a constant: its `bottom-*` offset, its padding and its text all scale with the
+ * root font size, so the canvas measures the pill's box and reserves exactly what it covers.
+ */
+const TRANSIENT_PILL_GAP_PX = 12;
+/** Air between the top of the phone stack and the top-left canvas actions row. */
+const TRANSIENT_STACK_GAP_PX = 10;
+/** React Flow's own bottom margin for a panel; also the floor under a below-the-pill stack. */
+const TRANSIENT_PANEL_MARGIN_PX = 15;
+/**
+ * The multi-chip stack is 168.63 px tall at the 16 px root (connect banner + agent + run), so it is
+ * measured in rem and scales with the root font size like the chips themselves. Below this band the
+ * chips collapse into one line, which is what keeps a 320x568 phone readable: the canvas there has
+ * ~95 px between the actions row and the pill, well short of three chips.
+ */
+const TRANSIENT_FULL_STACK_REM = 11;
+const BASE_ROOT_FONT_PX = 16;
 
 const nodeTypes = { platform: PlatformNode };
 const edgeTypes = { platform: PlatformEdge };
@@ -108,6 +135,194 @@ export interface RunProgress {
   runId: string;
 }
 
+function ConnectBanner({
+  connecting,
+  narrow,
+  onCancel,
+}: {
+  connecting: { sourceId: string; condition?: "true" | "false" };
+  narrow: boolean;
+  onCancel(): void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-lg border border-accent/40 bg-well/95 px-3 py-2 text-xs text-slate-200 shadow-lg ${
+        narrow ? "w-full flex-wrap" : ""
+      }`}
+    >
+      Elige el destino
+      {connecting.condition && <span className="rounded bg-panel-2 px-1.5 py-0.5">{connecting.condition === "true" ? "sí" : "no"}</span>}
+      <span className="text-muted">· {narrow ? "toca el nodo destino" : "Esc para cancelar"}</span>
+      <button type="button" className="text-accent hover:underline" onClick={onCancel}>
+        Cancelar
+      </button>
+    </div>
+  );
+}
+
+function AgentProgressChip({
+  activity,
+  narrow,
+  onOpenChat,
+}: {
+  activity?: string;
+  narrow: boolean;
+  onOpenChat?(): void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2.5 rounded-xl border border-violet/40 bg-well/95 px-3 py-2 text-xs shadow-xl ${
+        narrow ? "w-full min-w-0" : "min-w-[230px]"
+      }`}
+      data-testid="agent-progress"
+      aria-live="polite"
+    >
+      <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-violet motion-reduce:animate-none" />
+      <div className="min-w-0 flex-1">
+        <strong className="block text-[11px] text-slate-100">Agente trabajando</strong>
+        <span className="block truncate text-[11px] text-muted">{activity ?? "Preparando respuesta…"}</span>
+      </div>
+      {onOpenChat && (
+        <button type="button" className="shrink-0 text-[11px] text-accent hover:underline" onClick={onOpenChat}>
+          Abrir chat
+        </button>
+      )}
+    </div>
+  );
+}
+
+function RunProgressChip({
+  runProgress,
+  narrow,
+  onOpenRuns,
+}: {
+  runProgress: RunProgress;
+  narrow: boolean;
+  onOpenRuns?(): void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2.5 rounded-xl border border-line bg-well/95 px-3 py-2 text-xs shadow-xl ${
+        narrow ? "w-full min-w-0" : "min-w-[230px]"
+      }`}
+      data-testid="run-progress"
+      aria-live="polite"
+    >
+      <span
+        className={`h-2 w-2 shrink-0 rounded-full ${
+          runProgress.status === "paused" ? "bg-warn" : "animate-pulse bg-accent motion-reduce:animate-none"
+        }`}
+      />
+      <div className="min-w-0 flex-1">
+        <strong className="block text-[11px] text-slate-100">
+          {runProgress.status === "paused" ? "Ejecución pausada" : "Ejecutando"}
+        </strong>
+        <span className="block truncate text-[11px] text-muted">{runProgress.currentNodeLabel ?? "Preparando nodo…"}</span>
+      </div>
+      <span className="shrink-0 rounded bg-panel-2 px-2 py-0.5 text-[11px] text-muted">
+        {runProgress.completedSteps} pasos
+      </span>
+      {onOpenRuns && (
+        <button type="button" className="shrink-0 text-[11px] text-accent hover:underline" onClick={onOpenRuns}>
+          Ejecuciones
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The phone's transient overlays all live in one bottom-centre panel lifted above the chat pill.
+ * The panel owns at most the band between the pill and the top-left actions row; when that band is
+ * shorter than the multi-chip stack, the chips collapse into a single summarising line whose height
+ * does not depend on the copy (truncate + nowrap). `maxHeight` is the hard cap either way.
+ */
+function TransientStack({
+  connecting,
+  agentStatus,
+  runProgress,
+  compact,
+  maxHeight,
+  placement,
+  pillReserve,
+  onCancelConnect,
+  onOpenChat,
+  onOpenRuns,
+}: {
+  connecting?: { sourceId: string; condition?: "true" | "false" } | null;
+  agentStatus?: { busy: boolean; activity?: string };
+  runProgress?: RunProgress;
+  compact: boolean;
+  maxHeight?: number;
+  placement?: "above" | "below" | "none";
+  pillReserve?: number;
+  onCancelConnect(): void;
+  onOpenChat?(): void;
+  onOpenRuns?(): void;
+}) {
+  const signals = [
+    connecting ? "conexión" : undefined,
+    agentStatus?.busy ? "agente" : undefined,
+    runProgress ? "ejecución" : undefined,
+  ].filter((signal): signal is string => signal !== undefined);
+  const hidden = signals.length - 1;
+  const cap = maxHeight === undefined ? undefined : { maxHeight };
+
+  if (compact) {
+    const notice = connecting
+      ? "Elige el destino"
+      : agentStatus?.busy
+        ? "Agente trabajando"
+        : `Ejecutando · ${runProgress?.currentNodeLabel ?? "preparando nodo"}`;
+    return (
+      <div
+        className="pointer-events-auto flex h-8 w-[16rem] max-w-[calc(100vw-6rem)] items-center gap-2 overflow-hidden rounded-lg border border-accent/40 bg-well/95 px-3 text-xs text-slate-200 shadow-lg"
+        style={cap}
+        data-canvas-overlay="transient"
+        data-canvas-compact="true"
+        data-canvas-placement={placement}
+        data-canvas-transient-signals={signals.join(",")}
+        data-canvas-pill-reserve={pillReserve}
+        aria-live="polite"
+      >
+        <span className="min-w-0 flex-1 truncate whitespace-nowrap" data-testid="transient-notice">
+          {notice}
+        </span>
+        {hidden > 0 && (
+          <span
+            className="shrink-0 rounded bg-panel-2 px-1.5 text-[11px] text-muted"
+            title={`También: ${signals.slice(1).join(", ")}`}
+          >
+            +{hidden}
+          </span>
+        )}
+        {connecting && (
+          <button type="button" className="shrink-0 text-[11px] text-accent hover:underline" onClick={onCancelConnect}>
+            Cancelar
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="pointer-events-auto flex w-[16rem] max-w-[calc(100vw-6rem)] flex-col gap-2 overflow-y-auto"
+      style={cap}
+      data-canvas-overlay="transient"
+      data-canvas-placement={placement}
+      data-canvas-transient-signals={signals.join(",")}
+      data-canvas-pill-reserve={pillReserve}
+    >
+      {connecting && <ConnectBanner connecting={connecting} narrow onCancel={onCancelConnect} />}
+      {agentStatus?.busy && (
+        <AgentProgressChip activity={agentStatus.activity} narrow onOpenChat={onOpenChat} />
+      )}
+      {runProgress && <RunProgressChip runProgress={runProgress} narrow onOpenRuns={onOpenRuns} />}
+    </div>
+  );
+}
+
 function toEdges(
   graph: WorkflowGraph,
   issues: GraphIssue[],
@@ -163,6 +378,31 @@ function toEdges(
   return [...edges, ...errorEdges];
 }
 
+/** Air between the fitted graph and the visible edges of the canvas. */
+const CHAT_FIT_GAP_PX = 32;
+/** Below this much uncovered canvas the drawer hides the graph anyway; keep the viewport. */
+const CHAT_FIT_MIN_VISIBLE_PX = 240;
+
+type PixelPadding = `${number}px`;
+
+/**
+ * Fit padding that keeps the graph inside the canvas area the chat drawer leaves visible.
+ * The drawer is a fixed overlay, so the fit gets the covered width as right padding instead of
+ * the canvas shrinking. Returns `null` when the drawer leaves no usable strip to fit into.
+ */
+export function chatFitPadding(
+  canvasWidth: number,
+  drawerWidth: number,
+): { top: PixelPadding; right: PixelPadding; bottom: PixelPadding; left: PixelPadding } | null {
+  if (canvasWidth - drawerWidth < CHAT_FIT_MIN_VISIBLE_PX) return null;
+  return {
+    top: `${CHAT_FIT_GAP_PX}px`,
+    right: `${drawerWidth + CHAT_FIT_GAP_PX}px`,
+    bottom: `${CHAT_FIT_GAP_PX}px`,
+    left: `${CHAT_FIT_GAP_PX}px`,
+  };
+}
+
 export interface WorkflowCanvasProps {
   graph: WorkflowGraph;
   selectedId?: string;
@@ -170,6 +410,8 @@ export interface WorkflowCanvasProps {
   nodeStatuses?: Record<string, string>;
   runProgress?: RunProgress;
   agentStatus?: { busy: boolean; activity?: string };
+  /** The layout's fixed chat pill is on screen; the narrow stack must clear its band. */
+  chatPillVisible?: boolean;
   agentTouchedNodeIds?: string[];
   agentUpdate?: { summary: string; at?: number };
   onDismissAgentUpdate?(): void;
@@ -198,6 +440,7 @@ export function WorkflowCanvas({
   nodeStatuses,
   runProgress,
   agentStatus,
+  chatPillVisible = false,
   agentTouchedNodeIds,
   agentUpdate,
   onDismissAgentUpdate,
@@ -235,9 +478,89 @@ export function WorkflowCanvas({
     toEdges(graph, issues, runningNodeId, nodeStatuses),
   );
   const [flow, setFlow] = useState<ReactFlowInstance<PlatformFlowNode, PlatformFlowEdge>>();
+  // The layout renders the chat drawer as a fixed overlay, so it publishes its state on the element
+  // and this canvas, which it covers, mirrors it instead of duplicating the workspace state.
+  const [chatOpen, setChatOpen] = useState(false);
   const draggedRef = useRef(false);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
   const lastFittedGraphRef = useRef<string | undefined>(undefined);
+  const narrow = useMediaQuery(PHONE_QUERY);
+  /**
+   * Where the phone stack lives inside the canvas and how tall it may get. `reserve` is the panel's
+   * bottom margin; `band` is the measured room between the actions row and the pill (or the canvas
+   * bottom when the stack sits under the pill). `null` until the geometry is measurable.
+   */
+  const [transientLayout, setTransientLayout] = useState<{
+    placement: "above" | "below" | "none";
+    reserve: number;
+    band: number;
+  } | null>(null);
+  const [rootFontPx, setRootFontPx] = useState(BASE_ROOT_FONT_PX);
+
+  useLayoutEffect(() => {
+    if (!narrow) {
+      setTransientLayout(null);
+      return;
+    }
+    const canvas = canvasRef.current;
+    const actions = actionsRef.current;
+    if (!canvas || !actions) return;
+    // The pill lives in the layout but publishes `data-chat-pill`; its fixed box is measured, so a
+    // different `bottom-*` utility or a 20 px root font size moves the reserve with it.
+    const pill = chatPillVisible ? document.querySelector<HTMLElement>("[data-chat-pill]") : null;
+    const measure = () => {
+      const canvasRect = canvas.getBoundingClientRect();
+      // jsdom and a detached canvas report no box: stay in the full stack rather than guess.
+      if (canvasRect.height <= 0) {
+        setTransientLayout(null);
+        return;
+      }
+      const root = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+      setRootFontPx(Number.isFinite(root) && root > 0 ? root : BASE_ROOT_FONT_PX);
+
+      const topLimit = actions.getBoundingClientRect().bottom - canvasRect.top + TRANSIENT_STACK_GAP_PX;
+      const base = canvasRect.height - TRANSIENT_PANEL_MARGIN_PX;
+      const pillRect = pill?.getBoundingClientRect();
+      if (!pillRect || pillRect.height <= 0) {
+        setTransientLayout({ placement: "none", reserve: 0, band: Math.max(0, Math.floor(base - topLimit)) });
+        return;
+      }
+      const pillTop = pillRect.top - canvasRect.top;
+      const pillBottom = pillRect.bottom - canvasRect.top;
+      // Two placements fit a bottom-anchored stack: lifted above the pill, or resting under it with
+      // its height capped at the pill's bottom edge. Take the roomier one - a 230 px canvas with a
+      // 12 px slit between the actions and the pill still has ~98 px below the pill for the notice.
+      const above = Math.floor(pillTop - TRANSIENT_PILL_GAP_PX - topLimit);
+      const below = Math.floor(base - Math.max(topLimit, pillBottom + TRANSIENT_PILL_GAP_PX));
+      if (above > 0 && above >= below) {
+        setTransientLayout({
+          placement: "above",
+          reserve: Math.ceil(canvasRect.bottom - pillRect.top + TRANSIENT_PILL_GAP_PX),
+          band: above,
+        });
+        return;
+      }
+      if (below > 0) {
+        setTransientLayout({ placement: "below", reserve: 0, band: below });
+        return;
+      }
+      setTransientLayout({ placement: "above", reserve: Math.ceil(canvasRect.bottom - pillRect.top + TRANSIENT_PILL_GAP_PX), band: 0 });
+    };
+    measure();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : undefined;
+    observer?.observe(canvas);
+    observer?.observe(actions);
+    if (pill) observer?.observe(pill);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [narrow, chatPillVisible]);
+  const transientBandPx = transientLayout?.band ?? null;
+  const compactTransient =
+    narrow && transientBandPx !== null && transientBandPx < TRANSIENT_FULL_STACK_REM * rootFontPx;
 
   const NODE_WIDTH = 252;
   const NODE_HEIGHT = 96;
@@ -266,6 +589,53 @@ export function WorkflowCanvas({
     }, 80);
     return () => clearTimeout(timer);
   }, [flow, graph.id, graph.nodes]);
+
+  useEffect(() => {
+    const drawer = document.querySelector<HTMLElement>("[data-chat-drawer]");
+    if (!drawer) return;
+    const sync = () => setChatOpen(drawer.hasAttribute("data-open"));
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(drawer, { attributes: true, attributeFilter: ["data-open"] });
+    return () => observer.disconnect();
+  }, []);
+
+  // The chat state the viewport was last fitted for: a re-run (StrictMode, a new `flow` identity)
+  // must not move it twice. Mount counts as closed.
+  const fittedChatOpen = useRef(false);
+  /** The viewport the drawer covered; closing restores exactly this instead of re-fitting. */
+  const preChatViewport = useRef<Viewport | null>(null);
+  /** A drawer already open on mount was never seen closed, so it has no viewport to go back to. */
+  const sawChatClosed = useRef(false);
+  useEffect(() => {
+    if (!flow) return;
+    if (!chatOpen) sawChatClosed.current = true;
+    // The initial-view effect above fits at 80 ms; fitting later keeps that full-canvas fit from
+    // winning when the page is entered with the drawer already open (chat open, then navigate here).
+    const timer = setTimeout(() => {
+      if (fittedChatOpen.current === chatOpen) return;
+      fittedChatOpen.current = chatOpen;
+      if (chatOpen) {
+        // The drawer is a fixed overlay over a full-width canvas, so only the uncovered strip is
+        // visible; fit into it instead of centring the graph behind the panel.
+        const drawer = document.querySelector<HTMLElement>("[data-chat-drawer]");
+        const padding = chatFitPadding(canvasRef.current?.clientWidth ?? 0, drawer?.offsetWidth ?? 0);
+        // A drawer that leaves no strip (a phone's full-width sheet) changes nothing, so it has
+        // nothing to restore on close, and closing must not move the viewport either.
+        if (!padding || !sawChatClosed.current) return;
+        preChatViewport.current = flow.getViewport();
+        flow.fitView({ padding, duration: 300, minZoom: 0.25, maxZoom: 1.2 });
+        return;
+      }
+      // Closing returns to the viewport the drawer covered. Re-fitting the graph instead would
+      // throw away the user's own pan and zoom, and on a phone it shrank the 0.8 placement into a
+      // whole-graph fit at ~0.33 as soon as the drawer had been opened once.
+      const saved = preChatViewport.current;
+      preChatViewport.current = null;
+      if (saved) flow.setViewport(saved, { duration: 300 });
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [flow, chatOpen]);
 
   function fitOverview() {
     flow?.fitView({ padding: 0.1, duration: 300, minZoom: 0.25, maxZoom: 1.2 });
@@ -326,7 +696,10 @@ export function WorkflowCanvas({
     onConnect(resolved.source, resolved.target, resolved.condition);
   }
 
-  function handleNodeClick(_event: React.MouseEvent, node: PlatformFlowNode) {
+  function handleNodeClick(event: React.MouseEvent, node: PlatformFlowNode) {
+    // A handle is a connection affordance, not a selection: tapping it on a phone must start
+    // the connection instead of opening the inspector over the canvas.
+    if (event.target instanceof Element && event.target.closest(".react-flow__handle")) return;
     if (draggedRef.current) {
       draggedRef.current = false;
       return;
@@ -353,7 +726,12 @@ export function WorkflowCanvas({
 
   return (
     <CanvasActionsContext.Provider value={actions}>
-      <div ref={canvasRef} className={`${className ?? "h-full"} relative overflow-hidden bg-ink`} data-testid="workflow-canvas">
+      <div
+        ref={canvasRef}
+        className={`${className ?? "h-full"} relative overflow-hidden bg-ink${narrow ? ` ${NARROW_HANDLE_TARGET}` : ""}`}
+        data-testid="workflow-canvas"
+        data-canvas-layout={narrow ? "narrow" : "wide"}
+      >
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -384,112 +762,100 @@ export function WorkflowCanvas({
           maxZoom={1.6}
           deleteKeyCode={["Backspace", "Delete"]}
           proOptions={{ hideAttribution: true }}
+          {...(narrow ? { connectOnClick: true, connectionRadius: TOUCH_CONNECTION_RADIUS } : {})}
         >
           <Background gap={18} color="var(--color-line)" />
           <Panel position="top-left">
-            <div className="flex items-center gap-2">
+            <div
+              ref={actionsRef}
+              className={narrow ? "flex max-w-[calc(100vw-2rem)] items-center gap-1.5" : "flex items-center gap-2"}
+              data-canvas-overlay="actions"
+            >
               <button
                 type="button"
-                className={`rounded-lg border border-line bg-well/90 px-3 py-2 text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent ${focusRing}`}
+                className={`rounded-lg border border-line bg-well/90 ${narrow ? "px-2.5 py-1.5" : "px-3 py-2"} text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent ${focusRing}`}
                 onClick={onOpenPalette}
               >
                 + Nodo
               </button>
               <button
                 type="button"
-                className={`rounded-lg border border-line bg-well/90 px-3 py-2 text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent ${focusRing}`}
+                className={`rounded-lg border border-line bg-well/90 ${narrow ? "px-2.5 py-1.5" : "px-3 py-2"} text-xs font-medium text-slate-200 shadow-lg transition hover:border-accent ${focusRing}`}
                 onClick={fitOverview}
                 aria-label="Ajustar vista del flujo"
               >
                 Ajustar vista
               </button>
-              <ZoomReadout />
-              <ShortcutsHelp />
+              {!narrow && (
+                <>
+                  <ZoomReadout />
+                  <ShortcutsHelp />
+                </>
+              )}
             </div>
           </Panel>
-          {connecting && (
-            <Panel position="top-center">
-              <div className="flex items-center gap-2 rounded-lg border border-accent/40 bg-well/95 px-3 py-2 text-xs text-slate-200 shadow-lg">
-                Elige el destino
-                {connecting.condition && <span className="rounded bg-panel-2 px-1.5 py-0.5">{connecting.condition === "true" ? "sí" : "no"}</span>}
-                <span className="text-muted">· Esc para cancelar</span>
-                <button type="button" className="text-accent hover:underline" onClick={onCancelConnect}>
-                  Cancelar
-                </button>
-              </div>
-            </Panel>
-          )}
-          {(runProgress || agentStatus?.busy || agentUpdate) && (
-            <Panel position="top-right">
-              <div className="flex flex-col gap-2">
-                {agentUpdate && (
-                  <AgentFlowUpdateNotice
-                    summary={agentUpdate.summary}
-                    onDismiss={onDismissAgentUpdate}
-                    onOpenChat={onOpenChat}
-                  />
-                )}
-                {agentStatus?.busy && (
-                  <div
-                    className="flex min-w-[230px] items-center gap-2.5 rounded-xl border border-violet/40 bg-well/95 px-3 py-2 text-xs shadow-xl"
-                    data-testid="agent-progress"
-                    aria-live="polite"
-                  >
-                    <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-violet motion-reduce:animate-none" />
-                    <div className="min-w-0 flex-1">
-                      <strong className="block text-[11px] text-slate-100">Agente trabajando</strong>
-                      <span className="block truncate text-[11px] text-muted">
-                        {agentStatus.activity ?? "Preparando respuesta…"}
-                      </span>
-                    </div>
-                    {onOpenChat && (
-                      <button type="button" className="shrink-0 text-[11px] text-accent hover:underline" onClick={onOpenChat}>
-                        Abrir chat
-                      </button>
+          {narrow ? (
+            (connecting || runProgress || agentStatus?.busy) && (
+              <Panel
+                position="bottom-center"
+                className="pointer-events-none"
+                style={
+                  chatPillVisible && transientLayout && transientLayout.reserve > 0
+                    ? { marginBottom: transientLayout.reserve }
+                    : undefined
+                }
+              >
+                <TransientStack
+                  connecting={connecting}
+                  agentStatus={agentStatus}
+                  runProgress={runProgress}
+                  compact={compactTransient}
+                  maxHeight={transientBandPx ?? undefined}
+                  placement={transientLayout?.placement}
+                  pillReserve={transientLayout && transientLayout.reserve > 0 ? transientLayout.reserve : undefined}
+                  onCancelConnect={onCancelConnect}
+                  onOpenChat={onOpenChat}
+                  onOpenRuns={onOpenRuns}
+                />
+              </Panel>
+            )
+          ) : (
+            <>
+              {connecting && (
+                <Panel position="top-center" data-canvas-overlay="connect">
+                  <ConnectBanner connecting={connecting} narrow={false} onCancel={onCancelConnect} />
+                </Panel>
+              )}
+              {(runProgress || agentStatus?.busy || agentUpdate) && (
+                <Panel position="top-right">
+                  <div className="flex flex-col gap-2" data-canvas-overlay="status">
+                    {agentUpdate && (
+                      <AgentFlowUpdateNotice
+                        summary={agentUpdate.summary}
+                        onDismiss={onDismissAgentUpdate}
+                        onOpenChat={onOpenChat}
+                      />
                     )}
-                  </div>
-                )}
-                {runProgress && (
-                  <div
-                    className="flex min-w-[230px] items-center gap-2.5 rounded-xl border border-line bg-well/95 px-3 py-2 text-xs shadow-xl"
-                    data-testid="run-progress"
-                    aria-live="polite"
-                  >
-                    <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${
-                        runProgress.status === "paused" ? "bg-warn" : "animate-pulse bg-accent motion-reduce:animate-none"
-                      }`}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <strong className="block text-[11px] text-slate-100">
-                        {runProgress.status === "paused" ? "Ejecución pausada" : "Ejecutando"}
-                      </strong>
-                      <span className="block truncate text-[11px] text-muted">
-                        {runProgress.currentNodeLabel ?? "Preparando nodo…"}
-                      </span>
-                    </div>
-                    <span className="shrink-0 rounded bg-panel-2 px-2 py-0.5 text-[11px] text-muted">
-                      {runProgress.completedSteps} pasos
-                    </span>
-                    {onOpenRuns && (
-                      <button type="button" className="shrink-0 text-[11px] text-accent hover:underline" onClick={onOpenRuns}>
-                        Ejecuciones
-                      </button>
+                    {agentStatus?.busy && (
+                      <AgentProgressChip activity={agentStatus.activity} narrow={false} onOpenChat={onOpenChat} />
                     )}
+                    {runProgress && <RunProgressChip runProgress={runProgress} narrow={false} onOpenRuns={onOpenRuns} />}
                   </div>
-                )}
-              </div>
-            </Panel>
+                </Panel>
+              )}
+            </>
           )}
           <Controls />
-          <MiniMap
-            pannable
-            zoomable
-            style={{ background: "var(--color-well)", width: 140, height: 100 }}
-            maskColor="rgba(7, 11, 20, 0.72)"
-            nodeColor={(node) => NODE_META[(node.data as PlatformFlowNode["data"])?.nodeType]?.color ?? "var(--color-line-strong)"}
-            nodeStrokeColor={() => "var(--color-muted)"}
-          />
+          {!narrow && (
+            <MiniMap
+              pannable
+              zoomable
+              style={{ background: "var(--color-well)", width: 140, height: 100 }}
+              maskColor="rgba(7, 11, 20, 0.72)"
+              nodeColor={(node) => NODE_META[(node.data as PlatformFlowNode["data"])?.nodeType]?.color ?? "var(--color-line-strong)"}
+              nodeStrokeColor={() => "var(--color-muted)"}
+            />
+          )}
         </ReactFlow>
       </div>
     </CanvasActionsContext.Provider>

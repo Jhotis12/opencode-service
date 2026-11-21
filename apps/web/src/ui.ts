@@ -1,5 +1,7 @@
-import type { CSSProperties } from "react";
-import { toast, type ToasterProps } from "sonner";
+import { type NotifyOptions, notifyError, notifyInfo, notifySuccess, notifyWarning } from "./components/Toast.tsx";
+
+export { toasterProps, toastVars } from "./components/Toast.tsx";
+export type { NotifyOptions };
 
 export const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
@@ -53,62 +55,22 @@ export const tabActive = "border-line bg-panel-2 text-slate-100";
 
 export const skeleton = "shrink-0 animate-pulse bg-panel-2 motion-reduce:animate-none";
 
-const toastVars = {
-  "--normal-bg": "var(--color-panel)",
-  "--normal-border": "var(--color-line)",
-  "--normal-text": "var(--color-text)",
-  "--border-radius": "0.5rem",
-  "--width": "22rem",
-} as CSSProperties;
-
-export const toasterProps: ToasterProps = {
-  theme: "dark",
-  position: "bottom-right",
-  visibleToasts: 3,
-  closeButton: true,
-  offset: 16,
-  gap: 10,
-  containerAriaLabel: "Notificaciones",
-  customAriaLabel: "Notificaciones",
-  style: toastVars,
-  toastOptions: {
-    closeButtonAriaLabel: "Cerrar notificación",
-    duration: 5000,
-    style: {
-      fontSize: "0.875rem",
-      padding: "0.875rem 1rem",
-      boxShadow: "0 12px 32px rgba(3, 7, 18, 0.55)",
-    },
-    classNames: {
-      title: "text-sm font-medium text-slate-100",
-      description: "text-xs text-muted",
-      closeButton: "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-      success: "[&_[data-icon]]:text-ok",
-      error: "[&_[data-icon]]:text-danger",
-      info: "[&_[data-icon]]:text-accent",
-      warning: "[&_[data-icon]]:text-warn",
-    },
-  },
-};
-
-export type NotifyOptions = {
-  readonly description?: string;
-  readonly duration?: number;
-};
+export type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
 
 export type Notify = {
   readonly success: (message: string, options?: NotifyOptions) => void;
   readonly error: (message: string, options?: NotifyOptions) => void;
   readonly info: (message: string, options?: NotifyOptions) => void;
+  readonly warning: (message: string, options?: NotifyOptions) => void;
 };
 
+/** The shared call shape, on top of the one host's helpers in `components/Toast.tsx`. */
 export const notify: Notify = {
-  success: (message, options) => toast.success(message, options),
-  error: (message, options) => toast.error(message, options),
-  info: (message, options) => toast.info(message, options),
+  success: notifySuccess,
+  error: notifyError,
+  info: notifyInfo,
+  warning: notifyWarning,
 };
-
-type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
 
 const STATUS_LABELS: Record<string, { label: string; tone: StatusTone }> = {
   queued: { label: "En cola", tone: "neutral" },
@@ -149,22 +111,54 @@ export function statusTone(status: string): StatusTone {
   return STATUS_LABELS[status]?.tone ?? "neutral";
 }
 
+
 export function agentModeLabel(mode: string): string {
   if (mode === "primary") return "Principal";
   if (mode === "all") return "Principal y sub-agente";
   return "Sub-agente";
 }
 
+/** Known failure patterns that deserve copy more specific than the call site's fallback. */
+const FRIENDLY_ERROR_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/invalid username or password/i, "Usuario o contraseña incorrectos."],
+  [/already exists/i, "Ya existe un recurso con ese identificador."],
+  [/failed to fetch|network|load failed/i, "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo."],
+  [/unauthorized|session/i, "Tu sesión expiró. Vuelve a iniciar sesión."],
+  [/timeout|timed out/i, "La operación tardó demasiado. Vuelve a intentarlo."],
+];
+
+const GENERIC_ERROR_COPY = "La operación no se pudo completar.";
+
+/** The text an unknown rejection carries, when it carries one at all. */
+function rejectionMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return typeof error === "string" ? error : "";
+}
+
+/**
+ * The machine-readable code of an `ApiClientError` (read structurally so a test that mocks
+ * `api.ts` never has to export the class) or of a chat turn error event.
+ */
+function rejectionCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code.length > 0 ? code : undefined;
+}
+
+/**
+ * User-facing copy for a failed request: the mapped Spanish sentence, or the call site's own
+ * Spanish fallback. The rejection's raw `message` is never returned - the server owns it in
+ * English and internals leak through it. When the rejection carries a code, the code travels
+ * with the copy (plain text, so it can be selected and pasted into a report).
+ */
 export function friendlyError(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : "";
-  if (/invalid username or password/i.test(message)) return "Usuario o contraseña incorrectos.";
-  if (/already exists/i.test(message)) return "Ya existe un recurso con ese identificador.";
-  if (/failed to fetch|network|load failed/i.test(message)) {
-    return "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.";
+  const message = rejectionMessage(error);
+  for (const [pattern, copy] of FRIENDLY_ERROR_PATTERNS) {
+    if (pattern.test(message)) return copy;
   }
-  if (/unauthorized|session/i.test(message)) return "Tu sesión expiró. Vuelve a iniciar sesión.";
-  if (/timeout|timed out/i.test(message)) return "La operación tardó demasiado. Vuelve a intentarlo.";
-  return message || fallback;
+  const base = fallback.trim() || GENERIC_ERROR_COPY;
+  const code = rejectionCode(error);
+  return code ? `${base} (código: ${code})` : base;
 }
 
 export function statusBadge(status: string): string {
@@ -175,4 +169,4 @@ export const modalBackdrop =
   "modal-backdrop fixed inset-0 z-50 flex items-end justify-center bg-ink/75 p-0 backdrop-blur-sm sm:items-center sm:p-4";
 
 export const modalPanel =
-  "modal-surface flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-panel shadow-2xl sm:rounded-2xl";
+  "modal-surface flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-panel pb-[env(safe-area-inset-bottom)] shadow-2xl sm:rounded-2xl";

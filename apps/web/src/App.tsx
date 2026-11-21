@@ -2,7 +2,6 @@ import { lazy } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useAuth } from "./auth.tsx";
 import { Layout } from "./components/Layout.tsx";
-import { PlatformToaster } from "./components/Toaster.tsx";
 import { LoginPage } from "./pages/LoginPage.tsx";
 import { ChangePasswordPage } from "./pages/ChangePasswordPage.tsx";
 import { ProjectsPage } from "./pages/ProjectsPage.tsx";
@@ -76,7 +75,6 @@ export function App() {
         </Route>
         <Route path="*" element={<Navigate to="/projects" replace />} />
       </Routes>
-      <PlatformToaster />
     </>
   );
 }

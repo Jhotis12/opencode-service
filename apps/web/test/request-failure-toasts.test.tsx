@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { Toaster } from "sonner";
 import type { SubagentProfile } from "@platform/shared";
 import type { ModelInfo } from "../src/api.ts";
 import { renderWithProviders } from "./render.tsx";
@@ -47,7 +46,6 @@ function withToaster(node: React.ReactNode) {
   return renderWithProviders(
     <>
       {node}
-      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </>,
   );
 }

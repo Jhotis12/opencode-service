@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Toaster } from "sonner";
 import type { IntegrationRecord } from "@platform/shared";
 import { chooseOption, renderWithProviders } from "./render.tsx";
 
@@ -346,7 +345,6 @@ describe("IntegrationEditor", () => {
     renderWithProviders(
       <>
         <IntegrationEditor scope="project" projectSlug="ventas" onSaved={vi.fn()} />
-        <Toaster theme="dark" position="bottom-right" richColors closeButton />
       </>,
     );
     await user.type(screen.getByLabelText("Nombre"), "Bot");

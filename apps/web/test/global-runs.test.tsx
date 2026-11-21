@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { Toaster } from "sonner";
 import type { RunRecord, StepRun } from "../src/api.ts";
 import { runOriginLabel } from "../src/api.ts";
 import {
@@ -361,7 +360,6 @@ describe("GlobalRunsPage", () => {
     renderWithProviders(
       <MemoryRouter initialEntries={["/runs"]}>
         <GlobalRunsPage />
-        <Toaster theme="dark" position="bottom-right" richColors closeButton />
       </MemoryRouter>,
     );
     await screen.findByText("aaaa1111");

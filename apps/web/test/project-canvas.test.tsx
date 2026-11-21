@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
-import { Toaster } from "sonner";
 import { Position, ReactFlow } from "@xyflow/react";
 import type { WorkflowGraph } from "@platform/shared";
 import { PlatformEdge } from "../src/components/PlatformEdge.tsx";
@@ -117,7 +116,6 @@ function renderPage() {
           <Route path="settings" element={<ProjectSettingsPage />} />
         </Route>
       </Routes>
-      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </MemoryRouter>,
   );
 }

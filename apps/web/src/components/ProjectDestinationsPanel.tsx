@@ -7,15 +7,12 @@ import { badge, button, buttonDanger, buttonGhost, card, friendlyError } from ".
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
 import { Select } from "./Select.tsx";
+import { DESTINATION_KIND_LABELS } from "./select/options.ts";
 import { notifyError, notifySuccess } from "./Toast.tsx";
 
-const KINDS: Array<{ value: DestinationKind; label: string }> = [
-  { value: "telegram_chat", label: "Chat de Telegram" },
-  { value: "whatsapp", label: "Chat de WhatsApp" },
-  { value: "email", label: "Email" },
-  { value: "webhook", label: "Webhook" },
-  { value: "custom", label: "Otro" },
-];
+const KINDS: Array<{ value: DestinationKind; label: string }> = Object.entries(DESTINATION_KIND_LABELS).map(
+  ([value, label]) => ({ value: value as DestinationKind, label }),
+);
 
 export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string }) {
   const queryClient = useQueryClient();

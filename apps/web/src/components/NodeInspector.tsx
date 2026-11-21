@@ -3,6 +3,7 @@ import type {
   NodeSpec,
   ProjectDestination,
   SubagentProfile,
+  WorkflowVersion,
 } from "@platform/shared";
 import type { ModelInfo, NotebookSummary } from "../api.ts";
 import { CodeEditor } from "./CodeEditor.tsx";
@@ -32,6 +33,7 @@ export function NodeInspector({
   notebooks = [],
   integrations,
   destinations,
+  versions = [],
   code,
   codeDirty,
   scheduleNextRun,
@@ -50,6 +52,8 @@ export function NodeInspector({
   notebooks?: readonly NotebookSummary[];
   integrations: IntegrationRecord[];
   destinations: ProjectDestination[];
+  /** Project workflow versions; the subflow picker's catalogue. */
+  versions?: readonly WorkflowVersion[];
   code: string;
   codeDirty: boolean;
   scheduleNextRun?: string;
@@ -133,6 +137,7 @@ export function NodeInspector({
         node={node}
         integrations={integrations}
         destinations={destinations}
+        versions={versions}
         scheduleNextRun={scheduleNextRun}
         onConfig={onConfig}
         onReplaceConfig={onReplaceConfig}

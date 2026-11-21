@@ -874,7 +874,9 @@ describe("NodeInspectorModal", () => {
     await user.keyboard("{Escape}");
     await chooseOption(user, "Canal de salida", /Telegram · telegram/);
     expect(onConfig).toHaveBeenCalledWith({ integrationId: "tg1" });
-    fireEvent.change(within(dialog).getByLabelText(/Destinatario/), { target: { value: "123" } });
+    const recipient = within(dialog).getByRole("combobox", { name: "Destinatario" });
+    await user.type(recipient, "123");
+    await user.keyboard("{Enter}");
     expect(onConfig).toHaveBeenCalledWith({ recipient: "123" });
     fireEvent.change(within(dialog).getByLabelText("Mensaje"), { target: { value: "Hola {{input.nombre}}" } });
     expect(onConfig).toHaveBeenCalledWith({ text: "Hola {{input.nombre}}" });

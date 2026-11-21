@@ -11,7 +11,7 @@ import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { getConfigValue, isFieldVisible, setConfigValue, toList } from "./config-field-utils.ts";
 import { Select } from "./Select.tsx";
-import type { SelectOption } from "./select/options.ts";
+import { destinationOptions, type SelectOption } from "./select/options.ts";
 import { notifyError } from "./Toast.tsx";
 import { buttonGhost, buttonPrimary, card, friendlyError } from "../ui.ts";
 
@@ -86,17 +86,10 @@ export function IntegrationEditor({
     enabled: scope === "project" && Boolean(projectSlug),
   });
   const destinations = destinationsQuery.data ?? [];
-  const destinationOptions = useMemo<readonly SelectOption[]>(
-    () =>
-      destinations.map((destination) => ({
-        value: destination.id,
-        label: `${destination.label} · ${destination.value}`,
-      })),
-    [destinations],
-  );
+  const destinationChoices = useMemo(() => destinationOptions(destinations), [destinations]);
   const destinationIds = useMemo(
-    () => new Set(destinationOptions.map((option) => option.value)),
-    [destinationOptions],
+    () => new Set(destinationChoices.map((option) => option.value)),
+    [destinationChoices],
   );
   const definition = INTEGRATION_CONFIG_REGISTRY[kind];
   const groups = useMemo(
@@ -348,7 +341,7 @@ export function IntegrationEditor({
           <Select
             key={field.key}
             label={label}
-            options={destinationOptions}
+            options={destinationChoices}
             value={list.join(", ")}
             emptyValue=""
             searchable
@@ -382,7 +375,10 @@ export function IntegrationEditor({
           <Select
             key={field.key}
             label={label}
-            options={[{ value: "", label: "Sin destinatario" }, ...destinationOptions]}
+            options={[
+              { value: "", label: "Sin destinatario" },
+              ...destinationChoices,
+            ]}
             value={current}
             emptyValue=""
             searchable

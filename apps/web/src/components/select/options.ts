@@ -1,4 +1,5 @@
 import type { ModelInfo } from "../../api.ts";
+import type { ProjectDestination } from "@platform/shared";
 
 export type SelectMetaTone = "muted" | "info" | "agent" | "ok" | "warn";
 
@@ -19,6 +20,27 @@ export interface SelectOption {
 }
 
 export const MAX_VISIBLE = 8;
+
+export const DESTINATION_KIND_LABELS: Record<ProjectDestination["kind"], string> = {
+  telegram_chat: "Chat de Telegram",
+  whatsapp: "Chat de WhatsApp",
+  email: "Email",
+  webhook: "Webhook",
+  custom: "Otro",
+};
+
+/**
+ * Catalogue rows for a destination picker. The kind is a real grouping only when the project
+ * mixes kinds, so a single-kind catalogue stays a flat list instead of one lonely header.
+ */
+export function destinationOptions(destinations: readonly ProjectDestination[]): readonly SelectOption[] {
+  const grouped = new Set(destinations.map((destination) => destination.kind)).size > 1;
+  return destinations.map((destination) => ({
+    value: destination.id,
+    label: `${destination.label} · ${destination.value}`,
+    ...(grouped ? { group: DESTINATION_KIND_LABELS[destination.kind] } : {}),
+  }));
+}
 
 const META_TONES: readonly SelectMetaTone[] = ["muted", "info", "agent", "ok", "warn"];
 

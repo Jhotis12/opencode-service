@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Edge, IntegrationRecord, NodeSpec, ProjectDestination, SubagentProfile, WorkflowGraph } from "@platform/shared";
+import type { Edge, IntegrationRecord, NodeSpec, ProjectDestination, SubagentProfile, WorkflowGraph, WorkflowVersion } from "@platform/shared";
 import type { ModelInfo, NotebookSummary, StepRun } from "../api.ts";
 import { Field } from "./Field.tsx";
 import { Modal } from "./Modal.tsx";
@@ -55,6 +55,7 @@ export function NodeInspectorModal({
   notebooks = [],
   integrations,
   destinations,
+  versions = [],
   lastStep,
   scheduleNextRun,
   code,
@@ -84,6 +85,8 @@ export function NodeInspectorModal({
   notebooks?: readonly NotebookSummary[];
   integrations: IntegrationRecord[];
   destinations: ProjectDestination[];
+  /** Project workflow versions; the subflow picker's catalogue. */
+  versions?: readonly WorkflowVersion[];
   lastStep?: StepRun;
   scheduleNextRun?: string;
   code: string;
@@ -234,6 +237,7 @@ export function NodeInspectorModal({
               notebooks={notebooks}
               integrations={integrations}
               destinations={destinations}
+              versions={versions}
               scheduleNextRun={scheduleNextRun}
               code={code}
               codeDirty={codeDirty}

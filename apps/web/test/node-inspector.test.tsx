@@ -3,7 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import type { IntegrationRecord, NodeSpec, SubagentProfile, WorkflowGraph } from "@platform/shared";
+import type {
+  IntegrationRecord,
+  NodeSpec,
+  ProjectDestination,
+  SubagentProfile,
+  WorkflowGraph,
+  WorkflowVersion,
+} from "@platform/shared";
 import type { ModelInfo, NotebookSummary, StepRun } from "../src/api.ts";
 import { chooseOption, renderWithProviders } from "./render.tsx";
 import { NodeConfigFields } from "../src/components/NodeConfigFields.tsx";
@@ -62,6 +69,47 @@ const speech: IntegrationRecord = {
   createdAt: now,
   updatedAt: now,
 };
+
+const destinations: ProjectDestination[] = [
+  {
+    id: "dst-telegram",
+    projectSlug: "p1",
+    kind: "telegram_chat",
+    label: "Familia",
+    value: "123456",
+    createdAt: now,
+    updatedAt: now,
+  },
+  {
+    id: "dst-whatsapp",
+    projectSlug: "p1",
+    kind: "whatsapp",
+    label: "Soporte",
+    value: "+34600000000",
+    createdAt: now,
+    updatedAt: now,
+  },
+];
+
+const graph: WorkflowGraph = {
+  version: 1,
+  id: "wf1",
+  name: "Flujo",
+  description: "",
+  nodes: [node({ kind: "manual" })],
+  edges: [],
+  updatedAt: now,
+};
+
+const versions: WorkflowVersion[] = [1, 2].map((version) => ({
+  id: `wv-${version}`,
+  projectSlug: "p1",
+  version,
+  graphHash: `hash-${version}`,
+  graph,
+  codeBundle: {},
+  createdAt: now,
+}));
 
 function node(config: Record<string, unknown>, type: NodeSpec["type"] = "trigger"): NodeSpec {
   return {
@@ -135,43 +183,129 @@ describe("NodeConfigFields", () => {
     expect(onConfig).toHaveBeenCalledWith({ voice: "em_alex" });
   });
 
-  it("keeps the model picker usable when the speech connection lists no models", () => {
+  it("picks a voice and a model outside the connection catalogue by mouse and by keyboard", async () => {
+    const user = userEvent.setup();
     const onConfig = vi.fn();
-    renderWithProviders(
-      <NodeConfigFields
-        node={node({ integrationId: "tts-bare" }, "speak")}
-        integrations={[{ ...speech, id: "tts-bare", config: {} }]}
-        destinations={[]}
-        onConfig={onConfig}
-        onReplaceConfig={vi.fn()}
-        onEnableDecisionCode={vi.fn()}
-      />,
-    );
-    const model = screen.getByLabelText("Modelo (override)");
-    expect(model.tagName).toBe("INPUT");
-    expect(model).not.toHaveAttribute("role", "combobox");
-    fireEvent.change(model, { target: { value: "voz-custom" } });
+    function Harness() {
+      const [config, setConfig] = useState<Record<string, unknown>>({ integrationId: "tts-bare" });
+      return (
+        <NodeConfigFields
+          node={node(config, "speak")}
+          integrations={[{ ...speech, id: "tts-bare", config: {} }]}
+          destinations={[]}
+          versions={[]}
+          onConfig={(patch) => {
+            onConfig(patch);
+            setConfig((current) => ({ ...current, ...patch }));
+          }}
+          onReplaceConfig={vi.fn()}
+          onEnableDecisionCode={vi.fn()}
+        />
+      );
+    }
+    renderWithProviders(<Harness />);
+
+    const model = screen.getByRole("combobox", { name: "Modelo (override)" });
+    await user.click(model);
+    await user.type(model, "voz-custom");
+    await user.click(screen.getByRole("option", { name: "Usar «voz-custom»" }));
     expect(onConfig).toHaveBeenCalledWith({ model: "voz-custom" });
+    expect(model).toHaveValue("voz-custom");
+
+    const voice = screen.getByRole("combobox", { name: "Voz (override)" });
+    await user.click(voice);
+    await user.type(voice, "em_santa");
+    await user.keyboard("{Enter}");
+    expect(onConfig).toHaveBeenCalledWith({ voice: "em_santa" });
+    expect(voice).toHaveValue("em_santa");
   });
 
-  it("keeps the voice free-text fallback with its suggestions when the connection lists no voices", () => {
+  it("picks a notify destination from the catalogue by mouse and by keyboard", async () => {
+    const user = userEvent.setup();
+    const onConfig = vi.fn();
+    function Harness() {
+      const [config, setConfig] = useState<Record<string, unknown>>({ integrationId: "tg1", text: "Hola" });
+      return (
+        <NodeConfigFields
+          node={node(config, "notify")}
+          integrations={[telegram]}
+          destinations={destinations}
+          versions={versions}
+          onConfig={(patch) => {
+            onConfig(patch);
+            setConfig((current) => ({ ...current, ...patch }));
+          }}
+          onReplaceConfig={vi.fn()}
+          onEnableDecisionCode={vi.fn()}
+        />
+      );
+    }
+    renderWithProviders(<Harness />);
+
+    await chooseOption(user, "Destinatario", "Familia · 123456");
+    expect(onConfig).toHaveBeenCalledWith({ recipient: "dst-telegram" });
+    expect(screen.getByRole("combobox", { name: "Destinatario" })).toHaveValue("Familia · 123456");
+
+    const recipient = screen.getByRole("combobox", { name: "Destinatario" });
+    await user.click(recipient);
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(onConfig).toHaveBeenCalledWith({ recipient: "dst-whatsapp" });
+    expect(recipient).toHaveValue("Soporte · +34600000000");
+  });
+
+  it("picks a subflow version from the catalogue by mouse and by keyboard", async () => {
+    const user = userEvent.setup();
+    const onConfig = vi.fn();
+    function Harness() {
+      const [config, setConfig] = useState<Record<string, unknown>>({ versionId: "wv-1" });
+      return (
+        <NodeConfigFields
+          node={node(config, "subworkflow")}
+          integrations={[]}
+          destinations={[]}
+          versions={versions}
+          onConfig={(patch) => {
+            onConfig(patch);
+            setConfig((current) => ({ ...current, ...patch }));
+          }}
+          onReplaceConfig={vi.fn()}
+          onEnableDecisionCode={vi.fn()}
+        />
+      );
+    }
+    renderWithProviders(<Harness />);
+
+    await chooseOption(user, "Versión del subflujo", /^v2/);
+    expect(onConfig).toHaveBeenCalledWith({ versionId: "wv-2" });
+    expect(screen.getByRole("combobox", { name: "Versión del subflujo" })).toHaveValue("v2");
+
+    const version = screen.getByRole("combobox", { name: "Versión del subflujo" });
+    await user.click(version);
+    await user.type(version, "v1");
+    await user.keyboard("{Enter}");
+    expect(onConfig).toHaveBeenCalledWith({ versionId: "wv-1" });
+    expect(version).toHaveValue("v1");
+  });
+
+  it("keeps a saved destination the catalogue no longer offers and re-emits it unchanged", async () => {
+    const user = userEvent.setup();
     const onConfig = vi.fn();
     renderWithProviders(
       <NodeConfigFields
-        node={node({ integrationId: "tts-novoice" }, "speak")}
-        integrations={[{ ...speech, id: "tts-novoice", config: { models: ["piper"] } }]}
-        destinations={[]}
+        node={node({ integrationId: "tg1", text: "Hola", recipient: "legacy-dest" }, "notify")}
+        integrations={[telegram]}
+        destinations={destinations}
+        versions={versions}
         onConfig={onConfig}
         onReplaceConfig={vi.fn()}
         onEnableDecisionCode={vi.fn()}
       />,
     );
-    const voice = screen.getByLabelText("Voz (override)");
-    expect(voice.tagName).toBe("INPUT");
-    expect(voice).toHaveAttribute("list", "node-voice-suggestions");
-    expect(voice).not.toHaveAttribute("role", "combobox");
-    fireEvent.change(voice, { target: { value: "ef_dora" } });
-    expect(onConfig).toHaveBeenCalledWith({ voice: "ef_dora" });
+    const recipient = screen.getByRole("combobox", { name: "Destinatario" });
+    expect(recipient).toHaveValue("legacy-dest");
+    await user.click(recipient);
+    await user.click(screen.getByRole("option", { name: /legacy-dest.*no disponible/ }));
+    expect(onConfig).toHaveBeenCalledWith({ recipient: "legacy-dest" });
   });
 
   it("clears the speech model back to the inherited one with undefined", async () => {

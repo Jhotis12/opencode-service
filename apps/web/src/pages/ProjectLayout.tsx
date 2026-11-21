@@ -46,8 +46,8 @@ function ProjectWorkspaceShell() {
   });
   useDocumentTitle(workspace.graph?.name ?? "Proyecto");
 
-  // Workspace status is transient action feedback: it is announced as a toast through the tone
-  // that travels with the copy, and the shell still renders it inline with that same tone.
+  // Workspace status is transient action feedback and reaches the user as a toast on the channel its
+  // tone names, so a failure can never arrive styled as success.
   const toastedStatus = useRef<string | undefined>(undefined);
   useEffect(() => {
     const status = workspace.status;

@@ -385,6 +385,18 @@ describe("ProjectIntegrationsPage", () => {
     );
   });
 
+  it("announces a test failure as an actionable error toast", async () => {
+    apiMock.testIntegration.mockResolvedValue({ ok: false, detail: "token inválido" });
+    renderPage();
+    const httpCard = await screen.findByTestId("integration-card-http-1");
+    await userEvent.click(within(httpCard).getByRole("button", { name: "Probar" }));
+
+    const toast = await findToast("HTTP pagos: Error · token inválido");
+    expect(toast).toBeVisible();
+    expect(toast).toHaveTextContent("Revisa la configuración de la integración y vuelve a probarla.");
+    expect(screen.queryByText("HTTP pagos: Operativo")).not.toBeInTheDocument();
+  });
+
   it("shows the empty state when the project has no integrations", async () => {
     apiMock.listIntegrations.mockResolvedValue({ data: [] });
     renderPage();

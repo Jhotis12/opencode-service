@@ -203,7 +203,10 @@ export function useProjectIntegrationActions(
         (result.models && result.models.length > 0 ? " · modelos: " + result.models.slice(0, 6).join(", ") : "") +
         (result.voices && result.voices.length > 0 ? " · voces: " + result.voices.slice(0, 6).join(", ") : "");
       if (result.ok) host.onStatus(message);
-      else notifyError(message);
+      else
+        notifyError(message, {
+          description: "Revisa la configuración de la integración y vuelve a probarla.",
+        });
     },
     onError: (cause) => reportFailure(cause, "No se pudo probar la integración."),
   });
@@ -212,7 +215,9 @@ export function useProjectIntegrationActions(
     mutationFn: (id: string) => api.connectIntegration(projectSlug, id),
     onSuccess: async (result) => {
       if (result.status === "error") {
-        notifyError("No se pudo conectar: " + (result.lastError ?? "error desconocido"));
+        notifyError("No se pudo conectar: " + (result.lastError ?? "error desconocido"), {
+          description: "Revisa las credenciales del canal y vuelve a intentarlo.",
+        });
       } else {
         const message = "Integración " + result.name + ": " + statusLabel(result.status);
         // A warning-toned status (needs_config, qr_pending) is still waiting on the operator, not a success.

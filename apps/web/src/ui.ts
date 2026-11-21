@@ -111,13 +111,6 @@ export function statusTone(status: string): StatusTone {
   return STATUS_LABELS[status]?.tone ?? "neutral";
 }
 
-const STATUS_TONE_TEXT: Record<StatusTone, string> = {
-  success: "text-ok",
-  warning: "text-warn",
-  danger: "text-danger",
-  info: "text-accent",
-  neutral: "text-muted",
-};
 
 /** The text colour for an already-classified tone, so prose never has to re-derive it. */
 

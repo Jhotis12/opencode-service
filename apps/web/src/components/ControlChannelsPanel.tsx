@@ -30,9 +30,9 @@ export function ControlChannelsPanel() {
           : undefined,
       ),
     onSuccess: (result, integration) => {
-      const message = `${integration.name}: ${result.ok ? "ok" : "error"}${result.detail ? ` · ${result.detail}` : ""}`;
+      const message = `${integration.name}: ${result.ok ? "Operativo" : "Error"}${result.detail ? ` · ${result.detail}` : ""}`;
       if (result.ok) notifySuccess(message);
-      else notifyError(message);
+      else notifyError(message, { description: "Revisa la configuración del canal y vuelve a probarlo." });
     },
     onError: (cause) => notifyError(friendlyError(cause, "No se pudo probar el canal.")),
   });
@@ -41,7 +41,9 @@ export function ControlChannelsPanel() {
     mutationFn: (id: string) => api.connectControlIntegration(id),
     onSuccess: async (result) => {
       if (result.status === "error") {
-        notifyError(`No se pudo conectar: ${result.lastError ?? "error desconocido"}`);
+        notifyError(`No se pudo conectar: ${result.lastError ?? "error desconocido"}`, {
+          description: "Revisa las credenciales del canal y vuelve a intentarlo.",
+        });
       } else {
         const message = `Canal ${result.name}: ${result.status}`;
         // A warning-toned status (needs_config, qr_pending) is still waiting on the operator, not a success.

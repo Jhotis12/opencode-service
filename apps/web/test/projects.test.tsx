@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { Toaster } from "sonner";
 import { renderWithProviders } from "./render.tsx";
 
 const { project, secondProject } = vi.hoisted(() => ({
@@ -37,6 +38,7 @@ vi.mock("../src/api.ts", () => ({
 }));
 
 import { api } from "../src/api.ts";
+import { dismissAll } from "../src/components/Toast.tsx";
 import { ProjectsPage } from "../src/pages/ProjectsPage.tsx";
 
 function renderPage() {
@@ -46,6 +48,7 @@ function renderPage() {
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/projects/:slug" element={<div>proyecto abierto</div>} />
       </Routes>
+      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </MemoryRouter>,
   );
 }
@@ -54,6 +57,10 @@ describe("ProjectsPage", () => {
   beforeEach(() => {
     vi.mocked(api.createProject).mockClear();
     vi.mocked(api.deleteProject).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => dismissAll());
   });
 
   it("renders the value-proposition header with the canonical descriptor and project cards", async () => {
@@ -161,7 +168,8 @@ describe("ProjectsPage", () => {
     await userEvent.type(screen.getByLabelText(/Nombre del proyecto/), "Bot de Ventas");
     await userEvent.click(screen.getByRole("button", { name: "Crear proyecto" }));
     const error = await screen.findByText("Ya existe un recurso con ese identificador.");
-    expect(error).toHaveAttribute("title", "already exists");
+    expect(error.closest("[data-sonner-toast]")).not.toBeNull();
+    expect(screen.queryByTitle("already exists")).not.toBeInTheDocument();
   });
 
   it("deletes a project only after typing its slug", async () => {
@@ -173,6 +181,22 @@ describe("ProjectsPage", () => {
     await userEvent.type(confirm, "bot-ventas");
     await userEvent.click(screen.getByRole("button", { name: "Eliminar definitivamente" }));
     expect(api.deleteProject).toHaveBeenCalledWith("bot-ventas");
+  });
+
+  it("closes the delete dialog and toasts when deletion fails", async () => {
+    vi.mocked(api.listProjects).mockResolvedValueOnce({ data: [project] });
+    vi.mocked(api.deleteProject).mockRejectedValueOnce(new Error("failed to fetch"));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Eliminar" }));
+    const dialog = screen.getByRole("dialog", { name: "Eliminar proyecto" });
+    await userEvent.type(screen.getByLabelText(/Escribe/), "bot-ventas");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Eliminar definitivamente" }));
+
+    const toast = await screen.findByText("No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.");
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Eliminar proyecto" })).not.toBeInTheDocument(),
+    );
   });
 });
 

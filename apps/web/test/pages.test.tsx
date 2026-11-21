@@ -421,8 +421,7 @@ describe("ProjectIntegrationsPage", () => {
     await user.click(screen.getByRole("button", { name: "Crear integración" }));
 
     const error = await screen.findByText(/No se pudo conectar con el servidor/);
-    expect(error).toHaveAttribute("title", "failed to fetch");
-    expect(error).toHaveClass("text-danger");
+    expect(error.closest("[data-sonner-toast]")).not.toBeNull();
   });
 });
 

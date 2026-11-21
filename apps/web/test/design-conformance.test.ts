@@ -102,45 +102,43 @@ function violations(files: readonly string[], rule: Rule): string[] {
 const files = sourceFiles(SRC_ROOT);
 
 /**
- * The feedback rule's coverage is only as honest as this classification, so the
- * scanner fails when a source file starts handling a failure and nobody said
- * which kind it is. Moving a file out of `REQUEST_FAILURE_DEBT` is how a row
- * proves it converted that surface to a toast.
+ * Feedback inventory (plan row 67). A request failure is a toast now: every
+ * mutation `onError` calls `notifyError`, so no panel writes one into inline
+ * state. What still writes inline copy is validation, plus the node inspector's
+ * error-strategy config field. `REQUEST_FAILURE_DEBT` stays empty; adding a file
+ * here is how a new request failure rendered inline would be recorded.
  */
-export const REQUEST_FAILURE_DEBT = [
-  "components/AgentCatalog.tsx",
-  "components/AgentEditorModal.tsx",
-  "components/ControlChannelsPanel.tsx",
-  "components/IntegrationCard.tsx",
-  "components/IntegrationEditor.tsx",
-  "components/ProjectDestinationsPanel.tsx",
-  "components/ProjectKnowledgePanel.tsx",
-  "components/ProjectSettingsPanel.tsx",
-  "pages/ProjectFlowPage.tsx",
-  "pages/ProjectIntegrationsPage.tsx",
-  "pages/ProjectsPage.tsx",
-  "pages/project-workspace.tsx",
-  "useChatTurn.ts",
-] as const;
+export const REQUEST_FAILURE_DEBT = [] as const;
 
+/** Inline state that is validation and must stay next to the field, never a toast. */
 export const VALIDATION_INLINE = [
+  "components/IntegrationEditor.tsx",
   "components/NodeConfigFields.tsx",
   "components/PlatformSettingsFields.tsx",
   "components/RunLaunchModal.tsx",
+  "pages/ProjectFlowPage.tsx",
+  "pages/project-workspace.tsx",
 ] as const;
 
 export const NOT_A_FAILURE_PATH = ["components/NodeInspector.tsx"] as const;
 
-const FAILURE_SIGNAL = /setError\(|onError:/;
+/** Inline error state; a toast never routes through it (`workspace.setError(` matches). */
+const INLINE_ERROR_STATE = /setError\(/;
+/** The node inspector's error-strategy config field, the one `onError` that is not a failure. */
+const CONFIG_FIELD = /onError:/;
+/** A request handler that writes its failure into inline state instead of a toast. */
+const INLINE_REQUEST_FAILURE =
+  /onError:\s*(?:\([^)]*\)|[\w$]+)\s*=>\s*(?:[^\n}]*\bsetError\(|\{[^}]*\bsetError\()/;
 
-function filesHandlingFailure(): string[] {
+function filesHoldingInlineErrorState(): string[] {
   return files
-    .filter((file) => FAILURE_SIGNAL.test(readFileSync(file, "utf8")))
+    .filter((file) => INLINE_ERROR_STATE.test(readFileSync(file, "utf8")))
     .map((file) => relative(SRC_ROOT, file))
     .sort();
 }
 
 describe("request failure feedback classification", () => {
+  const validationFiles: readonly string[] = VALIDATION_INLINE;
   const classified: string[] = [
     ...REQUEST_FAILURE_DEBT,
     ...VALIDATION_INLINE,
@@ -150,35 +148,41 @@ describe("request failure feedback classification", () => {
   const occurrences = (file: string, signal: RegExp): number =>
     (readFileSync(join(SRC_ROOT, file), "utf8").match(new RegExp(signal.source, "g")) ?? []).length;
 
-  it("classifies every source file that handles a failure", () => {
-    const unclassified = filesHandlingFailure().filter((file) => !classified.includes(file));
+  it("keeps the request-failure debt empty because the failures are toasts", () => {
+    expect(REQUEST_FAILURE_DEBT).toEqual([]);
+  });
+
+  it("classifies every source file that writes inline error state", () => {
+    const unclassified = filesHoldingInlineErrorState().filter((file) => !validationFiles.includes(file));
     expect(unclassified).toEqual([]);
   });
 
-  it("keeps no stale classification for a file that stopped handling failures", () => {
-    const handling = filesHandlingFailure();
-    expect(classified.filter((file) => !handling.includes(file))).toEqual([]);
+  it("keeps no stale classification for a file that stopped writing inline state", () => {
+    const staleValidation = VALIDATION_INLINE.filter((file) => occurrences(file, INLINE_ERROR_STATE) === 0);
+    const staleConfigField = NOT_A_FAILURE_PATH.filter((file) => occurrences(file, CONFIG_FIELD) === 0);
+    expect([...staleValidation, ...staleConfigField]).toEqual([]);
   });
 
   it("puts each file in exactly one category", () => {
     expect(classified).toHaveLength(new Set(classified).size);
   });
 
-  it("keeps the config-field category free of any error state", () => {
-    const withErrorState = NOT_A_FAILURE_PATH.filter((file) => occurrences(file, /setError\(/) > 0);
+  it("keeps the config-field category free of inline error state", () => {
+    const withErrorState = NOT_A_FAILURE_PATH.filter((file) => occurrences(file, INLINE_ERROR_STATE) > 0);
     expect(withErrorState).toEqual([]);
   });
 
-  it("keeps the validation category free of onError handlers", () => {
-    const withRequestHandler = VALIDATION_INLINE.filter((file) => occurrences(file, /onError:/) > 0);
-    expect(withRequestHandler).toEqual([]);
+  it("writes no request failure into inline state", () => {
+    const offenders = files
+      .filter((file) => INLINE_REQUEST_FAILURE.test(readFileSync(file, "utf8")))
+      .map((file) => relative(SRC_ROOT, file));
+    expect(offenders).toEqual([]);
   });
 
-  it("keeps every debt entry holding at least one failure handler", () => {
-    const withoutHandler = REQUEST_FAILURE_DEBT.filter(
-      (file) => occurrences(file, /setError\(|onError:/) === 0,
-    );
-    expect(withoutHandler).toEqual([]);
+  it("detects its own forbidden sample for an inline request failure", () => {
+    expect(INLINE_REQUEST_FAILURE.test('onError: (cause) => setError(cause.message).')).toBe(true);
+    expect(INLINE_REQUEST_FAILURE.test('onError: (cause) => { setError(cause.message); }')).toBe(true);
+    expect(INLINE_REQUEST_FAILURE.test('onError: (cause) => notifyError(cause.message),')).toBe(false);
   });
 });
 

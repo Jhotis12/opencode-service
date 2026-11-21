@@ -6,7 +6,7 @@ import { badge, buttonGhost, buttonPrimary, card, friendlyError, statusBadge } f
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
 import { Select } from "./Select.tsx";
-import { notifySuccess } from "./Toast.tsx";
+import { notifyError, notifySuccess } from "./Toast.tsx";
 import { modelOptions, type SelectOption } from "./select/options.ts";
 
 const ALIAS_PATTERN = /^[A-Za-z][A-Za-z0-9:_-]*$/;
@@ -102,12 +102,13 @@ function ProjectSettingsSections({
       await queryClient.invalidateQueries({ queryKey: qk.projectSettings(projectSlug) });
       await queryClient.invalidateQueries({ queryKey: qk.projects });
     },
+    onError: (cause) => notifyError(cause instanceof Error ? cause.message : "Error de ajustes"),
   });
 
   const settings = settingsQuery.data;
   const models = modelsQuery.data ?? [];
   const destinations = destinationsQuery.data ?? [];
-  const error = settingsQuery.error ?? modelsQuery.error ?? save.error;
+  const error = settingsQuery.error ?? modelsQuery.error;
 
   if (!settings) {
     if (error) {
@@ -326,7 +327,6 @@ function ProjectSecretsPanel({ projectSlug }: { projectSlug: string }) {
   const [value, setValue] = useState("");
   const [aliasError, setAliasError] = useState<string>();
   const [valueError, setValueError] = useState<string>();
-  const [error, setError] = useState<string>();
   const [pendingDelete, setPendingDelete] = useState<string>();
 
   const save = useMutation({
@@ -336,10 +336,9 @@ function ProjectSecretsPanel({ projectSlug }: { projectSlug: string }) {
       setAlias("");
       setValue("");
       notifySuccess("Secreto guardado en la bóveda del proyecto");
-      setError(undefined);
       await queryClient.invalidateQueries({ queryKey: qk.projectSecrets(projectSlug) });
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo guardar el secreto.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo guardar el secreto.")),
   });
 
   const remove = useMutation({
@@ -347,12 +346,11 @@ function ProjectSecretsPanel({ projectSlug }: { projectSlug: string }) {
     onSuccess: async () => {
       setPendingDelete(undefined);
       notifySuccess("Secreto eliminado");
-      setError(undefined);
       await queryClient.invalidateQueries({ queryKey: qk.projectSecrets(projectSlug) });
     },
     onError: (cause) => {
       setPendingDelete(undefined);
-      setError(friendlyError(cause, "No se pudo eliminar el secreto."));
+      notifyError(friendlyError(cause, "No se pudo eliminar el secreto."));
     },
   });
 
@@ -415,7 +413,7 @@ function ProjectSecretsPanel({ projectSlug }: { projectSlug: string }) {
         <button className={buttonPrimary} disabled={save.isPending}>
           {save.isPending ? "Guardando…" : "Guardar secreto"}
         </button>
-        {(error || queryError) && <p className="text-sm text-danger">{error ?? queryError}</p>}
+        {queryError && <p className="text-sm text-danger">{queryError}</p>}
       </form>
 
       <aside className={`${card} gap-2`}>

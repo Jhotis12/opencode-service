@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Toaster } from "sonner";
 import type { IntegrationRecord } from "@platform/shared";
 import { chooseOption, renderWithProviders } from "./render.tsx";
 
@@ -15,6 +16,7 @@ const apiMock = vi.hoisted(() => ({
 vi.mock("../src/api.ts", () => ({ api: apiMock }));
 
 import { IntegrationEditor } from "../src/components/IntegrationEditor.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 
 const baseIntegration: IntegrationRecord = {
   id: "tg1",
@@ -45,6 +47,10 @@ const projectDestination = {
 function elementIds(): string[] {
   return [...document.querySelectorAll("[id]")].map((element) => element.id);
 }
+
+afterEach(() => {
+  act(() => dismissAll());
+});
 
 describe("IntegrationEditor", () => {
   it("creates a guided integration from registry fields", async () => {
@@ -337,11 +343,16 @@ describe("IntegrationEditor", () => {
   it("shows an actionable error when the transport fails", async () => {
     const user = userEvent.setup();
     apiMock.createIntegration.mockRejectedValueOnce(new Error("failed to fetch"));
-    renderWithProviders(<IntegrationEditor scope="project" projectSlug="ventas" onSaved={vi.fn()} />);
+    renderWithProviders(
+      <>
+        <IntegrationEditor scope="project" projectSlug="ventas" onSaved={vi.fn()} />
+        <Toaster theme="dark" position="bottom-right" richColors closeButton />
+      </>,
+    );
     await user.type(screen.getByLabelText("Nombre"), "Bot");
     await user.type(screen.getByLabelText("Slug"), "bot");
     await user.type(screen.getByLabelText("Token del bot (@BotFather)"), "123:ABC");
     await user.click(screen.getByRole("button", { name: "Crear integración" }));
-    expect(await screen.findByText(/No se pudo conectar con el servidor/)).toHaveAttribute("title", "failed to fetch");
+    expect((await screen.findByText(/No se pudo conectar con el servidor/)).closest("[data-sonner-toast]")).not.toBeNull();
   });
 });

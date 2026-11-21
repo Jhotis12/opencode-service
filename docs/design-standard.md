@@ -231,38 +231,6 @@ Use a dot or icon plus a localized label. Raw API values belong in
   render a green success paragraph. Derive the channel from the status tone
   (`statusTone` in `ui.ts`): a `needs_config` or `qr_pending` outcome is a
   warning, never a success.
-- **Known gap: request failures are still inline in most panels.** The rule
-  above is the target and coverage is **partial**. The authoritative list is not
-  this paragraph but `REQUEST_FAILURE_DEBT` in
-  `apps/web/test/design-conformance.test.ts`, and the scanner enforces exactly
-  what it can see: every file matching `/setError\(|onError:/` must appear in
-  one of the three categories, no entry may go stale, and the categories carry
-  invariants (a config-field entry may hold no error state, a validation entry
-  may hold no `onError:` handler, a debt entry must hold one). It is a **coverage**
-  guard, not a semantic proof: a failure caught and only logged, or a file moved
-  by hand into another category, escapes it. The conversion proof for plan row
-  67 is therefore the named per-panel `notifyError` tests, with the emptied
-  constant as a second, weaker signal. The prose here is a snapshot of the
-  constant.
-  Today the debt is `ProjectSettingsPanel`, `ProjectDestinationsPanel`,
-  `AgentCatalog`, `ProjectsPage`, `IntegrationCard`, `ProjectIntegrationsPage`,
-  `ControlChannelsPanel`, `ProjectKnowledgePanel`, `IntegrationEditor`,
-  `AgentEditorModal`, `ProjectFlowPage` (save, add node and duplicate - its
-  trigger/connection branches are validation and stay inline),
-  `project-workspace` (save, replay, rollback and launch) and `useChatTurn`,
-  whose stream and reconnect failures surface only as a retry control. Plan row
-  67 converts them and empties the constant; the paragraph goes away with it.
-  Do not read the absence of a file from this list as proof that it complies.
-  Validation is the other side of the line and stays inline by design: parsing a
-  JSON field (`NodeConfigFields`), a field validator
-  (`PlatformSettingsFields`), or an unparsable form value (`RunLaunchModal`) is
-  not a request failure and must not fire a toast. `NodeInspector` is neither:
-  its `onError` occurrences are a node's error-strategy configuration field.
-- **Known gap: the run/launch path.** `project-workspace.tsx` still writes the
-  launch outcome into inline state and `ProjectLayout.tsx` still renders it as a
-  green paragraph - both the copy channel (a toast) and the tone are wrong. Row
-  65 fixes the tone; row 67 owns the channel for the save/replay/rollback paths
-  and the launch path. This is a defect against the rule, not an exception to it.
 - **State stays inline.** Anything that is not the outcome of an action (the
   unsaved dot, list loading, chat state, the picker's empty or no-results
   message) keeps `role="status"` where it belongs on the screen. A toast never
@@ -270,7 +238,20 @@ Use a dot or icon plus a localized label. Raw API values belong in
   `role`, so it is not an example of this rule yet.
 - **Validation errors stay next to the field.** `Field` renders the message with
   `aria-invalid` on the control and emits no toast; an invalid submit makes no
-  request. Field-level errors are never transient surfaces.
+  request. The same line covers parsing a JSON config field
+  (`NodeConfigFields`), a field validator (`PlatformSettingsFields`), an
+  unparsable launch value (`RunLaunchModal`), the flow's trigger/connection
+  rules and the server's `INVALID_WORKFLOW` issues: they stay inline and never
+  fire a toast. `NodeInspector` is neither: its `onError` occurrences are a
+  node's error-strategy configuration field. The inventory in
+  `apps/web/test/design-conformance.test.ts` records which files still hold
+  inline state; `REQUEST_FAILURE_DEBT` is empty.
+- **Known gap: `GlobalRunsPage`'s export failure.** It writes
+  `setExportError(...)` and renders it inline with no toast, and it escaped the
+  inventory because the scanner's signal is `setError(`, not `setExportError(`.
+  Plan row 71 converts it. That is how this class of gap survives a sweep: the
+  failure is real, only the setter's name is different. Field-level errors are never
+  transient surfaces.
 - Run-status and canvas notices stay in their own surface; they do not become
   toasts.
 

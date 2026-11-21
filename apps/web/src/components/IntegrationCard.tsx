@@ -10,7 +10,7 @@ import { IntegrationEditor, type SavedIntegration } from "./IntegrationEditor.ts
 import { OverflowMenu, type OverflowMenuItem } from "./OverflowMenu.tsx";
 import { QrDisplay } from "./QrDisplay.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
-import { notifyWarning } from "./Toast.tsx";
+import { notifyError, notifyWarning } from "./Toast.tsx";
 import { buttonGhost, card, friendlyError, statusLabel, statusTone } from "../ui.ts";
 
 const DATABASE_KINDS = new Set<IntegrationKind>(["postgres", "mysql", "mssql", "sqlite"]);
@@ -29,7 +29,6 @@ export type IntegrationCardActions = {
   cancelEdit(): void;
   saved(result: SavedIntegration): void;
   policySaved?(): void;
-  confirmClosed(): void;
 };
 
 export function IntegrationCard({
@@ -38,7 +37,6 @@ export function IntegrationCard({
   projectSlug,
   noun,
   editing,
-  confirmError,
   actions,
 }: {
   readonly integration: IntegrationRecord;
@@ -46,7 +44,6 @@ export function IntegrationCard({
   readonly projectSlug?: string;
   readonly noun: IntegrationNoun;
   readonly editing: boolean;
-  readonly confirmError?: string;
   readonly actions: IntegrationCardActions;
 }) {
   const [qrOpen, setQrOpen] = useState(false);
@@ -71,7 +68,6 @@ export function IntegrationCard({
   function closeConfirm() {
     setConfirmKind(undefined);
     setConfirmPending(false);
-    actions.confirmClosed();
   }
 
   function confirm() {
@@ -79,7 +75,7 @@ export function IntegrationCard({
     if (!kind) return;
     setConfirmPending(true);
     const run = kind === "delete" ? actions.remove() : actions.disconnect();
-    void run.then(closeConfirm, () => setConfirmPending(false));
+    void run.then(closeConfirm, closeConfirm);
   }
 
   return (
@@ -147,11 +143,6 @@ export function IntegrationCard({
               ? "Se eliminará " + integration.name + " (" + integration.slug + "). Esta acción no se puede deshacer."
               : "Se desconectará " + integration.name + ". Podrás volver a conectarl" + pronoun + " cuando l" + pronoun + " necesites."}
           </p>
-          {confirmError && (
-            <p className="text-sm text-danger" role="alert">
-              {confirmError}
-            </p>
-          )}
         </ConfirmDialog>
       )}
     </article>
@@ -184,14 +175,12 @@ export function useProjectIntegrationActions(
   projectSlug: string,
   host: {
     readonly onStatus: (message: string) => void;
-    readonly onError: (message: string, rawMessage?: string) => void;
   },
 ) {
   const queryClient = useQueryClient();
-  const [confirmError, setConfirmError] = useState<string>();
 
   function reportFailure(cause: unknown, fallback: string) {
-    host.onError(friendlyError(cause, fallback), cause instanceof Error ? cause.message : undefined);
+    notifyError(friendlyError(cause, fallback));
   }
 
   async function refresh() {
@@ -214,7 +203,7 @@ export function useProjectIntegrationActions(
         (result.models && result.models.length > 0 ? " · modelos: " + result.models.slice(0, 6).join(", ") : "") +
         (result.voices && result.voices.length > 0 ? " · voces: " + result.voices.slice(0, 6).join(", ") : "");
       if (result.ok) host.onStatus(message);
-      else host.onError(message);
+      else notifyError(message);
     },
     onError: (cause) => reportFailure(cause, "No se pudo probar la integración."),
   });
@@ -223,7 +212,7 @@ export function useProjectIntegrationActions(
     mutationFn: (id: string) => api.connectIntegration(projectSlug, id),
     onSuccess: async (result) => {
       if (result.status === "error") {
-        host.onError("No se pudo conectar: " + (result.lastError ?? "error desconocido"));
+        notifyError("No se pudo conectar: " + (result.lastError ?? "error desconocido"));
       } else {
         const message = "Integración " + result.name + ": " + statusLabel(result.status);
         // A warning-toned status (needs_config, qr_pending) is still waiting on the operator, not a success.
@@ -239,20 +228,18 @@ export function useProjectIntegrationActions(
     mutationFn: (id: string) => api.disconnectIntegration(projectSlug, id),
     onSuccess: async () => {
       host.onStatus("Integración desconectada");
-      setConfirmError(undefined);
       await refresh();
     },
-    onError: (cause) => setConfirmError(friendlyError(cause, "No se pudo desconectar la integración.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo desconectar la integración.")),
   });
 
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteIntegration(projectSlug, id),
     onSuccess: async () => {
       host.onStatus("Integración eliminada");
-      setConfirmError(undefined);
       await refresh();
     },
-    onError: (cause) => setConfirmError(friendlyError(cause, "No se pudo eliminar la integración.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo eliminar la integración.")),
   });
 
   const clearWebhook = useMutation({
@@ -265,8 +252,6 @@ export function useProjectIntegrationActions(
   });
 
   return {
-    confirmError,
-    clearConfirmError: () => setConfirmError(undefined),
     refresh,
     test: (integration: IntegrationRecord) => test.mutate(integration),
     connect: (id: string) => connect.mutate(id),

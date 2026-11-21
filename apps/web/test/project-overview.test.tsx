@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { screen, waitFor, within, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Toaster } from "sonner";
 import type { SubagentProfile, WorkflowGraph } from "@platform/shared";
 import { renderWithProviders } from "./render.tsx";
 
@@ -45,6 +46,7 @@ import { ProjectAgentsPage } from "../src/pages/ProjectAgentsPage.tsx";
 import { ProjectKnowledgePage } from "../src/pages/ProjectKnowledgePage.tsx";
 import { ProjectIntegrationsPage } from "../src/pages/ProjectIntegrationsPage.tsx";
 import { ProjectSettingsPage } from "../src/pages/ProjectSettingsPage.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 
 const graph: WorkflowGraph = {
   version: 1,
@@ -170,6 +172,7 @@ function renderPage(entry = "/projects/demo/overview") {
           <Route path="settings" element={<ProjectSettingsPage />} />
         </Route>
       </Routes>
+      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </MemoryRouter>,
   );
 }
@@ -178,6 +181,10 @@ describe("ProjectOverviewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupApi();
+  });
+
+  afterEach(() => {
+    act(() => dismissAll());
   });
 
   it("renderiza preparación, el conteo de conocimiento y las últimas cinco ejecuciones", async () => {
@@ -303,7 +310,21 @@ describe("ProjectOverviewPage", () => {
     await userEvent.click(within(launchDialog).getByRole("button", { name: "Ejecutar" }));
     await waitFor(() => expect(apiMock.runWorkflow).toHaveBeenCalledWith("demo", {}));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Ejecutar flujo" })).not.toBeInTheDocument());
-    expect(await screen.findByText(/Ejecución iniciada/)).toBeInTheDocument();
+    const toast = await screen.findByText(/Ejecución iniciada/);
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
+  });
+
+  it("anuncia un lanzamiento rechazado como toast", async () => {
+    apiMock.runWorkflow.mockRejectedValueOnce(new Error("failed to fetch"));
+    renderPage();
+    await screen.findByText("run-0006");
+
+    await userEvent.click(screen.getByRole("button", { name: "Ejecutar flujo" }));
+    const launchDialog = await screen.findByRole("dialog", { name: "Ejecutar flujo" });
+    await userEvent.click(within(launchDialog).getByRole("button", { name: "Ejecutar" }));
+
+    const toast = await screen.findByText("failed to fetch");
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
   it("navega a cada sección desde los accesos del resumen", async () => {

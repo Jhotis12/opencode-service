@@ -326,7 +326,7 @@ describe("ProjectIntegrationsPage", () => {
     expect(removedToast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
-  it("keeps the confirmation open with the error when delete fails", async () => {
+  it("closes the confirmation and puts the delete failure in the toast", async () => {
     apiMock.deleteIntegration.mockRejectedValue(new Error("failed to fetch"));
     renderPage();
     const telegramCard = await screen.findByTestId("integration-card-tg-1");
@@ -335,8 +335,11 @@ describe("ProjectIntegrationsPage", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Eliminar integración" });
     await userEvent.click(within(dialog).getByRole("button", { name: "Eliminar" }));
-    await waitFor(() => expect(within(dialog).getByRole("alert")).toHaveTextContent(/No se pudo conectar con el servidor/));
-    expect(within(dialog).getByRole("button", { name: "Eliminar" })).toBeEnabled();
+    const toast = await screen.findByText(/No se pudo conectar con el servidor/);
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Eliminar integración" })).not.toBeInTheDocument(),
+    );
     expect(apiMock.deleteIntegration).toHaveBeenCalledWith("demo", "tg-1");
   });
 
@@ -363,6 +366,22 @@ describe("ProjectIntegrationsPage", () => {
     await waitFor(() => expect(apiMock.disconnectIntegration).toHaveBeenCalledWith("demo", "tg-1"));
     const disconnectedToast = await screen.findByText("Integración desconectada");
     expect(disconnectedToast.closest("[data-sonner-toast]")).not.toBeNull();
+  });
+
+  it("closes the disconnect confirmation and toasts when it fails", async () => {
+    apiMock.disconnectIntegration.mockRejectedValue(new Error("failed to fetch"));
+    renderPage();
+    const telegramCard = await screen.findByTestId("integration-card-tg-1");
+    await userEvent.click(within(telegramCard).getByRole("button", { name: "Más acciones de Telegram de operaciones" }));
+    await userEvent.click(within(telegramCard).getByRole("menuitem", { name: "Desconectar" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Desconectar integración" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Desconectar" }));
+    const toast = await screen.findByText(/No se pudo conectar con el servidor/);
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Desconectar integración" })).not.toBeInTheDocument(),
+    );
   });
 
   it("shows the empty state when the project has no integrations", async () => {
@@ -443,6 +462,35 @@ describe("shared integration card", () => {
       "[data-sonner-toast]",
     );
     expect(toastElement).toHaveAttribute("data-type", "warning");
+  });
+
+  it("announces a rejected control-channel test as a toast", async () => {
+    const channel = makeIntegration({
+      id: "tg-canal",
+      kind: "telegram",
+      name: "Telegram del orquestador",
+      slug: "telegram-orquestador",
+      status: "connected",
+      scope: "global",
+      projectSlug: undefined,
+    });
+    apiMock.controlIntegrations.mockResolvedValue({ data: [channel] });
+    apiMock.testControlIntegration.mockRejectedValueOnce(new Error("failed to fetch"));
+    renderWithProviders(
+      <>
+        <ControlChannelsPanel />
+        <Toaster theme="dark" position="bottom-right" richColors closeButton />
+      </>,
+    );
+
+    const card = await screen.findByTestId("integration-card-tg-canal");
+    await userEvent.click(within(card).getByRole("button", { name: "Probar" }));
+
+    const toast = await screen.findByText(
+      "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.",
+    );
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("renders the empty state in both scopes when there are no integrations", async () => {

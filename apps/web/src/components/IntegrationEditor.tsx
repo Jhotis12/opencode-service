@@ -12,6 +12,7 @@ import { qk } from "../query.ts";
 import { getConfigValue, isFieldVisible, setConfigValue, toList } from "./config-field-utils.ts";
 import { Select } from "./Select.tsx";
 import type { SelectOption } from "./select/options.ts";
+import { notifyError } from "./Toast.tsx";
 import { buttonGhost, buttonPrimary, card, friendlyError } from "../ui.ts";
 
 export interface SavedIntegration {
@@ -66,7 +67,6 @@ export function IntegrationEditor({
   const [advanced, setAdvanced] = useState(() => JSON.stringify(integration?.config ?? initialDefinition.defaults, null, 2));
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [error, setError] = useState<string>();
-  const [rawError, setRawError] = useState<string>();
 
   useEffect(() => {
     if (!integration) return;
@@ -78,7 +78,6 @@ export function IntegrationEditor({
     setSecrets({});
     setAdvanced(JSON.stringify(integration.config, null, 2));
     setError(undefined);
-    setRawError(undefined);
   }, [integration?.id]);
 
   const destinationsQuery = useQuery({
@@ -176,20 +175,23 @@ export function IntegrationEditor({
     },
     onSuccess: async (result) => {
       setError(undefined);
-      setRawError(undefined);
       await queryClient.invalidateQueries({
         queryKey: scope === "project" ? qk.integrations(projectSlug!) : qk.controlIntegrations,
       });
       onSaved(result);
     },
-    onError: (cause) => {
-      setRawError(cause instanceof Error ? cause.message : undefined);
-      setError(friendlyError(cause, "No se pudo guardar la integración."));
-    },
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo guardar la integración.")),
   });
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    // The advanced-JSON parse is validation: it stays inline and never reaches the request.
+    try {
+      buildConfig();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "La configuración avanzada debe ser un objeto JSON.");
+      return;
+    }
     save.mutate();
   }
 
@@ -452,7 +454,7 @@ export function IntegrationEditor({
         {integration ? "Editar integración" : "Nueva integración"}
       </h2>
       {error && (
-        <p id={formErrorId} className="text-sm text-danger md:col-span-2" role="alert" title={rawError}>
+        <p id={formErrorId} className="text-sm text-danger md:col-span-2" role="alert">
           {error}
         </p>
       )}

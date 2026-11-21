@@ -158,6 +158,27 @@ describe("ProjectKnowledgePanel", () => {
     expect(removed.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
+  it("closes the source confirmation and toasts when deletion fails", async () => {
+    mockNotebook([fileSource]);
+    renderKnowledge();
+    await selectNotebook();
+    await screen.findByText("devoluciones.md");
+
+    apiMock.deleteSource.mockRejectedValueOnce(new Error("failed to fetch"));
+    const row = screen.getByText("devoluciones.md").closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Eliminar" }));
+    const dialog = screen.getByRole("dialog", { name: "Eliminar fuente" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Eliminar fuente" }));
+
+    const toast = await screen.findByText(
+      "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.",
+    );
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Eliminar fuente" })).not.toBeInTheDocument(),
+    );
+  });
+
   it("deletes a notebook after confirmation and clears the selection", async () => {
     mockNotebook([]);
     renderKnowledge();
@@ -181,6 +202,25 @@ describe("ProjectKnowledgePanel", () => {
     await waitFor(() => expect(screen.getByText(/Aún no hay notebooks/)).toBeInTheDocument());
   });
 
+  it("closes the notebook confirmation and toasts when deletion fails", async () => {
+    mockNotebook([]);
+    renderKnowledge();
+    await selectNotebook();
+
+    apiMock.deleteNotebook.mockRejectedValueOnce(new Error("failed to fetch"));
+    await userEvent.click(screen.getByRole("button", { name: "Eliminar" }));
+    const dialog = screen.getByRole("dialog", { name: "Eliminar notebook" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Eliminar notebook" }));
+
+    const toast = await screen.findByText(
+      "No se pudo conectar con el servidor. Revisa la conexión y vuelve a intentarlo.",
+    );
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Eliminar notebook" })).not.toBeInTheDocument(),
+    );
+  });
+
   it("maps an upload failure to actionable Spanish copy", async () => {
     mockNotebook([fileSource]);
     renderKnowledge();
@@ -190,7 +230,7 @@ describe("ProjectKnowledgePanel", () => {
     const file = new File(["# Roto"], "error.md", { type: "text/markdown" });
     await userEvent.upload(screen.getByLabelText("Subir documento"), file);
 
-    expect(await screen.findByText(/No se pudo conectar con el servidor/)).toBeInTheDocument();
+    expect((await screen.findByText(/No se pudo conectar con el servidor/)).closest("[data-sonner-toast]")).not.toBeNull();
     await waitFor(() => expect(screen.queryByText(/Subiendo error\.md…/)).not.toBeInTheDocument());
   });
 });

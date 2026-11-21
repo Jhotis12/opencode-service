@@ -22,7 +22,7 @@ import {
 } from "../api.ts";
 import { qk } from "../query.ts";
 import { getGraphIssues, mapServerIssue, type GraphIssue } from "../components/canvas/graph-edits.ts";
-import { notifySuccess } from "../components/Toast.tsx";
+import { notifyError, notifySuccess, notifyWarning } from "../components/Toast.tsx";
 import type { StatusTone } from "../ui.ts";
 
 /** A transient run/save notice; the tone travels with the copy so a failure is never painted green. */
@@ -270,7 +270,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
         );
         setError(undefined);
       } else {
-        setError(cause instanceof Error ? cause.message : "No se pudo guardar");
+        notifyError(cause instanceof Error ? cause.message : "No se pudo guardar");
       }
       setStatus(undefined);
     },
@@ -281,16 +281,15 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
     onSuccess: async (run) => {
       setLaunchOpen(false);
       await queryClient.invalidateQueries({ queryKey: qk.runs(slug) });
-      setStatus(
-        run.status === "paused"
-          ? { message: "Ejecución pausada. Revisa Ejecuciones para el detalle.", tone: "warning" }
-          : { message: "Ejecución iniciada. El recorrido se muestra en el canvas.", tone: "info" },
-      );
+      if (run.status === "paused") {
+        notifyWarning("Ejecución pausada. Revisa Ejecuciones para el detalle.");
+      } else {
+        notifySuccess("Ejecución iniciada. El recorrido se muestra en el canvas.");
+      }
       setError(undefined);
     },
     onError: (cause) => {
-      setError(cause instanceof Error ? cause.message : "No se pudo ejecutar");
-      setStatus(undefined);
+      notifyError(cause instanceof Error ? cause.message : "No se pudo ejecutar");
     },
   });
 
@@ -302,7 +301,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       setStatus({ message: `Ejecución ${replayed.id.slice(0, 8)} re-ejecutada`, tone: "success" });
       setError(undefined);
     },
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo re-ejecutar"),
+    onError: (cause) => notifyError(cause instanceof Error ? cause.message : "No se pudo re-ejecutar"),
   });
 
   const rollbackVersionMutation = useMutation({
@@ -315,7 +314,7 @@ export function ProjectWorkspaceProvider({ slug, children }: { slug: string; chi
       notifySuccess(`Flujo restaurado a v${version}`);
       setError(undefined);
     },
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo restaurar la versión"),
+    onError: (cause) => notifyError(cause instanceof Error ? cause.message : "No se pudo restaurar la versión"),
   });
 
   const chatMutation = useMutation({

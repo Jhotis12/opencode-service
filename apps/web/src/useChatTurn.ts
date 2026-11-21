@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import type { ChatTurnEvent, ChatTurnStatus } from "@platform/shared";
 import type { ChatTurnResult } from "./api.ts";
+import { notifyError } from "./components/Toast.tsx";
 
 export type ChatTurnConnection = "idle" | "streaming" | "reconnecting" | "done" | "error";
 
@@ -15,7 +16,6 @@ export interface ChatTurnController {
   status?: ChatTurnStatus;
   startedAt?: string;
   connection: ChatTurnConnection;
-  error?: string;
   begin(): void;
   handleEvent(event: ChatTurnEvent): void;
   reconnect(turnId?: string): Promise<ChatTurnResult | undefined>;
@@ -37,7 +37,6 @@ export function useChatTurn(actions: ChatTurnActions = {}): ChatTurnController {
   const [status, setStatus] = useState<ChatTurnStatus>();
   const [startedAt, setStartedAt] = useState<string>();
   const [connection, setConnection] = useState<ChatTurnConnection>("idle");
-  const [error, setError] = useState<string>();
 
   const handleEvent = useCallback((event: ChatTurnEvent) => {
     if (event.type === "turn") {
@@ -50,10 +49,9 @@ export function useChatTurn(actions: ChatTurnActions = {}): ChatTurnController {
     const next = statusFromEvent(event);
     if (next) setStatus(next);
     if (event.type === "error") {
-      setError(event.message);
+      notifyError(event.message);
       setConnection("error");
     } else if (event.type === "done") {
-      setError(undefined);
       setConnection("done");
     } else if (event.type === "turn" || event.type === "status" || event.type === "text" || event.type === "activity") {
       setConnection(event.type === "turn" || event.type === "status" ? "streaming" : "streaming");
@@ -61,7 +59,6 @@ export function useChatTurn(actions: ChatTurnActions = {}): ChatTurnController {
   }, []);
 
   const begin = useCallback(() => {
-    setError(undefined);
     setStatus(undefined);
     setConnection("streaming");
   }, []);
@@ -73,11 +70,10 @@ export function useChatTurn(actions: ChatTurnActions = {}): ChatTurnController {
       try {
         const result = await actions.attachTurn(id, handleEvent);
         setConnection("done");
-        setError(undefined);
         return result;
       } catch (cause) {
         setConnection("error");
-        setError(cause instanceof Error ? cause.message : String(cause));
+        notifyError(cause instanceof Error ? cause.message : String(cause));
         return undefined;
       }
     },
@@ -97,7 +93,6 @@ export function useChatTurn(actions: ChatTurnActions = {}): ChatTurnController {
     setTurnId(result.turn.id);
     setStatus("queued");
     setConnection("streaming");
-    setError(undefined);
     return result.warning;
   }, [actions, turnId]);
 
@@ -106,7 +101,6 @@ export function useChatTurn(actions: ChatTurnActions = {}): ChatTurnController {
     setStatus(undefined);
     setStartedAt(undefined);
     setConnection("idle");
-    setError(undefined);
   }, []);
 
   return {
@@ -114,7 +108,6 @@ export function useChatTurn(actions: ChatTurnActions = {}): ChatTurnController {
     status,
     startedAt,
     connection,
-    error,
     begin,
     handleEvent,
     reconnect,

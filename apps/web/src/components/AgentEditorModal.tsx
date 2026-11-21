@@ -13,6 +13,7 @@ import { Modal } from "./Modal.tsx";
 import { MultiSelect } from "./MultiSelect.tsx";
 import { Select } from "./Select.tsx";
 import { inheritModelOption, modelOptions, type SelectOption } from "./select/options.ts";
+import { notifyError } from "./Toast.tsx";
 import { buttonDanger, buttonGhost, buttonPrimary } from "../ui.ts";
 
 type AgentMode = "primary" | "subagent" | "all";
@@ -187,7 +188,6 @@ export function AgentEditorModal({
   const permissionGroupId = useId();
   const editing = Boolean(agent);
   const [form, setForm] = useState<AgentFormState>(() => toForm(agent));
-  const [error, setError] = useState<string>();
   // Shared cache contract: ProjectKnowledgePanel and ProjectOverviewPage store the
   // unwrapped NotebookSummary[] under this same key, and React Query keys by key
   // alone, so this consumer must unwrap the envelope too or poison their cache.
@@ -237,7 +237,7 @@ export function AgentEditorModal({
       onSaved?.(saved);
       onClose();
     },
-    onError: (cause) => setError(cause instanceof Error ? cause.message : "No se pudo guardar el agente"),
+    onError: (cause) => notifyError(cause instanceof Error ? cause.message : "No se pudo guardar el agente"),
   });
 
   function patch(patch: Partial<AgentFormState>) {
@@ -258,7 +258,6 @@ export function AgentEditorModal({
   }
 
   function submit() {
-    setError(undefined);
     if (!canSave) return;
     save.mutate();
   }
@@ -286,7 +285,6 @@ export function AgentEditorModal({
           submit();
         }}
         aria-label={editing ? "Editar agente" : "Nuevo agente"}
-        aria-describedby={error ? "agent-form-error" : undefined}
       >
         <section className="flex flex-col gap-3">
           <div>
@@ -451,12 +449,6 @@ export function AgentEditorModal({
             ))}
           </div>
         </section>
-
-        {error && (
-          <p id="agent-form-error" className="text-sm text-danger" role="alert">
-            {error}
-          </p>
-        )}
 
       </form>
     </Modal>

@@ -7,7 +7,7 @@ import { badge, button, buttonDanger, buttonGhost, card, friendlyError } from ".
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { Field } from "./Field.tsx";
 import { Select } from "./Select.tsx";
-import { notifySuccess } from "./Toast.tsx";
+import { notifyError, notifySuccess } from "./Toast.tsx";
 
 const KINDS: Array<{ value: DestinationKind; label: string }> = [
   { value: "telegram_chat", label: "Chat de Telegram" },
@@ -30,7 +30,6 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
   const [valueError, setValueError] = useState<string>();
   const [editing, setEditing] = useState<ProjectDestination>();
   const [pendingDelete, setPendingDelete] = useState<ProjectDestination>();
-  const [error, setError] = useState<string>();
   const destinations = query.data ?? [];
 
   async function refresh() {
@@ -44,10 +43,9 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
       setLabel("");
       setValue("");
       notifySuccess("Destino creado");
-      setError(undefined);
       await refresh();
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo crear el destino.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo crear el destino.")),
   });
 
   const update = useMutation({
@@ -60,10 +58,9 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
     onSuccess: async () => {
       setEditing(undefined);
       notifySuccess("Destino actualizado");
-      setError(undefined);
       await refresh();
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo actualizar el destino.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo actualizar el destino.")),
   });
 
   const remove = useMutation({
@@ -71,12 +68,11 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
     onSuccess: async () => {
       setPendingDelete(undefined);
       notifySuccess("Destino eliminado");
-      setError(undefined);
       await refresh();
     },
     onError: (cause) => {
       setPendingDelete(undefined);
-      setError(friendlyError(cause, "No se pudo eliminar el destino; revisa las referencias."));
+      notifyError(friendlyError(cause, "No se pudo eliminar el destino; revisa las referencias."));
     },
   });
 
@@ -98,7 +94,6 @@ export function ProjectDestinationsPanel({ projectSlug }: { projectSlug: string 
         Los destinos etiquetados se reutilizan en allowlists, alertas, aprobaciones y nodos Notificar. También puedes seguir
         usando un chat ID o email crudo; adoptar un valor existente no rompe las referencias actuales.
       </p>
-      {error && <p className="text-sm text-danger">{error}</p>}
       <form className={`${card} !grid gap-3 md:grid-cols-3`} onSubmit={submit} aria-label="Crear destino" noValidate>
         <Field id="destination-kind" label="Tipo">
           <Select

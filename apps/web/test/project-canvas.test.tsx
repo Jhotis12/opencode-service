@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Toaster } from "sonner";
 import { Position, ReactFlow } from "@xyflow/react";
 import type { WorkflowGraph } from "@platform/shared";
 import { PlatformEdge } from "../src/components/PlatformEdge.tsx";
@@ -47,6 +48,7 @@ import { ProjectAgentsPage } from "../src/pages/ProjectAgentsPage.tsx";
 import { ProjectKnowledgePage } from "../src/pages/ProjectKnowledgePage.tsx";
 import { ProjectIntegrationsPage } from "../src/pages/ProjectIntegrationsPage.tsx";
 import { ProjectSettingsPage } from "../src/pages/ProjectSettingsPage.tsx";
+import { dismissAll } from "../src/components/Toast.tsx";
 
 const graph: WorkflowGraph = {
   version: 1,
@@ -115,6 +117,7 @@ function renderPage() {
           <Route path="settings" element={<ProjectSettingsPage />} />
         </Route>
       </Routes>
+      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </MemoryRouter>,
   );
 }
@@ -223,6 +226,37 @@ describe("ProjectLayout flow section", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupApi();
+  });
+
+  afterEach(() => {
+    act(() => dismissAll());
+  });
+
+  it("keeps the single-trigger rule inline and fires no toast", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText("Demo")).toBeInTheDocument();
+
+    fireEvent.click(document.querySelector('[data-node-id="start"]')!);
+    const inspector = await screen.findByRole("dialog", { name: "Nodo: Inicio" });
+    await user.click(within(inspector).getByRole("button", { name: "Duplicar" }));
+
+    expect(await screen.findByText("Solo puede existir un trigger. No se puede duplicar.")).toBeInTheDocument();
+    expect(document.querySelector("[data-sonner-toast]")).toBeNull();
+  });
+
+  it("announces a rejected node creation as a toast", async () => {
+    const user = userEvent.setup();
+    apiMock.writeNode.mockRejectedValueOnce(new Error("failed to fetch"));
+    renderPage();
+    expect(await screen.findByText("Demo")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "+ Nodo" }));
+    const palette = screen.getByRole("dialog", { name: "Agregar nodo" });
+    await user.click(within(palette).getByRole("button", { name: /Código/ }));
+
+    const toast = await screen.findByText("failed to fetch");
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
   });
 
   it("adds a node from the modal palette, preserves unsaved edits and saves it", async () => {

@@ -44,8 +44,6 @@ export function ProjectIntegrationsPage() {
     enabled: Boolean(slug),
   });
 
-  const [error, setError] = useState<string>();
-  const [rawError, setRawError] = useState<string>();
   const [created, setCreated] = useState<SavedIntegration>();
   const [editingId, setEditingId] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
@@ -53,10 +51,6 @@ export function ProjectIntegrationsPage() {
 
   const actions = useProjectIntegrationActions(slug, {
     onStatus: notifySuccess,
-    onError: (message, rawMessage) => {
-      setError(message);
-      setRawError(rawMessage);
-    },
   });
 
   function saved(result: SavedIntegration) {
@@ -90,11 +84,6 @@ export function ProjectIntegrationsPage() {
         }
       />
 
-      {error && (
-        <p className="text-sm text-danger" role="alert" title={rawError}>
-          {error}
-        </p>
-      )}
       {createOpen && (
         <IntegrationEditor
           key={editorKey}
@@ -160,7 +149,6 @@ export function ProjectIntegrationsPage() {
                   projectSlug={slug}
                   noun="integración"
                   editing={editingId === integration.id}
-                  confirmError={actions.confirmError}
                   actions={{
                     test: () => actions.test(integration),
                     connect: () => actions.connect(integration.id),
@@ -172,7 +160,6 @@ export function ProjectIntegrationsPage() {
                     cancelEdit: () => setEditingId(undefined),
                     saved,
                     policySaved: actions.policySaved,
-                    confirmClosed: actions.clearConfirmError,
                   }}
                 />
               ))}

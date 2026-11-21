@@ -17,7 +17,7 @@ import {
 } from "../components/canvas/graph-edits.ts";
 import { NODE_META } from "../components/nodes/node-catalog.ts";
 import { projectTabPath } from "../components/ProjectTopBar.tsx";
-import { notifySuccess } from "../components/Toast.tsx";
+import { notifyError, notifySuccess } from "../components/Toast.tsx";
 import { useMediaQuery } from "../useMediaQuery.ts";
 import { useProjectWorkspace } from "./project-workspace.tsx";
 
@@ -118,7 +118,7 @@ export function ProjectFlowPage() {
       notifySuccess("Nodo guardado");
       workspace.setError(undefined);
     },
-    onError: (cause) => workspace.setError(cause instanceof Error ? cause.message : "No se pudo guardar el nodo"),
+    onError: (cause) => notifyError(cause instanceof Error ? cause.message : "No se pudo guardar el nodo"),
   });
 
   function updateNode(patch: Partial<NodeSpec>) {
@@ -195,7 +195,7 @@ export function ProjectFlowPage() {
       setPaletteOpen(false);
       openInspector(id);
     } catch (cause) {
-      workspace.setError(cause instanceof Error ? cause.message : "No se pudo agregar el nodo");
+      notifyError(cause instanceof Error ? cause.message : "No se pudo agregar el nodo");
     }
   }
 
@@ -230,7 +230,7 @@ export function ProjectFlowPage() {
       workspace.changeGraph({ ...graph, nodes: [...graph.nodes, clone] });
       openInspector(clone.id);
     } catch (cause) {
-      workspace.setError(cause instanceof Error ? cause.message : "No se pudo duplicar el nodo");
+      notifyError(cause instanceof Error ? cause.message : "No se pudo duplicar el nodo");
     }
   }
 

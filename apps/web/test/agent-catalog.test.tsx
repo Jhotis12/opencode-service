@@ -349,6 +349,27 @@ describe("AgentCatalog", () => {
     await waitFor(() => expect(apiMock.deleteAgent).toHaveBeenCalledWith("demo", "ventas", "calificador"));
   });
 
+  it("announces a rejected deletion as a toast", async () => {
+    apiMock.deleteAgent.mockRejectedValueOnce(new Error("failed to fetch"));
+    renderWithProviders(
+      <>
+        <AgentCatalog projectSlug="demo" agents={[subagent, primary]} models={catalogue} />
+        <Toaster theme="dark" position="bottom-right" richColors closeButton />
+      </>,
+    );
+    const subCard = screen.getByTestId("agent-card-ventas-calificador");
+    await userEvent.click(within(subCard).getByRole("button", { name: "Borrar" }));
+    await userEvent.click(
+      within(screen.getByRole("dialog", { name: "Eliminar agente" })).getByRole("button", { name: "Borrar agente" }),
+    );
+
+    const toast = await screen.findByText("failed to fetch");
+    expect(toast.closest("[data-sonner-toast]")).not.toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Eliminar agente" })).not.toBeInTheDocument(),
+    );
+  });
+
   it("round-trips per-tool permission rules through the visual editor", async () => {
     renderCatalog();
     await userEvent.click(

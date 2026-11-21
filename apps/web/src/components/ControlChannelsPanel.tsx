@@ -14,8 +14,6 @@ export function ControlChannelsPanel() {
   const [created, setCreated] = useState<SavedIntegration>();
   const [editingId, setEditingId] = useState<string>();
   const [editorKey, setEditorKey] = useState(0);
-  const [error, setError] = useState<string>();
-  const [confirmError, setConfirmError] = useState<string>();
   const integrations = query.data ?? [];
 
   async function refresh() {
@@ -36,7 +34,7 @@ export function ControlChannelsPanel() {
       if (result.ok) notifySuccess(message);
       else notifyError(message);
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo probar el canal.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo probar el canal.")),
   });
 
   const connect = useMutation({
@@ -52,28 +50,26 @@ export function ControlChannelsPanel() {
       }
       await refresh();
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo conectar el canal.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo conectar el canal.")),
   });
 
   const disconnect = useMutation({
     mutationFn: (id: string) => api.disconnectControlIntegration(id),
     onSuccess: async () => {
       notifySuccess("Canal desconectado");
-      setConfirmError(undefined);
       await refresh();
     },
-    onError: (cause) => setConfirmError(friendlyError(cause, "No se pudo desconectar el canal.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo desconectar el canal.")),
   });
 
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteControlIntegration(id),
     onSuccess: async () => {
       notifySuccess("Canal eliminado");
-      setConfirmError(undefined);
       setEditingId(undefined);
       await refresh();
     },
-    onError: (cause) => setConfirmError(friendlyError(cause, "No se pudo eliminar el canal.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo eliminar el canal.")),
   });
 
   const clearWebhook = useMutation({
@@ -82,7 +78,7 @@ export function ControlChannelsPanel() {
       notifySuccess("Webhook de Telegram limpiado; vuelve a conectar el bot");
       await refresh();
     },
-    onError: (cause) => setError(friendlyError(cause, "No se pudo limpiar el webhook.")),
+    onError: (cause) => notifyError(friendlyError(cause, "No se pudo limpiar el webhook.")),
   });
 
   function saved(result: SavedIntegration) {
@@ -99,11 +95,6 @@ export function ControlChannelsPanel() {
         Estos canales son exclusivos del orquestador global: sirven para preguntar por el estado de todos los proyectos y
         recibir alertas de fallos. Los canales de cada proyecto se configuran dentro del proyecto.
       </p>
-      {error && (
-        <p className="text-sm text-danger" role="alert">
-          {error}
-        </p>
-      )}
       {integrations.length === 0 ? (
         <p className="text-sm text-muted">Aún no hay canales del orquestador.</p>
       ) : (
@@ -115,7 +106,6 @@ export function ControlChannelsPanel() {
               scope="global"
               noun="canal"
               editing={editingId === integration.id}
-              confirmError={confirmError}
               actions={{
                 test: () => test.mutate(integration),
                 connect: () => connect.mutate(integration.id),
@@ -130,7 +120,6 @@ export function ControlChannelsPanel() {
                 edit: () => setEditingId(integration.id),
                 cancelEdit: () => setEditingId(undefined),
                 saved,
-                confirmClosed: () => setConfirmError(undefined),
               }}
             />
           ))}

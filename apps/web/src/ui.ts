@@ -120,9 +120,6 @@ const STATUS_TONE_TEXT: Record<StatusTone, string> = {
 };
 
 /** The text colour for an already-classified tone, so prose never has to re-derive it. */
-export function statusToneText(tone: StatusTone): string {
-  return STATUS_TONE_TEXT[tone];
-}
 
 export function agentModeLabel(mode: string): string {
   if (mode === "primary") return "Principal";

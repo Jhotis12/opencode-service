@@ -312,7 +312,7 @@ describe("routed project workspace", { timeout: 20_000 }, () => {
     });
   }
 
-  it("tones a run status by its outcome instead of always using the success colour", async () => {
+  it("tones a run status by its outcome in the toast channel, never as a green success line", async () => {
     RecordingEventSource.instances = [];
     vi.stubGlobal("EventSource", RecordingEventSource);
     try {
@@ -322,18 +322,17 @@ describe("routed project workspace", { timeout: 20_000 }, () => {
       const source = RecordingEventSource.instances[0]!;
 
       source.emit("run.updated", { projectSlug: "demo", status: "failed" });
-      const failed = await screen.findByText("La ejecución terminó con error. El detalle está en Ejecuciones.");
-      expect(failed.className).not.toContain("text-ok");
-      expect(failed.className).toContain("text-danger");
+      const failed = await findToast("La ejecución terminó con error. El detalle está en Ejecuciones.");
+      expect(failed).toHaveAttribute("data-type", "error");
+      expect(screen.queryByText("La ejecución terminó con error. El detalle está en Ejecuciones.", { selector: "p" })).toBeNull();
 
       source.emit("run.updated", { projectSlug: "demo", status: "paused" });
-      const paused = await screen.findByText("Ejecución pausada. Revisa Ejecuciones para el detalle.");
-      expect(paused.className).not.toContain("text-ok");
-      expect(paused.className).toContain("text-warn");
+      const paused = await findToast("Ejecución pausada. Revisa Ejecuciones para el detalle.");
+      expect(paused).toHaveAttribute("data-type", "warning");
 
       source.emit("run.updated", { projectSlug: "demo", status: "succeeded" });
-      const succeeded = await screen.findByText("Ejecución completada. El detalle está en Ejecuciones.");
-      expect(succeeded.className).toContain("text-ok");
+      const succeeded = await findToast("Ejecución completada. El detalle está en Ejecuciones.");
+      expect(succeeded).toHaveAttribute("data-type", "success");
     } finally {
       vi.unstubAllGlobals();
     }

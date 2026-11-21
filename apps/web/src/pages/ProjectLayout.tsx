@@ -9,7 +9,7 @@ import { RunDetailModal } from "../components/RunDetailModal.tsx";
 import { RunLaunchModal } from "../components/RunLaunchModal.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
 import { qk } from "../query.ts";
-import { buttonGhost, card, friendlyError, notify, statusToneText } from "../ui.ts";
+import { buttonGhost, card, friendlyError, notify } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
 import { ProjectWorkspaceProvider, useProjectWorkspace } from "./project-workspace.tsx";
 
@@ -128,11 +128,8 @@ function ProjectWorkspaceShell() {
         onRollbackVersion={(version) => workspace.rollbackVersion(version)}
       />
 
-      {(workspace.status || workspace.displayError || (active !== "overview" && notReady.length > 0)) && (
+      {(workspace.displayError || (active !== "overview" && notReady.length > 0)) && (
         <div className="flex flex-col gap-1 border-b border-line px-3 py-2 lg:px-4">
-          {workspace.status && (
-            <p className={`text-xs ${statusToneText(workspace.status.tone)}`}>{workspace.status.message}</p>
-          )}
           {workspace.displayError && <p className="text-xs text-danger">{workspace.displayError}</p>}
           {active !== "overview" && notReady.length > 0 && (
             <p className="text-xs text-warn">

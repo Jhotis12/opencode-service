@@ -5,8 +5,8 @@ import { api } from "../api.ts";
 import { qk } from "../query.ts";
 import { IntegrationCard, IntegrationCredentialsNotice } from "./IntegrationCard.tsx";
 import { IntegrationEditor, type SavedIntegration } from "./IntegrationEditor.tsx";
-import { notifyError, notifySuccess } from "./Toast.tsx";
-import { friendlyError } from "../ui.ts";
+import { notifyError, notifySuccess, notifyWarning } from "./Toast.tsx";
+import { friendlyError, statusTone } from "../ui.ts";
 
 export function ControlChannelsPanel() {
   const queryClient = useQueryClient();
@@ -42,8 +42,14 @@ export function ControlChannelsPanel() {
   const connect = useMutation({
     mutationFn: (id: string) => api.connectControlIntegration(id),
     onSuccess: async (result) => {
-      if (result.status === "error") notifyError(`No se pudo conectar: ${result.lastError ?? "error desconocido"}`);
-      else notifySuccess(`Canal ${result.name}: ${result.status}`);
+      if (result.status === "error") {
+        notifyError(`No se pudo conectar: ${result.lastError ?? "error desconocido"}`);
+      } else {
+        const message = `Canal ${result.name}: ${result.status}`;
+        // A warning-toned status (needs_config, qr_pending) is still waiting on the operator, not a success.
+        if (statusTone(result.status) === "warning") notifyWarning(message);
+        else notifySuccess(message);
+      }
       await refresh();
     },
     onError: (cause) => setError(friendlyError(cause, "No se pudo conectar el canal.")),

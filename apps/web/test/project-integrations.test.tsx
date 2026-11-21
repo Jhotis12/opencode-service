@@ -135,6 +135,11 @@ async function menuLabels(card: HTMLElement): Promise<(string | null)[]> {
   return labels;
 }
 
+async function connectFromMenu(card: HTMLElement): Promise<void> {
+  await userEvent.click(within(card).getByRole("button", { name: /^Más acciones de/ }));
+  await userEvent.click(within(card).getByRole("menuitem", { name: "Conectar" }));
+}
+
 function renderPage() {
   // Outcomes are announced by sonner: the real host proves the copy lands in a toast.
   return renderWithProviders(
@@ -185,6 +190,29 @@ describe("ProjectIntegrationsPage", () => {
     const httpCard = await screen.findByTestId("integration-card-http-1");
     await userEvent.click(within(httpCard).getByRole("button", { name: "Probar" }));
     expect(await screen.findByText("HTTP pagos: Operativo")).toBeInTheDocument();
+  });
+
+  it("announces a needs_config connect as a warning, never as a success", async () => {
+    apiMock.connectIntegration.mockResolvedValue({ ...fixtures[1], status: "needs_config" });
+    renderPage();
+    await connectFromMenu(await screen.findByTestId("integration-card-wa-1"));
+
+    const toastElement = (await screen.findByText("Integración WhatsApp alertas: Falta configurar")).closest<HTMLElement>(
+      "[data-sonner-toast]",
+    );
+    expect(toastElement).toHaveAttribute("data-type", "warning");
+    expect(document.querySelector('[data-sonner-toast][data-type="success"]')).toBeNull();
+  });
+
+  it("still announces a genuine connect as a success", async () => {
+    apiMock.connectIntegration.mockResolvedValue({ ...fixtures[1], status: "connected" });
+    renderPage();
+    await connectFromMenu(await screen.findByTestId("integration-card-wa-1"));
+
+    const toastElement = (await screen.findByText("Integración WhatsApp alertas: Conectado")).closest<HTMLElement>(
+      "[data-sonner-toast]",
+    );
+    expect(toastElement).toHaveAttribute("data-type", "success");
   });
 
   it("shows the localized status badge on each card", async () => {
@@ -389,6 +417,32 @@ describe("shared integration card", () => {
       expect(await menuLabels(projectCard)).toEqual(pair.menu);
       expect(await menuLabels(channelCard)).toEqual(pair.menu);
     }
+  });
+
+  it("announces a needs_config orchestrator channel as a warning", async () => {
+    const channel = makeIntegration({
+      id: "wa-canal",
+      kind: "whatsapp",
+      name: "WhatsApp del orquestador",
+      slug: "whatsapp-orquestador",
+      status: "needs_config",
+      scope: "global",
+      projectSlug: undefined,
+    });
+    apiMock.controlIntegrations.mockResolvedValue({ data: [channel] });
+    apiMock.connectControlIntegration.mockResolvedValue({ ...channel, status: "needs_config" });
+    renderWithProviders(
+      <>
+        <ControlChannelsPanel />
+        <Toaster theme="dark" position="bottom-right" richColors closeButton />
+      </>,
+    );
+
+    await connectFromMenu(await screen.findByTestId("integration-card-wa-canal"));
+    const toastElement = (await screen.findByText("Canal WhatsApp del orquestador: needs_config")).closest<HTMLElement>(
+      "[data-sonner-toast]",
+    );
+    expect(toastElement).toHaveAttribute("data-type", "warning");
   });
 
   it("renders the empty state in both scopes when there are no integrations", async () => {

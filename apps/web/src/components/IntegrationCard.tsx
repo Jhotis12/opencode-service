@@ -10,7 +10,8 @@ import { IntegrationEditor, type SavedIntegration } from "./IntegrationEditor.ts
 import { OverflowMenu, type OverflowMenuItem } from "./OverflowMenu.tsx";
 import { QrDisplay } from "./QrDisplay.tsx";
 import { StatusBadge } from "./StatusBadge.tsx";
-import { buttonGhost, card, friendlyError, statusLabel } from "../ui.ts";
+import { notifyWarning } from "./Toast.tsx";
+import { buttonGhost, card, friendlyError, statusLabel, statusTone } from "../ui.ts";
 
 const DATABASE_KINDS = new Set<IntegrationKind>(["postgres", "mysql", "mssql", "sqlite"]);
 
@@ -221,8 +222,14 @@ export function useProjectIntegrationActions(
   const connect = useMutation({
     mutationFn: (id: string) => api.connectIntegration(projectSlug, id),
     onSuccess: async (result) => {
-      if (result.status === "error") host.onError("No se pudo conectar: " + (result.lastError ?? "error desconocido"));
-      else host.onStatus("Integración " + result.name + ": " + statusLabel(result.status));
+      if (result.status === "error") {
+        host.onError("No se pudo conectar: " + (result.lastError ?? "error desconocido"));
+      } else {
+        const message = "Integración " + result.name + ": " + statusLabel(result.status);
+        // A warning-toned status (needs_config, qr_pending) is still waiting on the operator, not a success.
+        if (statusTone(result.status) === "warning") notifyWarning(message);
+        else host.onStatus(message);
+      }
       await refresh();
     },
     onError: (cause) => reportFailure(cause, "No se pudo conectar la integración."),

@@ -225,6 +225,17 @@ describe("Modal", () => {
     expect(screen.getByRole("dialog", { name: "Hoja" })).toHaveClass("pb-[env(safe-area-inset-bottom)]");
   });
 
+  // jsdom cannot resolve env(), so the safe-area rule is pinned as the class string.
+  it("pays the bottom-sheet header the top safe-area inset", () => {
+    render(
+      <Modal title="Hoja alta" onClose={vi.fn()}>
+        <p>Contenido</p>
+      </Modal>,
+    );
+    const header = screen.getByRole("dialog", { name: "Hoja alta" }).querySelector("header");
+    expect(header?.className).toContain("pt-[calc(1rem+env(safe-area-inset-top))]");
+  });
+
   it("maps each size to a distinct width", () => {
     const { rerender } = render(
       <Modal title="Size" onClose={vi.fn()} size="sm">

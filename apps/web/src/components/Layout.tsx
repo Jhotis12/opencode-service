@@ -91,7 +91,7 @@ export function Layout() {
       >
         Saltar al contenido
       </a>
-      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-line bg-ink/95 px-4 lg:hidden">
+      <header className="sticky top-0 z-40 flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center gap-3 border-b border-line bg-ink/95 px-4 pt-[env(safe-area-inset-top)] lg:hidden">
         <button
           type="button"
           className={buttonGhost}
@@ -218,7 +218,7 @@ export function Layout() {
         data-testid="app-main"
         className={
           fluid
-            ? "h-[calc(100dvh-3.5rem)] min-w-0 overflow-hidden lg:h-dvh"
+            ? "h-[calc(100dvh-3.5rem-env(safe-area-inset-top))] min-w-0 overflow-hidden lg:h-dvh"
             : "mx-auto w-full max-w-[1500px] px-5 py-6 lg:px-8 lg:py-8"
         }
       >

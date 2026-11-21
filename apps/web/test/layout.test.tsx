@@ -71,6 +71,15 @@ describe("Layout", () => {
     vi.unstubAllGlobals();
   });
 
+  // jsdom cannot resolve env(), so the safe-area rule is pinned as the class string.
+  it("pays the app frame the top safe-area inset without doubling the main height", () => {
+    renderLayout();
+    const header = screen.getByRole("banner");
+    expect(header.className).toContain("pt-[env(safe-area-inset-top)]");
+    expect(header.className).toContain("h-[calc(3.5rem+env(safe-area-inset-top))]");
+    expect(screen.getByTestId("app-main").className).toContain("calc(100dvh-3.5rem-env(safe-area-inset-top))");
+  });
+
   it("uses a fluid main area only on project routes", () => {
     const project = renderLayout("/projects/demo");
     expect(screen.getByTestId("app-main").className).toContain("lg:h-dvh");

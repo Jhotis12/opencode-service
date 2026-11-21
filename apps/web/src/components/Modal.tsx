@@ -155,7 +155,7 @@ export function Modal({
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line px-5 pb-4 pt-[calc(1rem+env(safe-area-inset-top))]">
           <h2 id={titleId} className="min-w-28 truncate text-base font-semibold text-slate-100">
             {title}
           </h2>

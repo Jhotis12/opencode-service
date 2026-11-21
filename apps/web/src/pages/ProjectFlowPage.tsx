@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useOutletContext } from "react-router-dom";
 import { defaultNodeConfig, type NodeSpec } from "@platform/shared";
 import { api } from "../api.ts";
 import { qk } from "../query.ts";
@@ -8,7 +9,7 @@ import { NodeInspectorModal } from "../components/NodeInspectorModal.tsx";
 import { ConfirmDialog } from "../components/ConfirmDialog.tsx";
 import { GraphIssuesSummary } from "../components/GraphIssuesSummary.tsx";
 import { PageHeader } from "../components/PageHeader.tsx";
-import { WorkflowCanvas } from "../components/WorkflowCanvas.tsx";
+import { WorkflowCanvas, PHONE_QUERY } from "../components/WorkflowCanvas.tsx";
 import {
   changeEdgeCondition as changeEdgeConditionInGraph,
   connectNodes as connectNodesGraph,
@@ -16,6 +17,8 @@ import {
 } from "../components/canvas/graph-edits.ts";
 import { NODE_META } from "../components/nodes/node-catalog.ts";
 import { projectTabPath } from "../components/ProjectTopBar.tsx";
+import { notifySuccess } from "../components/Toast.tsx";
+import { useMediaQuery } from "../useMediaQuery.ts";
 import { useProjectWorkspace } from "./project-workspace.tsx";
 
 const DEFAULT_CODE = `export default async function run(input: unknown, ctx: any) {
@@ -31,7 +34,11 @@ const NODE_LABELS: Record<string, string> = Object.fromEntries(
 export function ProjectFlowPage() {
   const workspace = useProjectWorkspace();
   const { slug, graph, runs } = workspace;
+  // ProjectLayout owns the fixed chat pill and tells the page whether it is on screen.
+  const layout = useOutletContext<{ chatPillVisible?: boolean } | null>();
   const queryClient = useQueryClient();
+  // Below 640 px the palette and the inspector open as full-height sheets instead of dialogs.
+  const narrow = useMediaQuery(PHONE_QUERY);
 
   const [selectedId, setSelectedId] = useState<string>();
   const [nodeCode, setNodeCode] = useState("");
@@ -108,7 +115,7 @@ export function ProjectFlowPage() {
     onSuccess: (_result, variables) => {
       queryClient.setQueryData(["node", slug, variables.file], variables.code);
       setNodeCodeDirty(false);
-      workspace.setStatus("Nodo guardado");
+      notifySuccess("Nodo guardado");
       workspace.setError(undefined);
     },
     onError: (cause) => workspace.setError(cause instanceof Error ? cause.message : "No se pudo guardar el nodo"),
@@ -259,7 +266,7 @@ export function ProjectFlowPage() {
     workspace.changeGraph(connectNodesGraph(graph, sourceId, targetId, condition));
     setConnecting(undefined);
     workspace.setError(undefined);
-    workspace.setStatus("Conexión agregada");
+    notifySuccess("Conexión agregada");
   }
 
   function startCanvasConnect(sourceId: string, condition?: "true" | "false") {
@@ -328,6 +335,7 @@ export function ProjectFlowPage() {
           nodeStatuses={nodeStatuses}
           runProgress={runProgress}
           agentStatus={workspace.chatBusy ? { busy: true, activity: workspace.chatActivity } : undefined}
+          chatPillVisible={layout?.chatPillVisible ?? false}
           agentTouchedNodeIds={workspace.agentTouchedNodeIds}
           issues={workspace.graphIssues}
           connecting={connecting}
@@ -351,7 +359,12 @@ export function ProjectFlowPage() {
         />
       </div>
       {paletteOpen && (
-        <NodePaletteModal graph={graph} onClose={() => setPaletteOpen(false)} onAdd={(type) => void addNode(type)} />
+        <NodePaletteModal
+          graph={graph}
+          sheet={narrow}
+          onClose={() => setPaletteOpen(false)}
+          onAdd={(type) => void addNode(type)}
+        />
       )}
       {selected && inspectorOpen && (
         <NodeInspectorModal
@@ -369,6 +382,7 @@ export function ProjectFlowPage() {
           codeDirty={nodeCodeDirty}
           issues={workspace.graphIssues}
           initialTab={inspectorInitialTab}
+          sheet={narrow}
           onClose={closeInspector}
           onPatch={updateNode}
           onConfig={updateConfig}

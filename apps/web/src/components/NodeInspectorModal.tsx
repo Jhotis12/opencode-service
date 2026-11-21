@@ -61,6 +61,7 @@ export function NodeInspectorModal({
   codeDirty,
   issues,
   initialTab = "settings",
+  sheet = false,
   onClose,
   onPatch,
   onConfig,
@@ -89,6 +90,8 @@ export function NodeInspectorModal({
   codeDirty: boolean;
   issues: GraphIssue[];
   initialTab?: InspectorTab;
+  /** Under 640 px the flow page presents the inspector as a full-height sheet. */
+  sheet?: boolean;
   onClose(): void;
   onPatch(patch: Partial<NodeSpec>): void;
   onConfig(patch: Record<string, unknown>): void;
@@ -151,6 +154,10 @@ export function NodeInspectorModal({
     ["execution", "Ejecución"],
   ];
 
+  // The shared Modal caps a sheet at 92dvh; the body takes what its header and 32 px
+  // padding leave (5.5 rem ≈ 89 px) so the inspector fills that cap on a phone.
+  const sheetBodyClass = sheet ? "min-h-[calc(92dvh_-_5.5rem)]" : "";
+
   return (
     <Modal
       title={`Nodo: ${node.label ?? meta.title}`}
@@ -170,243 +177,248 @@ export function NodeInspectorModal({
         </>
       }
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <span
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
-          style={{ background: `color-mix(in srgb, ${meta.color} 20%, var(--color-well))`, color: meta.color }}
-        >
-          <NodeIcon type={node.type} />
-        </span>
-        <span className={badge}>{meta.title}</span>
-        <small className="truncate text-[11px] text-muted">{node.id}</small>
-        {lastStep && <StatusBadge status={lastStep.status} />}
-        {nodeIssueList.length > 0 && (
-          <span className={statusBadge("paused")}>
-            {nodeIssueList.length} {nodeIssueList.length === 1 ? "problema" : "problemas"}
+      <div
+        data-sheet={sheet ? "" : undefined}
+        className={`flex flex-col gap-3 ${sheetBodyClass}`}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
+            style={{ background: `color-mix(in srgb, ${meta.color} 20%, var(--color-well))`, color: meta.color }}
+          >
+            <NodeIcon type={node.type} />
           </span>
+          <span className={badge}>{meta.title}</span>
+          <small className="truncate text-[11px] text-muted">{node.id}</small>
+          {lastStep && <StatusBadge status={lastStep.status} />}
+          {nodeIssueList.length > 0 && (
+            <span className={statusBadge("paused")}>
+              {nodeIssueList.length} {nodeIssueList.length === 1 ? "problema" : "problemas"}
+            </span>
+          )}
+        </div>
+
+        <div className="flex gap-1 border-b border-line pb-2" role="tablist" aria-label="Detalles del nodo">
+          {tabs.map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              className={`rounded-md border px-3 py-1.5 text-xs transition ${
+                tab === key
+                  ? "border-line bg-panel-2 text-slate-100"
+                  : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
+              }`}
+              onClick={() => setTab(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "settings" && (
+          <div role="tabpanel" className="flex flex-col gap-3">
+            {nodeIssueList.length > 0 && (
+              <ul className="flex list-inside list-disc flex-col gap-1 rounded-lg border border-warn/40 bg-warn/5 p-3 text-xs text-warn">
+                {nodeIssueList.map((issue) => (
+                  <li key={issue.id}>{issue.message}</li>
+                ))}
+              </ul>
+            )}
+            <NodeInspector
+              node={node}
+              nodes={graph.nodes}
+              agents={agents}
+              models={models}
+              notebooks={notebooks}
+              integrations={integrations}
+              destinations={destinations}
+              scheduleNextRun={scheduleNextRun}
+              code={code}
+              codeDirty={codeDirty}
+              onPatch={onPatch}
+              onConfig={onConfig}
+              onReplaceConfig={onReplaceConfig}
+              onCodeChange={onCodeChange}
+              onSaveCode={onSaveCode}
+              onEnableDecisionCode={onEnableDecisionCode}
+            />
+          </div>
+        )}
+
+        {tab === "connections" && (
+          <div role="tabpanel" className="flex flex-col gap-4">
+            {node.type === "decision" && (
+              <div className="flex flex-col gap-1.5">
+                <strong className="text-xs text-muted">Rama</strong>
+                <div className="flex gap-1.5">
+                  {(["true", "false"] as const).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`rounded-md border px-3 py-1.5 text-xs transition ${
+                        branch === value
+                          ? "border-line bg-panel-2 text-slate-100"
+                          : "border-line text-muted hover:bg-panel"
+                      }`}
+                      onClick={() => changeBranch(value)}
+                    >
+                      {value === "true" ? "sí" : "no"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <section className="flex flex-col gap-2">
+              <strong className="text-xs uppercase tracking-wide text-muted">Agregar conexión</strong>
+              <Field id="node-connection-target" label="Nodo destino">
+                <Select
+                  label="Nodo destino"
+                  options={[
+                    { value: "", label: EMPTY_TARGET_LABEL },
+                    ...candidates.map(({ node: candidate, issue }) => ({
+                      value: candidate.id,
+                      label: `${candidate.label ?? candidate.id}${issue ? ` — ${issue}` : ""}`,
+                      disabled: Boolean(issue),
+                    })),
+                  ]}
+                  value={targetId}
+                  emptyValue=""
+                  onChange={(value) => {
+                    setTargetId(value ?? "");
+                    setConfirmReplace(false);
+                  }}
+                />
+              </Field>
+              {validCount === 0 && (
+                <p className="text-xs text-muted">No hay destinos válidos para este nodo con la configuración actual.</p>
+              )}
+              {replacing && (
+                <p className="text-xs text-warn">
+                  Esta conexión reemplazará la salida actual hacia {edgeTargetLabel(graph, currentEdge!)}.
+                </p>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  className={button}
+                  disabled={!targetId}
+                  onClick={submitConnection}
+                >
+                  {confirmReplace ? "Confirmar reemplazo" : "Conectar"}
+                </button>
+                <button
+                  type="button"
+                  className={buttonGhost}
+                  onClick={() => {
+                    onStartCanvasConnect(node.id, condition);
+                  }}
+                >
+                  Conectar en el canvas
+                </button>
+              </div>
+            </section>
+
+            <section className="flex flex-col gap-2">
+              <strong className="text-xs uppercase tracking-wide text-muted">Salidas ({outgoing.length})</strong>
+              {outgoing.length === 0 && <p className="text-xs text-muted">Este nodo todavía no tiene salidas.</p>}
+              {outgoing.map((edge) => (
+                <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2">
+                  <span className="min-w-0 flex-1 truncate text-xs text-slate-200">
+                    → {edgeTargetLabel(graph, edge)}
+                  </span>
+                  {node.type === "decision" && (
+                    <label className="flex items-center">
+                      <span className="sr-only">{`Rama hacia ${edgeTargetLabel(graph, edge)}`}</span>
+                      <Select
+                        id={`edge-branch-${edge.id}`}
+                        label="Rama de la conexión"
+                        options={BRANCH_OPTIONS}
+                        value={edge.condition ?? "true"}
+                        emptyValue="undefined"
+                        className="w-20"
+                        onChange={(value) => {
+                          if (value === "true" || value === "false") onChangeEdgeCondition(edge.id, value);
+                        }}
+                      />
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    className={buttonGhost}
+                    aria-label={`Eliminar conexión hacia ${edgeTargetLabel(graph, edge)}`}
+                    onClick={() => onDeleteEdge(edge.id)}
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              ))}
+            </section>
+
+            <section className="flex flex-col gap-2">
+              <strong className="text-xs uppercase tracking-wide text-muted">Entradas ({incoming.length})</strong>
+              {incoming.length === 0 && <p className="text-xs text-muted">Este nodo todavía no tiene entradas.</p>}
+              {incoming.map((edge) => (
+                <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2">
+                  <span className="min-w-0 flex-1 truncate text-xs text-slate-200">
+                    ← {edgeSourceLabel(graph, edge)}
+                    {graph.nodes.find((source) => source.id === edge.source)?.type === "decision" &&
+                      ` (${conditionLabel(edge.condition)})`}
+                  </span>
+                  <button
+                    type="button"
+                    className={buttonGhost}
+                    aria-label={`Eliminar conexión desde ${edgeSourceLabel(graph, edge)}`}
+                    onClick={() => onDeleteEdge(edge.id)}
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              ))}
+            </section>
+          </div>
+        )}
+
+        {tab === "execution" && (
+          <div role="tabpanel" className="flex flex-col gap-2">
+            {lastStep ? (
+              <>
+                <div className="flex flex-wrap gap-1.5">
+                  <StatusBadge status={lastStep.status} />
+                  <span className={badge}>{lastStep.durationMs} ms</span>
+                  {lastStep.model && <span className={badge}>{lastStep.model}</span>}
+                  {lastStep.agentId && <span className={badge}>{lastStep.agentId}</span>}
+                </div>
+                {lastStep.error && <p className="text-xs text-danger">{lastStep.error}</p>}
+                <details>
+                  <summary className="cursor-pointer text-xs text-muted">Entrada</summary>
+                  <ValuePreview value={lastStep.input} />
+                </details>
+                <details open>
+                  <summary className="cursor-pointer text-xs text-muted">Salida</summary>
+                  <ValuePreview value={lastStep.output} />
+                </details>
+                {lastStep.logs && lastStep.logs.length > 0 && (
+                  <details>
+                    <summary className="cursor-pointer text-xs text-muted">Logs ({lastStep.logs.length})</summary>
+                    <ul className="mt-1 flex list-inside list-disc flex-col gap-1 text-xs text-muted">
+                      {lastStep.logs.map((log, index) => (
+                        <li key={index}>
+                          <code>{log.message}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted">Este nodo todavía no tiene una ejecución registrada.</p>
+            )}
+          </div>
         )}
       </div>
-
-      <div className="flex gap-1 border-b border-line pb-2" role="tablist" aria-label="Detalles del nodo">
-        {tabs.map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={tab === key}
-            className={`rounded-md border px-3 py-1.5 text-xs transition ${
-              tab === key
-                ? "border-line bg-panel-2 text-slate-100"
-                : "border-transparent text-muted hover:bg-panel hover:text-slate-200"
-            }`}
-            onClick={() => setTab(key)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "settings" && (
-        <div role="tabpanel" className="flex flex-col gap-3">
-          {nodeIssueList.length > 0 && (
-            <ul className="flex list-inside list-disc flex-col gap-1 rounded-lg border border-warn/40 bg-warn/5 p-3 text-xs text-warn">
-              {nodeIssueList.map((issue) => (
-                <li key={issue.id}>{issue.message}</li>
-              ))}
-            </ul>
-          )}
-          <NodeInspector
-            node={node}
-            nodes={graph.nodes}
-            agents={agents}
-            models={models}
-            notebooks={notebooks}
-            integrations={integrations}
-            destinations={destinations}
-            scheduleNextRun={scheduleNextRun}
-            code={code}
-            codeDirty={codeDirty}
-            onPatch={onPatch}
-            onConfig={onConfig}
-            onReplaceConfig={onReplaceConfig}
-            onCodeChange={onCodeChange}
-            onSaveCode={onSaveCode}
-            onEnableDecisionCode={onEnableDecisionCode}
-          />
-        </div>
-      )}
-
-      {tab === "connections" && (
-        <div role="tabpanel" className="flex flex-col gap-4">
-          {node.type === "decision" && (
-            <div className="flex flex-col gap-1.5">
-              <strong className="text-xs text-muted">Rama</strong>
-              <div className="flex gap-1.5">
-                {(["true", "false"] as const).map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={`rounded-md border px-3 py-1.5 text-xs transition ${
-                      branch === value
-                        ? "border-line bg-panel-2 text-slate-100"
-                        : "border-line text-muted hover:bg-panel"
-                    }`}
-                    onClick={() => changeBranch(value)}
-                  >
-                    {value === "true" ? "sí" : "no"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <section className="flex flex-col gap-2">
-            <strong className="text-xs uppercase tracking-wide text-muted">Agregar conexión</strong>
-            <Field id="node-connection-target" label="Nodo destino">
-              <Select
-                label="Nodo destino"
-                options={[
-                  { value: "", label: EMPTY_TARGET_LABEL },
-                  ...candidates.map(({ node: candidate, issue }) => ({
-                    value: candidate.id,
-                    label: `${candidate.label ?? candidate.id}${issue ? ` — ${issue}` : ""}`,
-                    disabled: Boolean(issue),
-                  })),
-                ]}
-                value={targetId}
-                emptyValue=""
-                onChange={(value) => {
-                  setTargetId(value ?? "");
-                  setConfirmReplace(false);
-                }}
-              />
-            </Field>
-            {validCount === 0 && (
-              <p className="text-xs text-muted">No hay destinos válidos para este nodo con la configuración actual.</p>
-            )}
-            {replacing && (
-              <p className="text-xs text-warn">
-                Esta conexión reemplazará la salida actual hacia {edgeTargetLabel(graph, currentEdge!)}.
-              </p>
-            )}
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                className={button}
-                disabled={!targetId}
-                onClick={submitConnection}
-              >
-                {confirmReplace ? "Confirmar reemplazo" : "Conectar"}
-              </button>
-              <button
-                type="button"
-                className={buttonGhost}
-                onClick={() => {
-                  onStartCanvasConnect(node.id, condition);
-                }}
-              >
-                Conectar en el canvas
-              </button>
-            </div>
-          </section>
-
-          <section className="flex flex-col gap-2">
-            <strong className="text-xs uppercase tracking-wide text-muted">Salidas ({outgoing.length})</strong>
-            {outgoing.length === 0 && <p className="text-xs text-muted">Este nodo todavía no tiene salidas.</p>}
-            {outgoing.map((edge) => (
-              <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2">
-                <span className="min-w-0 flex-1 truncate text-xs text-slate-200">
-                  → {edgeTargetLabel(graph, edge)}
-                </span>
-                {node.type === "decision" && (
-                  <label className="flex items-center">
-                    <span className="sr-only">{`Rama hacia ${edgeTargetLabel(graph, edge)}`}</span>
-                    <Select
-                      id={`edge-branch-${edge.id}`}
-                      label="Rama de la conexión"
-                      options={BRANCH_OPTIONS}
-                      value={edge.condition ?? "true"}
-                      emptyValue="undefined"
-                      className="w-20"
-                      onChange={(value) => {
-                        if (value === "true" || value === "false") onChangeEdgeCondition(edge.id, value);
-                      }}
-                    />
-                  </label>
-                )}
-                <button
-                  type="button"
-                  className={buttonGhost}
-                  aria-label={`Eliminar conexión hacia ${edgeTargetLabel(graph, edge)}`}
-                  onClick={() => onDeleteEdge(edge.id)}
-                >
-                  Eliminar
-                </button>
-              </div>
-            ))}
-          </section>
-
-          <section className="flex flex-col gap-2">
-            <strong className="text-xs uppercase tracking-wide text-muted">Entradas ({incoming.length})</strong>
-            {incoming.length === 0 && <p className="text-xs text-muted">Este nodo todavía no tiene entradas.</p>}
-            {incoming.map((edge) => (
-              <div key={edge.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2">
-                <span className="min-w-0 flex-1 truncate text-xs text-slate-200">
-                  ← {edgeSourceLabel(graph, edge)}
-                  {graph.nodes.find((source) => source.id === edge.source)?.type === "decision" &&
-                    ` (${conditionLabel(edge.condition)})`}
-                </span>
-                <button
-                  type="button"
-                  className={buttonGhost}
-                  aria-label={`Eliminar conexión desde ${edgeSourceLabel(graph, edge)}`}
-                  onClick={() => onDeleteEdge(edge.id)}
-                >
-                  Eliminar
-                </button>
-              </div>
-            ))}
-          </section>
-        </div>
-      )}
-
-      {tab === "execution" && (
-        <div role="tabpanel" className="flex flex-col gap-2">
-          {lastStep ? (
-            <>
-              <div className="flex flex-wrap gap-1.5">
-                <StatusBadge status={lastStep.status} />
-                <span className={badge}>{lastStep.durationMs} ms</span>
-                {lastStep.model && <span className={badge}>{lastStep.model}</span>}
-                {lastStep.agentId && <span className={badge}>{lastStep.agentId}</span>}
-              </div>
-              {lastStep.error && <p className="text-xs text-danger">{lastStep.error}</p>}
-              <details>
-                <summary className="cursor-pointer text-xs text-muted">Entrada</summary>
-                <ValuePreview value={lastStep.input} />
-              </details>
-              <details open>
-                <summary className="cursor-pointer text-xs text-muted">Salida</summary>
-                <ValuePreview value={lastStep.output} />
-              </details>
-              {lastStep.logs && lastStep.logs.length > 0 && (
-                <details>
-                  <summary className="cursor-pointer text-xs text-muted">Logs ({lastStep.logs.length})</summary>
-                  <ul className="mt-1 flex list-inside list-disc flex-col gap-1 text-xs text-muted">
-                    {lastStep.logs.map((log, index) => (
-                      <li key={index}>
-                        <code>{log.message}</code>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-            </>
-          ) : (
-            <p className="text-xs text-muted">Este nodo todavía no tiene una ejecución registrada.</p>
-          )}
-        </div>
-      )}
     </Modal>
   );
 }

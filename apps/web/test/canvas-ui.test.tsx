@@ -1,13 +1,41 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import type { IntegrationRecord, NodeSpec, NodeType, WorkflowGraph } from "@platform/shared";
-import { WorkflowCanvas } from "../src/components/WorkflowCanvas.tsx";
+import {
+  PHONE_QUERY,
+  TOUCH_CONNECTION_RADIUS,
+  WorkflowCanvas,
+} from "../src/components/WorkflowCanvas.tsx";
 import { NodePaletteModal } from "../src/components/NodePaletteModal.tsx";
 import { NodeInspectorModal } from "../src/components/NodeInspectorModal.tsx";
 import { ProjectTopBar, type ProjectTab } from "../src/components/ProjectTopBar.tsx";
-import { chooseOption } from "./render.tsx";
+import { chooseOption, setViewportMatches } from "./render.tsx";
+
+const flowHarness = vi.hoisted(() => ({
+  /** Injected viewport instance: jsdom has no layout, so the real one never initializes. */
+  raise: null as null | { fitView: (options?: unknown) => void; setCenter: (x: number, y: number, options?: unknown) => void },
+  props: [] as Array<Record<string, unknown>>,
+}));
+
+vi.mock("@xyflow/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@xyflow/react")>();
+  const React = await import("react");
+  function ReactFlowHarness(props: Record<string, unknown>) {
+    flowHarness.props.push(props);
+    React.useEffect(() => {
+      const instance = flowHarness.raise;
+      if (instance) (props.onInit as ((value: unknown) => void) | undefined)?.(instance);
+      // The injected instance is a per-test fixture, not a render input.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    // A raised instance stands in for React Flow's own, so the real one must not overwrite it.
+    const forwarded = flowHarness.raise ? { ...props, onInit: undefined } : props;
+    return React.createElement(actual.ReactFlow as never, forwarded as never);
+  }
+  return { ...actual, ReactFlow: ReactFlowHarness };
+});
 
 vi.mock("../src/components/CodeEditor.tsx", () => ({
   CodeEditor: ({ value, onChange }: { value: string; onChange(value: string): void }) => (
@@ -68,6 +96,63 @@ function renderCanvas(overrides: Partial<React.ComponentProps<typeof WorkflowCan
   };
   const result = render(<WorkflowCanvas {...props} />);
   return { ...result, props };
+}
+
+function fakeFlowInstance() {
+  return { fitView: vi.fn(), setCenter: vi.fn() };
+}
+
+/** jsdom reports zero metrics; the initial-view effect reads these off the canvas host. */
+function stubCanvasSize(container: HTMLElement, width: number, height: number): void {
+  const canvas = container.querySelector<HTMLElement>('[data-testid="workflow-canvas"]')!;
+  Object.defineProperty(canvas, "clientWidth", { configurable: true, value: width });
+  Object.defineProperty(canvas, "clientHeight", { configurable: true, value: height });
+}
+
+function stubRect(element: HTMLElement, box: { x?: number; y: number; width: number; height: number }): void {
+  const x = box.x ?? 0;
+  element.getBoundingClientRect = () =>
+    ({
+      x,
+      y: box.y,
+      top: box.y,
+      bottom: box.y + box.height,
+      left: x,
+      right: x + box.width,
+      width: box.width,
+      height: box.height,
+      toJSON: () => ({}),
+    }) as DOMRect;
+}
+
+/**
+ * Pins the phone geometry the stack has to live inside: the canvas box and the bottom edge of the
+ * top-left actions row, then fires the resize the canvas listens to.
+ */
+function stubTransientBand(
+  container: HTMLElement,
+  geometry: { canvasTop: number; canvasHeight: number; actionsBottom: number },
+): void {
+  const canvas = container.querySelector<HTMLElement>('[data-testid="workflow-canvas"]')!;
+  Object.defineProperty(canvas, "clientHeight", { configurable: true, value: geometry.canvasHeight });
+  stubRect(canvas, { y: geometry.canvasTop, width: 320, height: geometry.canvasHeight });
+  const actions = container.querySelector<HTMLElement>('[data-canvas-overlay="actions"]')!;
+  stubRect(actions, { x: 15, y: geometry.actionsBottom - 30, width: 162, height: 30 });
+  act(() => {
+    window.dispatchEvent(new Event("resize"));
+  });
+}
+
+/**
+ * Stands in for ProjectLayout's fixed chat pill. The canvas measures `[data-chat-pill]` instead of
+ * trusting a pixel constant, so a spec only has to move this box to move the reserve.
+ */
+function mountChatPill(top: number, height: number): () => void {
+  const pill = document.createElement("button");
+  pill.setAttribute("data-chat-pill", "");
+  stubRect(pill, { x: 24, y: top, width: 173, height });
+  document.body.append(pill);
+  return () => pill.remove();
 }
 
 describe("WorkflowCanvas", () => {
@@ -178,6 +263,299 @@ describe("WorkflowCanvas", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Atajos de teclado" })).not.toBeInTheDocument();
   });
+
+  it("keeps the desktop chrome: minimap, zoom readout, shortcuts and the top-right status chips", () => {
+    const { container } = renderCanvas({
+      runProgress: { status: "running", currentNodeLabel: "Preparar datos", completedSteps: 1, runId: "run-1" },
+    });
+    expect(container.querySelector(".react-flow__minimap")).not.toBeNull();
+    expect(container.querySelector('[data-canvas-layout="wide"]')).not.toBeNull();
+    expect(screen.getByText(/Zoom \d+%/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Atajos de teclado" })).toBeInTheDocument();
+    const status = container.querySelector('[data-canvas-overlay="status"]') as HTMLElement;
+    expect(within(status).getByTestId("run-progress")).toHaveTextContent("Preparar datos");
+    expect(container.querySelector('[data-canvas-overlay="transient"]')).toBeNull();
+  });
+
+  it("drops the minimap and stacks the transient chips in one bottom panel on phones", () => {
+    const restore = setViewportMatches(PHONE_QUERY, true);
+    try {
+      const { container } = renderCanvas({
+        runProgress: { status: "running", currentNodeLabel: "Preparar datos", completedSteps: 1, runId: "run-1" },
+        agentStatus: { busy: true, activity: "Editando el flujo" },
+      });
+      expect(container.querySelector(".react-flow__minimap")).toBeNull();
+      expect(container.querySelector('[data-canvas-layout="narrow"]')).not.toBeNull();
+      expect(container.querySelector('[data-canvas-overlay="status"]')).toBeNull();
+
+      // One stack owns every transient overlay, so no two of them can intersect.
+      const stack = container.querySelector('[data-canvas-overlay="transient"]') as HTMLElement;
+      expect(within(stack).getByTestId("agent-progress")).toHaveTextContent("Agente trabajando");
+      expect(within(stack).getByTestId("run-progress")).toHaveTextContent("Preparar datos");
+
+      // The two actions the phone needs survive; keyboard chrome and the readout do not.
+      expect(screen.getByRole("button", { name: "+ Nodo" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Ajustar vista del flujo" })).toBeInTheDocument();
+      expect(screen.queryByText(/Zoom \d+%/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Atajos de teclado" })).toBeNull();
+
+      // Touch handles: the canvas root carries the enlarged hit-area utilities.
+      const root = container.querySelector('[data-testid="workflow-canvas"]') as HTMLElement;
+      expect(root.className).toContain("[&_[data-handlepos]]:h-4!");
+      expect(root.className).toContain("[&_[data-handlepos]]:w-4!");
+    } finally {
+      restore();
+    }
+  });
+
+  it("lifts the phone stack by the chat pill's measured band, not a pixel constant", () => {
+    const restore = setViewportMatches(PHONE_QUERY, true);
+    const removePill = mountChatPill(669.13, 47.22);
+    try {
+      const { container } = renderCanvas({
+        connecting: { sourceId: "trigger" },
+        agentStatus: { busy: true, activity: "Editando el flujo" },
+        chatPillVisible: true,
+      });
+      // 390x844: the canvas ends at the viewport bottom, the pill covers 174.87 px + a 12 px gap.
+      stubTransientBand(container, { canvasTop: 289, canvasHeight: 555, actionsBottom: 334 });
+
+      const stack = container.querySelector('[data-canvas-overlay="transient"]') as HTMLElement;
+      const panel = stack.parentElement as HTMLElement;
+      expect(panel.className).toContain("bottom");
+      expect(panel.style.marginBottom).toBe("187px");
+      expect(stack.getAttribute("data-canvas-pill-reserve")).toBe("187");
+
+      // A 20 px root scales `bottom-32` to 8rem = 160 px and the pill's padding grows with it: the
+      // measured band moves up, so the reserve must move with it. A constant would stay at 187.
+      stubRect(document.querySelector<HTMLElement>("[data-chat-pill]")!, { x: 24, y: 629.7, width: 173, height: 54.3 });
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+      expect(panel.style.marginBottom).toBe("227px");
+      expect(stack.getAttribute("data-canvas-pill-reserve")).toBe("227");
+    } finally {
+      removePill();
+      restore();
+    }
+  });
+
+  it("keeps React Flow's own stack margin on phones when no chat pill is on screen", () => {
+    const restore = setViewportMatches(PHONE_QUERY, true);
+    try {
+      const { container } = renderCanvas({
+        connecting: { sourceId: "trigger" },
+        agentStatus: { busy: true, activity: "Editando el flujo" },
+      });
+      const stack = container.querySelector('[data-canvas-overlay="transient"]') as HTMLElement;
+      expect((stack.parentElement as HTMLElement).style.marginBottom).toBe("");
+      expect(stack.hasAttribute("data-canvas-pill-reserve")).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("collapses the three-chip phone stack into one capped line when the band above the pill is short", () => {
+    const restore = setViewportMatches(PHONE_QUERY, true);
+    const removePill = mountChatPill(392.69, 47.31);
+    try {
+      const { container } = renderCanvas({
+        connecting: { sourceId: "trigger" },
+        runProgress: { status: "running", currentNodeLabel: "Preparar datos", completedSteps: 1, runId: "run-1" },
+        agentStatus: { busy: true, activity: "Editando el flujo" },
+        chatPillVisible: true,
+      });
+      // 320x568: 279 px of canvas, minus the 188 px pill band, the 45 px actions row and a 10 px gap.
+      stubTransientBand(container, { canvasTop: 289, canvasHeight: 279, actionsBottom: 334 });
+
+      const stack = container.querySelector('[data-canvas-overlay="transient"]') as HTMLElement;
+      expect(stack.getAttribute("data-canvas-compact")).toBe("true");
+      // At 320 the slit above the pill is 36 px and the band under it is 101 px: the stack rests at
+      // the canvas bottom instead of climbing over the actions row, so no lift is applied.
+      expect(stack.getAttribute("data-canvas-placement")).toBe("below");
+      expect(stack.style.maxHeight).toBe("101px");
+      expect((stack.parentElement as HTMLElement).style.marginBottom).toBe("");
+      // One line owns every signal: the chips are gone, the summary names the modal state.
+      expect(within(stack).queryByTestId("agent-progress")).toBeNull();
+      expect(within(stack).queryByTestId("run-progress")).toBeNull();
+      expect(stack.getAttribute("data-canvas-transient-signals")).toBe("conexión,agente,ejecución");
+      const notice = stack.querySelector('[data-testid="transient-notice"]') as HTMLElement;
+      expect(notice.textContent).toBe("Elige el destino");
+      expect(notice.className).toContain("whitespace-nowrap");
+      expect(within(stack).getByText("+2")).toBeInTheDocument();
+      // Cancel survives the collapse: the connect instruction stays actionable.
+      expect(within(stack).getByRole("button", { name: "Cancelar" })).toBeInTheDocument();
+    } finally {
+      removePill();
+      restore();
+    }
+  });
+
+  it("collapses the two-chip phone stack too, so the connect banner's first line survives", () => {
+    const restore = setViewportMatches(PHONE_QUERY, true);
+    const removePill = mountChatPill(392.69, 47.31);
+    try {
+      const { container } = renderCanvas({
+        connecting: { sourceId: "trigger" },
+        agentStatus: { busy: true, activity: "Editando el flujo" },
+        chatPillVisible: true,
+      });
+      stubTransientBand(container, { canvasTop: 289, canvasHeight: 279, actionsBottom: 334 });
+
+      const stack = container.querySelector('[data-canvas-overlay="transient"]') as HTMLElement;
+      expect(stack.getAttribute("data-canvas-compact")).toBe("true");
+      expect(stack.getAttribute("data-canvas-placement")).toBe("below");
+      expect(stack.getAttribute("data-canvas-transient-signals")).toBe("conexión,agente");
+      expect(within(stack).getByTestId("transient-notice").textContent).toBe("Elige el destino");
+      expect(within(stack).getByText("+1")).toBeInTheDocument();
+      expect(within(stack).getByRole("button", { name: "Cancelar" })).toBeInTheDocument();
+    } finally {
+      removePill();
+      restore();
+    }
+  });
+
+  it("rests the stack under the pill when the actions-to-pill slit cannot hold it", () => {
+    // 320x568 with the graph-issues banner: the canvas is 230 px and the actions row ends 12 px
+    // above the pill, so nothing fits above it. The band under the pill is 98 px.
+    const restore = setViewportMatches(PHONE_QUERY, true);
+    const removePill = mountChatPill(395.4, 47.3);
+    try {
+      const { container } = renderCanvas({
+        connecting: { sourceId: "trigger" },
+        agentStatus: { busy: true, activity: "Editando el flujo" },
+        chatPillVisible: true,
+      });
+      stubTransientBand(container, { canvasTop: 338, canvasHeight: 230, actionsBottom: 383 });
+
+      const stack = container.querySelector('[data-canvas-overlay="transient"]') as HTMLElement;
+      expect(stack.getAttribute("data-canvas-placement")).toBe("below");
+      expect(stack.style.maxHeight).toBe("98px");
+      expect(stack.className).toContain("overflow-hidden");
+      expect((stack.parentElement as HTMLElement).style.marginBottom).toBe("");
+      expect(within(stack).getByTestId("transient-notice").textContent).toBe("Elige el destino");
+    } finally {
+      removePill();
+      restore();
+    }
+  });
+
+  it("keeps the full chip stack with a height cap when the band above the pill is tall", () => {
+    const restore = setViewportMatches(PHONE_QUERY, true);
+    const removePill = mountChatPill(669.13, 47.22);
+    try {
+      const { container } = renderCanvas({
+        connecting: { sourceId: "trigger" },
+        runProgress: { status: "running", currentNodeLabel: "Preparar datos", completedSteps: 1, runId: "run-1" },
+        agentStatus: { busy: true, activity: "Editando el flujo" },
+        chatPillVisible: true,
+      });
+      // 390x844: 313 px of band, enough for the three chips.
+      stubTransientBand(container, { canvasTop: 289, canvasHeight: 555, actionsBottom: 334 });
+
+      const stack = container.querySelector('[data-canvas-overlay="transient"]') as HTMLElement;
+      expect(stack.hasAttribute("data-canvas-compact")).toBe(false);
+      expect(stack.getAttribute("data-canvas-placement")).toBe("above");
+      expect(stack.style.maxHeight).toBe("313px");
+      expect(within(stack).getByTestId("agent-progress")).toBeInTheDocument();
+      expect(within(stack).getByTestId("run-progress")).toBeInTheDocument();
+      expect(stack.textContent).toContain("Elige el destino");
+    } finally {
+      removePill();
+      restore();
+    }
+  });
+
+  it("passes the touch connection options only below 640 px", () => {
+    const desktop = renderCanvas();
+    const desktopProps = flowHarness.props.at(-1)!;
+    expect(desktopProps).not.toHaveProperty("connectOnClick");
+    expect(desktopProps).not.toHaveProperty("connectionRadius");
+    desktop.unmount();
+
+    const restore = setViewportMatches(PHONE_QUERY, true);
+    try {
+      renderCanvas();
+      const narrowProps = flowHarness.props.at(-1)!;
+      expect(narrowProps.connectOnClick).toBe(true);
+      expect(narrowProps.connectionRadius).toBe(TOUCH_CONNECTION_RADIUS);
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not select a node when the tap lands on a connection handle", async () => {
+    const onSelect = vi.fn();
+    const { container } = renderCanvas({ graph: graph([node("start", "trigger"), node("code", "code")]), onSelect });
+    const handle = container.querySelector('[data-node-id="code"] .react-flow__handle');
+    await waitFor(() => expect(handle).not.toBeNull());
+    fireEvent.click(handle!);
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.click(container.querySelector('[data-node-id="code"]')!);
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith("code"));
+  });
+
+  it("fits a small graph at no less than 0.8 on desktop", async () => {
+    vi.useFakeTimers();
+    const instance = fakeFlowInstance();
+    flowHarness.raise = instance;
+    try {
+      const { container } = renderCanvas({ graph: graph([node("start", "trigger")]) });
+      stubCanvasSize(container, 1280, 800);
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(instance.fitView).toHaveBeenCalledWith({ padding: 0.1, duration: 300, minZoom: 0.8, maxZoom: 1.2 });
+      expect(instance.setCenter).not.toHaveBeenCalled();
+    } finally {
+      flowHarness.raise = null;
+      vi.useRealTimers();
+    }
+  });
+
+  it("centers the trigger at the 0.8 floor on a phone and never re-fits on a live update", async () => {
+    vi.useFakeTimers();
+    const restore = setViewportMatches(PHONE_QUERY, true);
+    const instance = fakeFlowInstance();
+    flowHarness.raise = instance;
+    try {
+      const first = graph([node("start", "trigger"), node("code", "code", { position: { x: 2800, y: 0 } })]);
+      const { container, rerender, props } = renderCanvas({ graph: first, selectedId: "code" });
+      stubCanvasSize(container, 390, 600);
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+      // 390 px cannot hold the graph at 0.8, so the trigger is centered at the floor.
+      expect(instance.setCenter).toHaveBeenCalledTimes(1);
+      expect(instance.setCenter).toHaveBeenCalledWith(126, 48, expect.objectContaining({ zoom: 0.8 }));
+      expect(instance.fitView).not.toHaveBeenCalled();
+
+      // An SSE re-sync keeps the graph id and only refreshes statuses: the viewport stays put.
+      rerender(
+        <WorkflowCanvas
+          {...props}
+          graph={{ ...first, updatedAt: new Date().toISOString() }}
+          nodeStatuses={{ code: "running" }}
+          selectedId="code"
+        />,
+      );
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(instance.setCenter).toHaveBeenCalledTimes(1);
+      expect(instance.fitView).not.toHaveBeenCalled();
+
+      // `Ajustar vista` still reaches the 0.25 overview threshold.
+      vi.useRealTimers();
+      await act(async () => {});
+      fireEvent.click(screen.getByRole("button", { name: "Ajustar vista del flujo" }));
+      expect(instance.fitView).toHaveBeenCalledWith({ padding: 0.1, duration: 300, minZoom: 0.25, maxZoom: 1.2 });
+    } finally {
+      flowHarness.raise = null;
+      restore();
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("NodePaletteModal", () => {
@@ -206,6 +584,23 @@ describe("NodePaletteModal", () => {
     await userEvent.clear(screen.getByLabelText("Buscar nodo"));
     await userEvent.click(screen.getByRole("button", { name: /HTTP Request/ }));
     expect(onAdd).toHaveBeenCalledWith("http");
+  });
+
+  it("turns the dialog into a full-height sheet on phones and still adds a node", async () => {
+    const onAdd = vi.fn();
+    render(<NodePaletteModal graph={paletteGraph} sheet onClose={vi.fn()} onAdd={onAdd} />);
+    const dialog = screen.getByRole("dialog", { name: "Agregar nodo" });
+    const body = dialog.querySelector("[data-sheet]");
+    expect(body).not.toBeNull();
+    // The shared Modal caps a sheet at 92dvh; the body claims what the header leaves.
+    expect(body!.className).toContain("min-h-[calc(92dvh_-_5.5rem)]");
+    await userEvent.click(within(dialog).getByRole("button", { name: /HTTP Request/ }));
+    expect(onAdd).toHaveBeenCalledWith("http");
+  });
+
+  it("keeps the desktop palette a content-sized dialog", () => {
+    render(<NodePaletteModal graph={paletteGraph} onClose={vi.fn()} onAdd={vi.fn()} />);
+    expect(screen.getByRole("dialog", { name: "Agregar nodo" }).querySelector("[data-sheet]")).toBeNull();
   });
 });
 
@@ -265,6 +660,14 @@ describe("NodeInspectorModal", () => {
     );
     return { onConnect, onStartCanvasConnect, onDuplicate, onRemove, onConfig, onPatch, onReplaceConfig };
   }
+
+  it("presents the inspector as a full-height sheet on phones", () => {
+    renderInspector({ sheet: true });
+    const dialog = screen.getByRole("dialog", { name: "Nodo: agent" });
+    const body = dialog.querySelector("[data-sheet]");
+    expect(body).not.toBeNull();
+    expect(body!.className).toContain("min-h-[calc(92dvh_-_5.5rem)]");
+  });
 
   it("edits database node settings and validates statement JSON", async () => {
     const user = userEvent.setup();
@@ -683,7 +1086,7 @@ describe("ProjectTopBar", () => {
     renderTopBar("agents", { navigationBlocked: true, onNavigateBlocked });
     await userEvent.click(screen.getByRole("link", { name: "Resumen" }));
     expect(onNavigateBlocked).toHaveBeenCalledWith("/projects/demo/overview");
-    await userEvent.click(screen.getByRole("link", { name: "← Proyectos" }));
+    await userEvent.click(screen.getByRole("link", { name: "Proyectos" }));
     expect(onNavigateBlocked).toHaveBeenCalledWith("/projects");
     expect(screen.getByTestId("location")).toHaveTextContent("/projects/demo/agents");
   });
@@ -724,11 +1127,22 @@ describe("ProjectTopBar", () => {
     await userEvent.click(screen.getByRole("menuitem", { name: "Ajustes del flujo" }));
     const dialog = screen.getByRole("dialog", { name: "Ajustes del flujo" });
     const picker = within(dialog).getByRole("combobox", { name: "Modelo por defecto" });
-    expect(picker).toHaveTextContent("Heredar del flujo");
+    // The flow default falls back to the PROJECT default, so the row names the project.
+    expect(picker).toHaveTextContent("Heredar del proyecto");
 
     await userEvent.click(picker);
-    expect(screen.getByRole("option", { name: /^Fast opencode-go\/fast/ })).toBeInTheDocument();
+    const inheritRow = screen.getByRole("option", { name: "Heredar del proyecto" });
+    expect(inheritRow).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Heredar del flujo/ })).toBeNull();
+    const firstModelRow = screen.getByRole("option", { name: /^Fast opencode-go\/fast/ });
+    expect(firstModelRow).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /^opencode-go\/fast/ })).not.toBeInTheDocument();
+
+    // DOM position, not class strings: the inherit row is the first rendered row and sits above
+    // the first provider group, so a row that only heads the keyboard order cannot pass this.
+    expect(within(screen.getByRole("listbox")).getAllByRole("option")[0]!).toBe(inheritRow);
+    expect(inheritRow.closest('[role="group"]')).toBeNull();
+    expect(inheritRow.compareDocumentPosition(firstModelRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await userEvent.click(screen.getByRole("option", { name: /^Fast opencode-go\/fast/ }));
     expect(onChange).toHaveBeenCalledWith({ defaultModel: "opencode-go/fast" });
@@ -756,14 +1170,14 @@ describe("ProjectTopBar", () => {
     await userEvent.click(picker);
     const saved = screen.getByRole("option", { name: /opencode-go\/legacy/ });
     expect(saved).toHaveTextContent("no disponible");
-    await userEvent.click(screen.getByRole("option", { name: /Heredar del flujo/ }));
+    await userEvent.click(screen.getByRole("option", { name: /Heredar del proyecto/ }));
     expect(onChange).toHaveBeenCalledWith({ defaultModel: undefined });
   });
 
   it("keeps every flow action in one non-scrolling cluster and collapses its labels below sm", () => {
     renderTopBar("flow", { dirty: true, issueCount: 2 });
     const bar = screen.getByTestId("project-top-bar");
-    // Narrow: two rows (breadcrumb, then tabs + actions). Desktop: the unchanged single h-14 row.
+    // Narrow: two rows (the breadcrumb, then tabs + actions). Desktop: the unchanged single h-14 row.
     expect(bar.className).toContain("flex-col");
     expect(bar.className).toContain("sm:h-14");
     expect(bar.className).toContain("sm:flex-row");

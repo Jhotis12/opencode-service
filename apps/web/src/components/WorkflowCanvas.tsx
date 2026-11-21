@@ -23,7 +23,7 @@ import { PlatformEdge, type PlatformFlowEdge } from "./PlatformEdge.tsx";
 import { CanvasActionsContext } from "./nodes/canvas-actions.ts";
 import { NODE_META } from "./nodes/node-catalog.ts";
 import { getConnectionIssue, resolveConnection, type GraphIssue } from "./canvas/graph-edits.ts";
-import { ShortcutsHelp, ZoomReadout } from "./canvas/canvas-overlays.tsx";
+import { AgentFlowUpdateNotice, ShortcutsHelp, ZoomReadout } from "./canvas/canvas-overlays.tsx";
 import { focusRing } from "../ui.ts";
 import { useMediaQuery } from "../useMediaQuery.ts";
 
@@ -413,6 +413,8 @@ export interface WorkflowCanvasProps {
   /** The layout's fixed chat pill is on screen; the narrow stack must clear its band. */
   chatPillVisible?: boolean;
   agentTouchedNodeIds?: string[];
+  agentUpdate?: { summary: string; at?: number };
+  onDismissAgentUpdate?(): void;
   className?: string;
   connecting?: { sourceId: string; condition?: "true" | "false" } | null;
   issues?: GraphIssue[];
@@ -440,6 +442,8 @@ export function WorkflowCanvas({
   agentStatus,
   chatPillVisible = false,
   agentTouchedNodeIds,
+  agentUpdate,
+  onDismissAgentUpdate,
   className,
   connecting,
   issues = EMPTY_ISSUES,
@@ -638,6 +642,14 @@ export function WorkflowCanvas({
   }
 
   useEffect(() => {
+    if (!flow || !agentUpdate?.at) return;
+    const timer = setTimeout(() => {
+      flow.fitView({ padding: 0.18, duration: 300, minZoom: 0.4, maxZoom: 1.2 });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [flow, agentUpdate?.at]);
+
+  useEffect(() => {
     setNodes(toNodes(graph, selectedId, runningNodeId, nodeStatuses, issues, validity, agentTouchedNodeIds));
   }, [graph, selectedId, runningNodeId, nodeStatuses, issues, validity, agentTouchedNodeIds, setNodes]);
 
@@ -814,9 +826,16 @@ export function WorkflowCanvas({
                   <ConnectBanner connecting={connecting} narrow={false} onCancel={onCancelConnect} />
                 </Panel>
               )}
-              {(runProgress || agentStatus?.busy) && (
+              {(runProgress || agentStatus?.busy || agentUpdate) && (
                 <Panel position="top-right">
                   <div className="flex flex-col gap-2" data-canvas-overlay="status">
+                    {agentUpdate && (
+                      <AgentFlowUpdateNotice
+                        summary={agentUpdate.summary}
+                        onDismiss={onDismissAgentUpdate}
+                        onOpenChat={onOpenChat}
+                      />
+                    )}
                     {agentStatus?.busy && (
                       <AgentProgressChip activity={agentStatus.activity} narrow={false} onOpenChat={onOpenChat} />
                     )}

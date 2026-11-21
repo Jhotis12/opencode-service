@@ -1,3 +1,8 @@
+import { type NotifyOptions, notifyError, notifyInfo, notifySuccess, notifyWarning } from "./components/Toast.tsx";
+
+export { toasterProps, toastVars } from "./components/Toast.tsx";
+export type { NotifyOptions };
+
 export const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
 export const card =
@@ -51,6 +56,21 @@ export const tabActive = "border-line bg-panel-2 text-slate-100";
 export const skeleton = "shrink-0 animate-pulse bg-panel-2 motion-reduce:animate-none";
 
 export type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
+
+export type Notify = {
+  readonly success: (message: string, options?: NotifyOptions) => void;
+  readonly error: (message: string, options?: NotifyOptions) => void;
+  readonly info: (message: string, options?: NotifyOptions) => void;
+  readonly warning: (message: string, options?: NotifyOptions) => void;
+};
+
+/** The shared call shape, on top of the one host's helpers in `components/Toast.tsx`. */
+export const notify: Notify = {
+  success: notifySuccess,
+  error: notifyError,
+  info: notifyInfo,
+  warning: notifyWarning,
+};
 
 const STATUS_LABELS: Record<string, { label: string; tone: StatusTone }> = {
   queued: { label: "En cola", tone: "neutral" },

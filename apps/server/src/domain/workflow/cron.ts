@@ -3,67 +3,16 @@ import type { WorkspacePort } from "../../application/ports/workspace.ts";
 import type { ExecuteWorkflowRunUseCase } from "../../application/use-cases/execute-workflow.ts";
 import type { WorkflowRunRecord } from "../entities.ts";
 import type { Logger } from "../telemetry/index.ts";
-import { TriggerConfigSchema, type NodeSpec, type WorkflowGraph } from "@platform/shared";
+import {
+  CRON_FIELD_RANGES as FIELD_RANGES,
+  TriggerConfigSchema,
+  isValidCronExpression,
+  parseCronField,
+  type NodeSpec,
+  type WorkflowGraph,
+} from "@platform/shared";
 
-const FIELD_RANGES: Array<[number, number]> = [
-  [0, 59], // minute
-  [0, 23], // hour
-  [1, 31], // day of month
-  [1, 12], // month
-  [0, 7], // day of week (0 and 7 are Sunday)
-];
-
-function parseFieldToken(token: string, min: number, max: number): Set<number> | undefined {
-  const [rangePart, stepPart, extra] = token.split("/");
-  if (!rangePart || extra !== undefined) return undefined;
-  const step = stepPart === undefined ? 1 : Number(stepPart);
-  if (!Number.isInteger(step) || step <= 0) return undefined;
-
-  let start = min;
-  let end = max;
-  if (rangePart !== "*") {
-    if (rangePart.includes("-")) {
-      const [lo, hi, more] = rangePart.split("-");
-      if (!lo || !hi || more !== undefined) return undefined;
-      start = Number(lo);
-      end = Number(hi);
-    } else {
-      start = Number(rangePart);
-      end = stepPart === undefined ? start : max;
-    }
-    if (!Number.isInteger(start) || !Number.isInteger(end) || start < min || end > max || start > end) {
-      return undefined;
-    }
-  }
-
-  const values = new Set<number>();
-  for (let current = start; current <= end; current += step) {
-    values.add(max === 7 && current === 7 ? 0 : current);
-  }
-  return values;
-}
-
-function parseCronField(field: string, min: number, max: number): Set<number> | undefined {
-  const parts = field.split(",");
-  if (parts.length === 0) return undefined;
-  const result = new Set<number>();
-  for (const part of parts) {
-    if (!part) return undefined;
-    const values = parseFieldToken(part, min, max);
-    if (!values || values.size === 0) return undefined;
-    for (const v of values) result.add(v);
-  }
-  return result;
-}
-
-export function isValidCronExpression(expression: string): boolean {
-  const fields = expression.trim().split(/\s+/);
-  if (fields.length !== 5) return false;
-  return fields.every((field, index) => {
-    const [min, max] = FIELD_RANGES[index]!;
-    return parseCronField(field, min, max) !== undefined;
-  });
-}
+export { isValidCronExpression };
 
 export function matchesCron(expression: string, date: Date): boolean {
   const sets = parseCron(expression);

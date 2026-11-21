@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Toaster } from "sonner";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { IntegrationRecord, WorkflowGraph } from "@platform/shared";
-import { renderWithProviders } from "./render.tsx";
+import { renderWithProviders, findToast, toastRegion } from "./render.tsx";
 
 vi.mock("qrcode", () => ({
   default: { toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,stub") },
@@ -151,7 +150,6 @@ function renderPage() {
           </Route>
         </Routes>
       </MemoryRouter>
-      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </>,
   );
 }
@@ -189,7 +187,10 @@ describe("ProjectIntegrationsPage", () => {
     renderPage();
     const httpCard = await screen.findByTestId("integration-card-http-1");
     await userEvent.click(within(httpCard).getByRole("button", { name: "Probar" }));
-    expect(await screen.findByText("HTTP pagos: Operativo")).toBeInTheDocument();
+    const toast = await findToast("HTTP pagos: Operativo");
+    expect(toast).toBeVisible();
+    expect(toastRegion()).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByRole("button", { name: "Cerrar notificación" })).toBeInTheDocument();
   });
 
   it("announces a needs_config connect as a warning, never as a success", async () => {
@@ -453,7 +454,6 @@ describe("shared integration card", () => {
     renderWithProviders(
       <>
         <ControlChannelsPanel />
-        <Toaster theme="dark" position="bottom-right" richColors closeButton />
       </>,
     );
 
@@ -479,7 +479,6 @@ describe("shared integration card", () => {
     renderWithProviders(
       <>
         <ControlChannelsPanel />
-        <Toaster theme="dark" position="bottom-right" richColors closeButton />
       </>,
     );
 

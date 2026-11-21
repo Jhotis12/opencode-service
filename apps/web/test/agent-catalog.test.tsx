@@ -1,12 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import { Toaster } from "sonner";
 import userEvent from "@testing-library/user-event";
 import { QueryClientProvider, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { SubagentProfile } from "@platform/shared";
 import type { ModelInfo, NotebookSummary } from "../src/api.ts";
 import { qk } from "../src/query.ts";
-import { chooseOption, renderWithProviders } from "./render.tsx";
+import { chooseOption, findToast, renderWithProviders } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
   upsertAgent: vi.fn(),
@@ -160,7 +159,6 @@ describe("AgentCatalog", () => {
     renderWithProviders(
       <>
         <AgentCatalog projectSlug="demo" agents={[primary]} models={[]} />
-        <Toaster theme="dark" position="bottom-right" richColors closeButton />
       </>,
     );
     await userEvent.click(screen.getByRole("button", { name: "Nuevo agente" }));
@@ -347,6 +345,7 @@ describe("AgentCatalog", () => {
     await userEvent.click(within(subCard).getByRole("button", { name: "Borrar" }));
     await userEvent.click(within(screen.getByRole("dialog", { name: "Eliminar agente" })).getByRole("button", { name: "Borrar agente" }));
     await waitFor(() => expect(apiMock.deleteAgent).toHaveBeenCalledWith("demo", "ventas", "calificador"));
+    expect(await findToast("Agente ventas/calificador eliminado")).toBeVisible();
   });
 
   it("announces a rejected deletion as a toast", async () => {
@@ -354,7 +353,6 @@ describe("AgentCatalog", () => {
     renderWithProviders(
       <>
         <AgentCatalog projectSlug="demo" agents={[subagent, primary]} models={catalogue} />
-        <Toaster theme="dark" position="bottom-right" richColors closeButton />
       </>,
     );
     const subCard = screen.getByTestId("agent-card-ventas-calificador");

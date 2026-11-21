@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Toaster } from "sonner";
 import { renderWithProviders } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
@@ -26,7 +25,6 @@ function renderKnowledge() {
   return renderWithProviders(
     <>
       <ProjectKnowledgePanel projectSlug="demo" />
-      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </>,
   );
 }

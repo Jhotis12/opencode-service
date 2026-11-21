@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import type { UserEvent } from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import { AppToaster } from "../src/components/Toast.tsx";
 
 export function renderWithProviders(ui: ReactElement) {
   const client = new QueryClient({
@@ -10,7 +11,32 @@ export function renderWithProviders(ui: ReactElement) {
       mutations: { retry: false },
     },
   });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={client}>
+      {ui}
+      <AppToaster />
+    </QueryClientProvider>,
+  );
+}
+
+export function toastRegion(): HTMLElement {
+  return screen.getByRole("region", { name: "Notificaciones" });
+}
+
+export async function findToast(text: RegExp | string): Promise<HTMLElement> {
+  // Scan the toast nodes themselves: the same copy can also live inline (a status line), so a
+  // document-wide text query could resolve before the toast mounts or pick the inline node.
+  const matcher =
+    text instanceof RegExp ? new RegExp(text.source, text.flags.replace(/g/g, "")) : undefined;
+  return waitFor(() => {
+    const items = Array.from(document.querySelectorAll<HTMLElement>("[data-sonner-toast]"));
+    const item = items.find((node) => {
+      const content = node.textContent ?? "";
+      return matcher ? matcher.test(content) : content.includes(text as string);
+    });
+    if (!item) throw new Error(`El texto "${String(text)}" no está dentro de un toast.`);
+    return item;
+  });
 }
 
 /**

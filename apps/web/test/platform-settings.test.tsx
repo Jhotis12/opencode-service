@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { Toaster } from "sonner";
 import { api } from "../src/api.ts";
 import { PlatformSettingsPage as SettingsPage } from "../src/pages/PlatformSettingsPage.tsx";
 import { chooseOption, renderWithProviders, setViewportMatches } from "./render.tsx";
@@ -80,7 +79,6 @@ function renderSettings(entry: string) {
       <MemoryRouter initialEntries={[entry]}>
         <SettingsPage />
       </MemoryRouter>
-      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </>
   );
 }

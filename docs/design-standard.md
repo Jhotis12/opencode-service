@@ -359,6 +359,30 @@ composes the shared primitives; the state matrix below applies to all of them.
 - **Settings** — `PageHeader` then `Tabs` or stacked section cards of `Field`
   forms. Destructive actions live in their own zone and open `ConfirmDialog`.
 
+### Feedback and notifications
+
+Two channels, and the choice between them is a rule, not a taste:
+
+- **Toasts** announce the result of an action the user just triggered: save,
+  run, delete, rollback, test connection. Bottom-right, 4 to 6 seconds, one
+  toast per action and never more than three stacked. Use `role="status"` and
+  `aria-live="polite"`; enter and exit follow `docs/ui-motion.md` (under
+  300 ms). A failed action uses the danger tone and says what happened plus the
+  next step, with at most one action such as `Reintentar` or `Ver ejecuciones`.
+- **Inline feedback** owns validation. Field problems stay under the control
+  through `Field` `error` and `aria-invalid`, with a summary near the primary
+  action. The flow canvas keeps its issue badge and `GraphIssuesSummary`; it
+  never pushes a toast per invalid node.
+
+Server rejections that return a list of issues (`INVALID_WORKFLOW` and its
+siblings) stay as a persistent banner in the project shell, because the user has
+to correct something. Do not use a toast for an error that blocks the action, and
+do not use a toast to carry data the user needs later: the run detail stays in
+Ejecuciones and the toast only links to it. The current project shell already
+renders status and error lines in one persistent bar
+(`apps/web/src/pages/ProjectLayout.tsx:120`); toasts are the target for one-off
+action results on top of that bar, not a replacement for it.
+
 ### State matrix
 
 Forms (editors and settings), lists (tables and card grids) and dialogs

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { PlatformToolNameSchema } from "@platform/shared";
 import { HttpPlatformClient, createPlatformTools, type PlatformClient } from "../src/tools.ts";
 import plugin from "../src/index.ts";
 
@@ -9,7 +10,7 @@ class FakeClient implements PlatformClient {
     return { method, args };
   }
   async listProjects() { return this.record("listProjects", []); }
-  async listIntegrations(slug: string) { return this.record("listIntegrations", [slug]); }
+  async listIntegrations(slug: string) { this.record("listIntegrations", [slug]); return { data: [] }; }
   async getWorkflow(slug: string) { return this.record("getWorkflow", [slug]); }
   async upsertWorkflow(slug: string, graph: unknown) { return this.record("upsertWorkflow", [slug, graph]); }
   async triggerWorkflow(slug: string, payload: unknown, key?: string) { return this.record("triggerWorkflow", [slug, payload, key]); }
@@ -20,8 +21,11 @@ class FakeClient implements PlatformClient {
   async searchKnowledge(projectSlug: string, notebookSlug: string, query: string, limit?: number) {
     return this.record("searchKnowledge", [projectSlug, notebookSlug, query, limit]);
   }
-  async searchKnowledgeAcrossProjects(query: string, projectSlug?: string, limit?: number) {
-    return this.record("searchKnowledgeAcrossProjects", [query, projectSlug, limit]);
+  async searchKnowledgeProject(projectSlug: string, query: string, limit?: number) {
+    return this.record("searchKnowledgeProject", [projectSlug, query, limit]);
+  }
+  async searchKnowledgeAcrossProjects(query: string, projectSlug?: string, limit?: number, notebookSlug?: string) {
+    return this.record("searchKnowledgeAcrossProjects", [query, projectSlug, limit, notebookSlug]);
   }
   async queryDatabase(projectSlug: string, integrationId: string, sql: string, params?: unknown[]) {
     return this.record("queryDatabase", [projectSlug, integrationId, sql, params]);
@@ -71,6 +75,11 @@ describe("platform tool namespace", () => {
       expect(item.description.length).toBeGreaterThan(10);
       expect(item.input.type).toBe("object");
     }
+  });
+
+  it("keeps the registered names identical to PlatformToolNameSchema", () => {
+    const names = createPlatformTools(new FakeClient()).map((item) => item.name).sort();
+    expect(names).toEqual([...PlatformToolNameSchema.options].sort());
   });
 
   it("propagates session context and sanitizes integration discovery", async () => {
@@ -222,6 +231,177 @@ describe("platform tool namespace", () => {
     }
   });
 
+  it("delegates the discovery tools to their client methods", async () => {
+    const client = new FakeClient();
+    await tool("workflow_list", client).execute({});
+    await tool("workflow_get", client).execute({ projectSlug: "p1" });
+    await tool("subagent_list", client).execute({ projectSlug: "p1" });
+    await tool("health_summary", client).execute({});
+    const integrations = await tool("integration_list", client).execute({ projectSlug: "p1" });
+    expect(client.calls.map((call) => call.method)).toEqual([
+      "listProjects",
+      "getWorkflow",
+      "listSubagents",
+      "health",
+      "listIntegrations",
+    ]);
+    expect(JSON.parse(integrations.content)).toEqual([]);
+  });
+
+  it("routes knowledge search to an endpoint each scope is allowed to call", async () => {
+    const client = new FakeClient();
+    await tool("kb_search", client, { projectSlug: "p1" }).execute({ query: "facturas" });
+    expect(client.calls[0]).toEqual({ method: "searchKnowledgeProject", args: ["p1", "facturas", undefined] });
+
+    await tool("kb_search", client, { projectSlug: "p1" }).execute({ query: "facturas", notebookSlug: "manual" });
+    expect(client.calls[1]).toEqual({ method: "searchKnowledge", args: ["p1", "manual", "facturas", undefined] });
+
+    await tool("kb_search", client, { global: true }).execute({
+      projectSlug: "p1",
+      notebookSlug: "manual",
+      query: "facturas",
+    });
+    expect(client.calls[2]).toEqual({
+      method: "searchKnowledgeAcrossProjects",
+      args: ["facturas", "p1", undefined, "manual"],
+    });
+
+    await expect(tool("kb_search", client, { global: true }).execute({ notebookSlug: "manual", query: "x" })).rejects.toThrow(
+      /notebookSlug requires projectSlug/,
+    );
+    await expect(tool("kb_search", client, {}).execute({ query: "x" })).rejects.toThrow(/projectSlug is required/);
+    expect(client.calls).toHaveLength(3);
+  });
+
+  it("builds a project-scoped overview without calling the control plane", async () => {
+    const original = globalThis.fetch;
+    const urls: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      urls.push(url);
+      const body = url.endsWith("/api/projects")
+        ? { data: [
+            { slug: "p1", name: "P1", description: "uno" },
+            { slug: "p2", name: "P2", description: "dos" },
+          ] }
+        : url.includes("/runs?limit=20")
+          ? { data: [
+              {
+                id: "r1",
+                projectSlug: "p1",
+                workflowId: "wf",
+                status: "failed",
+                error: "boom",
+                startedAt: "t0",
+                finishedAt: "t1",
+                steps: [],
+              },
+            ] }
+          : url.endsWith("/integrations")
+            ? { data: [
+                { id: "i1", scope: "project", projectSlug: "p1", kind: "telegram", name: "Bot", status: "connected" },
+              ] }
+            : { data: [] };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    try {
+      const client = new HttpPlatformClient("http://platform", "token", { projectSlug: "p1" });
+      const overview = createPlatformTools(client, { projectSlug: "p1" }).find((item) => item.name === "project_overview")!;
+      const body = JSON.parse((await overview.execute({})).content) as {
+        projects: unknown[];
+        recentRuns: unknown[];
+        recentErrors: unknown[];
+        integrations: unknown[];
+      };
+      expect(urls.some((url) => url.includes("/api/control/"))).toBe(false);
+      expect(body.projects).toEqual([{ slug: "p1", name: "P1", description: "uno", status: "active" }]);
+      expect(body.recentRuns).toEqual([
+        { id: "r1", projectSlug: "p1", workflowId: "wf", status: "failed", error: "boom", startedAt: "t0", finishedAt: "t1" },
+      ]);
+      expect(body.recentErrors).toEqual([{ id: "r1", message: "boom", entryPoint: "run", createdAt: "t1" }]);
+      expect(body.integrations).toEqual([
+        { id: "i1", scope: "project", projectSlug: "p1", kind: "telegram", name: "Bot", status: "connected" },
+      ]);
+
+      const controlUrls: string[] = [];
+      globalThis.fetch = (async (input: string | URL | Request) => {
+        controlUrls.push(String(input));
+        return new Response(JSON.stringify({ projects: [], recentRuns: [], recentErrors: [], integrations: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as unknown as typeof fetch;
+      const globalOverview = createPlatformTools(new HttpPlatformClient("http://platform", "token", { global: true }), {
+        global: true,
+      }).find((item) => item.name === "project_overview")!;
+      await globalOverview.execute({});
+      expect(controlUrls).toEqual(["http://platform/api/control/overview"]);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("surfaces HTTP status, error envelope and transport failures without hiding them", async () => {
+    const original = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () => new Response("<html>bad gateway</html>", { status: 502 })) as unknown as typeof fetch;
+      await expect(new HttpPlatformClient("http://platform", "token").listProjects()).rejects.toThrow(
+        /platform request failed: GET \/api\/projects returned 502 with a non-JSON body/,
+      );
+
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ error: { code: "FORBIDDEN", message: "nope" } }), { status: 403 })) as unknown as typeof fetch;
+      await expect(new HttpPlatformClient("http://platform", "token").listProjects()).rejects.toThrow(
+        /platform request failed: GET \/api\/projects \(403 FORBIDDEN: nope\)/,
+      );
+
+      globalThis.fetch = (async () => {
+        throw new Error("connect ECONNREFUSED");
+      }) as unknown as typeof fetch;
+      await expect(new HttpPlatformClient("http://platform", "token").listProjects()).rejects.toThrow(
+        /platform request failed: GET \/api\/projects \(connect ECONNREFUSED\)/,
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("rejects unknown input keys and non-object trigger payloads", async () => {
+    const client = new FakeClient();
+    await expect(tool("integration_list", client).execute({ projectSlug: "p1", project_slugg: "p2" })).rejects.toThrow();
+    await expect(tool("workflow_list", client).execute({ unexpected: true })).rejects.toThrow();
+    await expect(
+      tool("notify", client).execute({ projectSlug: "p1", integrationId: "i1", text: "hola", recipent: "x" }),
+    ).rejects.toThrow();
+    await expect(
+      tool("subagent_upsert", client).execute({
+        projectSlug: "p1",
+        category: "ventas",
+        role: "calificador",
+        description: "Califica",
+        body: "Instrucciones",
+        permissions: [{ action: "tool", resource: "db_query", effect: "allow", extra: true }],
+      }),
+    ).rejects.toThrow();
+    await expect(tool("workflow_trigger", client).execute({ projectSlug: "p1", payload: "texto" })).rejects.toThrow();
+    await expect(tool("workflow_trigger", client).execute({ projectSlug: "p1", payload: [1, 2] })).rejects.toThrow();
+    expect(client.calls).toHaveLength(0);
+  });
+
+  it("rejects identifiers that could rewrite the request path", async () => {
+    const client = new FakeClient();
+    await expect(
+      tool("db_query", client).execute({ projectSlug: "p1", integrationId: "../control", sql: "SELECT 1" }),
+    ).rejects.toThrow();
+    await expect(
+      tool("notify", client).execute({ projectSlug: "p1", integrationId: "a/../b", text: "hola" }),
+    ).rejects.toThrow();
+    await expect(
+      tool("kb_search", client, { projectSlug: "p1" }).execute({ query: "x", notebookSlug: "../secrets" }),
+    ).rejects.toThrow();
+    expect(client.calls).toHaveLength(0);
+  });
+
   it("exposes the plugin definition", () => {
     expect(plugin.id).toBe("platform-tools");
     expect(typeof plugin.setup).toBe("function");
@@ -250,6 +430,12 @@ describe("platform tool namespace", () => {
         permissions: [{ action: "tool", resource: "db_query", effect: "deny" }],
       }).execute({ projectSlug: "p1", integrationId: "db1", sql: "SELECT 1" }),
     ).rejects.toThrow(/FORBIDDEN/);
+    await expect(
+      tool("notify", client, {
+        projectSlug: "p1",
+        permissions: [{ action: "tool", resource: "notify", effect: "ask" }],
+      }).execute({ projectSlug: "p1", integrationId: "i1", text: "hola" }),
+    ).rejects.toThrow(/FORBIDDEN: .*requires approval/);
     expect(client.calls).toHaveLength(0);
 
     // Allowed when explicitly permitted in workflow context

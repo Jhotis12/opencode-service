@@ -337,6 +337,8 @@ export function ProjectFlowPage() {
           agentStatus={workspace.chatBusy ? { busy: true, activity: workspace.chatActivity } : undefined}
           chatPillVisible={layout?.chatPillVisible ?? false}
           agentTouchedNodeIds={workspace.agentTouchedNodeIds}
+          agentUpdate={workspace.agentFlowUpdate}
+          onDismissAgentUpdate={workspace.dismissAgentFlowUpdate}
           issues={workspace.graphIssues}
           connecting={connecting}
           className="h-full"

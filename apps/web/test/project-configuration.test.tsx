@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Toaster } from "sonner";
 import type { DestinationKind } from "@platform/shared";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { chooseOption, renderWithProviders } from "./render.tsx";
+import { chooseOption, findToast, renderWithProviders } from "./render.tsx";
 import { dismissAll } from "../src/components/Toast.tsx";
 
 const now = new Date().toISOString();
@@ -153,7 +152,6 @@ function renderPanel(section?: string, props: PanelProps = {}) {
           <Route path="/projects/:slug/integrations" element={<p>Página de integraciones</p>} />
         </Routes>
       </MemoryRouter>
-      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </>
   );
 }
@@ -367,6 +365,19 @@ describe("ProjectConfigurationPanel", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Eliminar destino" })).not.toBeInTheDocument());
     expect(apiMock.deleteDestination).not.toHaveBeenCalled();
     expect(screen.getByText("Admin")).toBeInTheDocument();
+  });
+
+  it("deletes a destination after confirming and announces it with a toast", async () => {
+    mockQueries();
+    apiMock.deleteDestination.mockResolvedValue({ ok: true });
+    renderPanel("destinations");
+    expect(await screen.findByText("Admin")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Borrar el destino Admin" }));
+    await userEvent.click(screen.getByRole("button", { name: "Eliminar" }));
+
+    await waitFor(() => expect(apiMock.deleteDestination).toHaveBeenCalledWith("ventas", "d1"));
+    expect(await findToast("Destino eliminado")).toBeVisible();
   });
 
   it("saves a secret and clears the form", async () => {

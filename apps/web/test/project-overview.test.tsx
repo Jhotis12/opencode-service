@@ -2,9 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { Toaster } from "sonner";
 import type { SubagentProfile, WorkflowGraph } from "@platform/shared";
-import { renderWithProviders } from "./render.tsx";
+import { findToast, renderWithProviders } from "./render.tsx";
 
 const apiMock = vi.hoisted(() => ({
   getWorkflow: vi.fn(),
@@ -172,7 +171,6 @@ function renderPage(entry = "/projects/demo/overview") {
           <Route path="settings" element={<ProjectSettingsPage />} />
         </Route>
       </Routes>
-      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </MemoryRouter>,
   );
 }

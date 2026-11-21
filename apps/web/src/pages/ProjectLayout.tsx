@@ -1,4 +1,4 @@
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useParams } from "react-router-dom";
 import { api } from "../api.ts";
@@ -9,7 +9,7 @@ import { RunDetailModal } from "../components/RunDetailModal.tsx";
 import { RunLaunchModal } from "../components/RunLaunchModal.tsx";
 import { Skeleton } from "../components/Skeleton.tsx";
 import { qk } from "../query.ts";
-import { buttonGhost, card, friendlyError, statusToneText } from "../ui.ts";
+import { buttonGhost, card, friendlyError, notify, statusToneText } from "../ui.ts";
 import { useDocumentTitle } from "../useDocumentTitle.ts";
 import { ProjectWorkspaceProvider, useProjectWorkspace } from "./project-workspace.tsx";
 
@@ -46,6 +46,23 @@ function ProjectWorkspaceShell() {
   });
   useDocumentTitle(workspace.graph?.name ?? "Proyecto");
 
+  // Workspace status is transient action feedback: it is announced as a toast through the tone
+  // that travels with the copy, and the shell still renders it inline with that same tone.
+  const toastedStatus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const status = workspace.status;
+    if (!status) {
+      toastedStatus.current = undefined;
+      return;
+    }
+    if (status.message === toastedStatus.current) return;
+    toastedStatus.current = status.message;
+    if (status.tone === "danger") notify.error(status.message);
+    else if (status.tone === "warning") notify.warning(status.message);
+    else if (status.tone === "info") notify.info(status.message);
+    else notify.success(status.message);
+  }, [workspace.status]);
+
   useEffect(() => {
     if (!workspace.dirty) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -80,6 +97,7 @@ function ProjectWorkspaceShell() {
 
   const graph = workspace.graph;
   const detailRun = workspace.detailRun;
+  const notReady = workspace.settings?.readiness.filter((item) => !item.ready) ?? [];
   // The pill is the page's only always-on bottom-right affordance; pages that render their own
   // bottom-centre notices (the flow canvas) reserve its band so the two cannot overlap.
   const chatPillVisible = !workspace.chatOpen && (workspace.chatBusy || workspace.chatUnread);
@@ -110,12 +128,17 @@ function ProjectWorkspaceShell() {
         onRollbackVersion={(version) => workspace.rollbackVersion(version)}
       />
 
-      {(workspace.status || workspace.displayError) && (
+      {(workspace.status || workspace.displayError || (active !== "overview" && notReady.length > 0)) && (
         <div className="flex flex-col gap-1 border-b border-line px-3 py-2 lg:px-4">
           {workspace.status && (
             <p className={`text-xs ${statusToneText(workspace.status.tone)}`}>{workspace.status.message}</p>
           )}
           {workspace.displayError && <p className="text-xs text-danger">{workspace.displayError}</p>}
+          {active !== "overview" && notReady.length > 0 && (
+            <p className="text-xs text-warn">
+              Configuración pendiente: {notReady.map((item) => item.detail ?? item.label).join(" ")}
+            </p>
+          )}
         </div>
       )}
 

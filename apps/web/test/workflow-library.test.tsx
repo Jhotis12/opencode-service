@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { Toaster } from "sonner";
+import { AppToaster } from "../src/components/Toast.tsx";
 import type { WorkflowGraph } from "@platform/shared";
 import { buildWorkflowDefinition, serializeWorkflowDefinition } from "../src/workflow-transfer.ts";
 import { WorkflowLibraryPanel } from "../src/components/WorkflowLibraryPanel.tsx";
@@ -64,7 +64,7 @@ function setup(graph = makeGraph()) {
   render(
     <>
       <WorkflowLibraryPanel graph={graph} onImport={onImport} onClose={onClose} />
-      <Toaster theme="dark" position="bottom-right" richColors closeButton />
+      <AppToaster />
     </>,
   );
   return { onImport, onClose };

@@ -2,8 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { Toaster } from "sonner";
-import { renderWithProviders } from "./render.tsx";
+import { findToast, renderWithProviders } from "./render.tsx";
 
 const { project, secondProject } = vi.hoisted(() => ({
   project: {
@@ -48,7 +47,6 @@ function renderPage() {
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/projects/:slug" element={<div>proyecto abierto</div>} />
       </Routes>
-      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </MemoryRouter>,
   );
 }
@@ -107,6 +105,7 @@ describe("ProjectsPage", () => {
       description: "Atiende leads",
     });
     expect(await screen.findByText("proyecto abierto")).toBeInTheDocument();
+    expect(await findToast("Proyecto Bot de ventas creado")).toBeVisible();
   });
 
   it("shows both templates in the gallery and creates from the triaje-operativo template", async () => {
@@ -181,6 +180,7 @@ describe("ProjectsPage", () => {
     await userEvent.type(confirm, "bot-ventas");
     await userEvent.click(screen.getByRole("button", { name: "Eliminar definitivamente" }));
     expect(api.deleteProject).toHaveBeenCalledWith("bot-ventas");
+    expect(await findToast("Proyecto Bot de ventas eliminado")).toBeVisible();
   });
 
   it("closes the delete dialog and toasts when deletion fails", async () => {

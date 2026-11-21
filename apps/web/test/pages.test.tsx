@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { Toaster } from "sonner";
 
 vi.mock("qrcode", () => ({
   default: { toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,stub") },
@@ -266,7 +265,6 @@ function renderIntegrationsPage() {
           </Route>
         </Routes>
       </MemoryRouter>
-      <Toaster theme="dark" position="bottom-right" richColors closeButton />
     </>
   );
 }

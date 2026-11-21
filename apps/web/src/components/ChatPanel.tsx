@@ -24,6 +24,14 @@ export interface ChatMessage {
 
 type ChatSurface = "docked" | "minimized";
 
+/**
+ * The minimised restore control is fixed to the viewport, so it must clear the bottom gesture
+ * bar: `viewport-fit=cover` (index.html) makes `env(safe-area-inset-bottom)` real, and a bare
+ * `bottom-4` would leave the pill 8 px inside a 24 px strip. The inset rides on top of the 1rem
+ * gap, so flat (0 px) viewports keep exactly the old offset.
+ */
+const minimisedChatPillBottom = "bottom-[calc(1rem+env(safe-area-inset-bottom))]";
+
 /** Lifecycle of the history that feeds the panel. */
 export type ChatHistoryStatus = "loading" | "ready" | "error";
 
@@ -480,7 +488,7 @@ export function ChatPanel({
       <>
         <button
           type="button"
-          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-accent/40 bg-panel px-4 py-3 text-sm text-slate-100 shadow-2xl hover:border-accent"
+          className={`fixed ${minimisedChatPillBottom} right-4 z-40 flex items-center gap-2 rounded-full border border-accent/40 bg-panel px-4 py-3 text-sm text-slate-100 shadow-2xl hover:border-accent`}
           onClick={() => setSurface("docked")}
           aria-label="Restaurar chat del agente"
         >

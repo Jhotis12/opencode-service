@@ -80,6 +80,13 @@ describe("Layout", () => {
     expect(screen.getByTestId("app-main").className).toContain("calc(100dvh-3.5rem-env(safe-area-inset-top))");
   });
 
+  it("pads the narrow-viewport drawer against both safe-area insets", () => {
+    renderLayout();
+    const drawer = screen.getByLabelText("Navegación lateral");
+    expect(drawer.className).toContain("pt-[calc(1rem+env(safe-area-inset-top))]");
+    expect(drawer.className).toContain("pb-[calc(1rem+env(safe-area-inset-bottom))]");
+  });
+
   it("uses a fluid main area only on project routes", () => {
     const project = renderLayout("/projects/demo");
     expect(screen.getByTestId("app-main").className).toContain("lg:h-dvh");

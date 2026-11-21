@@ -64,6 +64,19 @@ describe("ChatPanel", () => {
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
   });
 
+  it("keeps the minimised restore control above the bottom safe area", async () => {
+    renderWithProviders(<ChatPanel storageKey="safe-area-test" onSend={async () => "ok"} />);
+    await userEvent.click(screen.getByRole("button", { name: "Minimizar chat" }));
+    const restore = screen.getByRole("button", { name: "Restaurar chat del agente" });
+    // jsdom has no layout engine, so `env(safe-area-inset-bottom)` never resolves here: this test
+    // can only pin that the viewport-fixed control consumes the inset on top of its 16 px gap.
+    // The resolved geometry (390x844, 24 px inset) is proved by the Chromium probe recorded in
+    // .omo/evidence/task-69-chat-pill.md.
+    expect(restore.className).toContain("fixed");
+    expect(restore.className).toContain("bottom-[calc(1rem+env(safe-area-inset-bottom))]");
+    expect(restore.className).not.toMatch(/\sbottom-4\s/);
+  });
+
   it("falls back to docked from a persisted expanded value", () => {
     localStorage.setItem("chat-surface:legacy-expanded", "expanded");
     renderWithProviders(<ChatPanel storageKey="legacy-expanded" onSend={async () => "ok"} />);

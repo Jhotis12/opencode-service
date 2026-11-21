@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Toaster } from "sonner";
 import { afterEach, describe, expect, it } from "vitest";
-import { dismissAll, notifyError, notifySuccess } from "../src/components/Toast.tsx";
+import { dismissAll, notifyError, notifySuccess, AppToaster } from "../src/components/Toast.tsx";
 
 function renderToaster() {
   render(<Toaster theme="dark" position="bottom-right" richColors closeButton />);
@@ -10,6 +10,20 @@ function renderToaster() {
 
 afterEach(() => {
   act(() => dismissAll());
+});
+
+describe("toast host", () => {
+  it("keeps the fixed host above the bottom safe area", async () => {
+    render(<AppToaster />);
+    act(() => notifySuccess("Listo"));
+    const host = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>("[data-sonner-toaster]");
+      if (!element) throw new Error("the toast host has not mounted");
+      return element;
+    });
+    expect(host.style.getPropertyValue("--offset-bottom")).toBe("calc(1.5rem + env(safe-area-inset-bottom))");
+    expect(host.style.getPropertyValue("--mobile-offset-bottom")).toBe("calc(1rem + env(safe-area-inset-bottom))");
+  });
 });
 
 describe("notifySuccess", () => {

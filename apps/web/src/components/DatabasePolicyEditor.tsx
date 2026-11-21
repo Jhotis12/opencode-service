@@ -4,7 +4,8 @@ import type { IntegrationRecord } from "@platform/shared";
 import { api } from "../api.ts";
 import { Select } from "./Select.tsx";
 import type { SelectOption } from "./select/options.ts";
-import { buttonGhost } from "../ui.ts";
+import { buttonGhost, friendlyError } from "../ui.ts";
+import { notifyError, notifySuccess } from "./Toast.tsx";
 
 const ACCESS_OPTIONS: readonly SelectOption[] = [
   { value: "read", label: "Solo lectura" },
@@ -30,7 +31,12 @@ export function DatabasePolicyEditor({
       api.updateIntegration(projectSlug, integration.id, {
         config: { ...integration.config, access, maxRows, allowDdl },
       }),
-    onSuccess: onSaved,
+    onSuccess: () => {
+      notifySuccess("Política de base de datos guardada");
+      onSaved();
+    },
+    onError: (cause) =>
+      notifyError(friendlyError(cause, "No se pudo guardar la política de base de datos.")),
   });
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-line bg-well p-2">
@@ -61,7 +67,6 @@ export function DatabasePolicyEditor({
       <button className={buttonGhost} disabled={save.isPending} onClick={() => save.mutate()}>
         Guardar política
       </button>
-      {save.error && <small className="text-danger">{save.error instanceof Error ? save.error.message : "Error"}</small>}
     </div>
   );
 }

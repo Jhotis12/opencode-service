@@ -165,7 +165,7 @@ describe("ProjectConfigurationPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("announces a rejected settings save with main's localized copy instead of a raw message", async () => {
+  it("announces a settings save rejection that carries no message with main's localized fallback", async () => {
     mockQueries();
     // A rejection with no message is what reaches the fallback; an Error carries its own text through friendlyError.
     apiMock.updateProjectSettings.mockRejectedValueOnce(null);

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IntegrationRecord } from "@platform/shared";
-import { renderWithProviders, chooseOption } from "./render.tsx";
+import { renderWithProviders, chooseOption, findToast } from "./render.tsx";
 
 vi.mock("qrcode", () => ({
   default: { toDataURL: vi.fn().mockResolvedValue("data:image/png;base64,stub") },
@@ -45,6 +45,27 @@ function databaseIntegration(overrides: Partial<IntegrationRecord> = {}): Integr
 }
 
 describe("DatabasePolicyEditor", () => {
+
+  it("announces a saved policy and a rejected one with main's copies", async () => {
+    const onSaved = vi.fn();
+    apiMock.updateIntegration.mockResolvedValueOnce({ ok: true });
+    const { unmount } = renderWithProviders(
+      <DatabasePolicyEditor projectSlug="demo" integration={databaseIntegration()} onSaved={onSaved} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Guardar política" }));
+    expect(await findToast("Política de base de datos guardada")).toBeVisible();
+    unmount();
+
+    apiMock.updateIntegration.mockRejectedValueOnce(null);
+    renderWithProviders(
+      <DatabasePolicyEditor projectSlug="demo" integration={databaseIntegration()} onSaved={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Guardar política" }));
+    const failure = await findToast("No se pudo guardar la política de base de datos.");
+    expect(failure).toBeVisible();
+    expect(screen.queryByText("Error")).toBeNull();
+  });
+
   it("saves the database access policy", async () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
